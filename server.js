@@ -10,14 +10,18 @@ app.use(express.json());
 
 // Importa as recepcionistas (apenas uma vez cada)
 const escolaRoutes = require('./src/routes/escolaRoutes');
+
 const jogoRoutes = require('./src/routes/jogoRoutes');
 const alunoRoutes = require('./src/routes/alunoRoutes');
 const sumulaRoutes = require('./src/routes/sumulaRoutes');
 const mataMataRoutes = require('./src/routes/mataMataRoutes');
+const classificacaoRoutes = require('./src/routes/classificacaoRoutes');
+
 
 app.use('/api/alunos', alunoRoutes);
 app.use('/api/sumulas', sumulaRoutes);
 app.use('/api/matamata', mataMataRoutes);
+app.use('/api/classificacao', classificacaoRoutes);
 
 // Avisa o servidor para usar essas rotas
 app.use('/api/escolas', escolaRoutes);

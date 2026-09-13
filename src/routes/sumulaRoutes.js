@@ -8,4 +8,6 @@ router.post('/', sumulaController.registrarSumula);
 // Rota GET para o React consultar se o atleta tá suspenso
 router.get('/atleta/:aluno_id/status', sumulaController.verificarSuspensao);
 
+router.post('/placar', sumulaController.registrarPartida); 
+
 module.exports = router;
