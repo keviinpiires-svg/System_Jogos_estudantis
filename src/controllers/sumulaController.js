@@ -5,14 +5,37 @@ const db = require('../config/db');
 // ============================================================================
 
 const registrarSumula = async (req, res) => {
-  const { jogo_id, aluno_id, gols, cartoes_amarelos, cartao_vermelho } = req.body;
+  console.log('BODY RECEBIDO:', req.body);
+
+  // Transforma em array mesmo se vier apenas um objeto
+  const eventos = Array.isArray(req.body) ? req.body : [req.body];
+
   try {
-    const query = `
-      INSERT INTO sumulas (jogo_id, aluno_id, gols, cartoes_amarelos, cartao_vermelho)
-      VALUES (?, ?, ?, ?, ?)
-    `;
-    await db.query(query, [jogo_id, aluno_id, gols, cartoes_amarelos, cartao_vermelho]);
-    res.status(201).json({ mensagem: 'Súmula do atleta registrada com sucesso!' });
+    for (const evento of eventos) {
+      // Tenta pegar o jogo_id (ou id_jogo) e o aluno_id (ou atleta_id)
+      const idDoJogo = evento.jogo_id || evento.id_jogo;
+      const idDoAluno = evento.aluno_id || evento.atleta_id;
+
+      if (!idDoJogo) {
+        return res.status(400).json({ erro: 'Campo jogo_id (ou id_jogo) ausente em um dos registros.' });
+      }
+      if (!idDoAluno) {
+        return res.status(400).json({ erro: 'Campo aluno_id (ou atleta_id) ausente em um dos registros.' });
+      }
+
+      // Se os valores numéricos não vierem, assume 0
+      const gols = evento.gols || 0;
+      const cartoes_amarelos = evento.cartoes_amarelos || 0;
+      const cartao_vermelho = evento.cartao_vermelho || 0;
+
+      const query = `
+        INSERT INTO sumulas (jogo_id, aluno_id, gols, cartoes_amarelos, cartao_vermelho)
+        VALUES (?, ?, ?, ?, ?)
+      `;
+      await db.query(query, [idDoJogo, idDoAluno, gols, cartoes_amarelos, cartao_vermelho]);
+    }
+
+    res.status(201).json({ mensagem: 'Súmula(s) registrada(s) com sucesso!' });
   } catch (erro) {
     console.error(erro);
     res.status(500).json({ erro: 'Erro ao registrar a súmula.' });

@@ -2,12 +2,12 @@ const express = require('express');
 const router = express.Router();
 const jogoController = require('../controllers/jogoController');
 
-// Se for um POST na raiz, agenda o jogo
-router.post('/', jogoController.agendarJogo);
-
-// Se for um PUT com um ID e /finalizar, encerra o jogo
-router.put('/:id/finalizar', jogoController.finalizarJogo);
-// Adicione esta linha junto com as suas outras rotas de jogos
+// 1. Rotas estáticas (não recebem parâmetros) ficam em cima
+router.post('/agendar', jogoController.agendarJogo);
 router.get('/', jogoController.listarJogos);
+
+// 2. Rotas dinâmicas (que recebem /:id) ficam embaixo
+router.get('/:id', jogoController.buscarPorId);
+router.put('/finalizar/:id', jogoController.finalizarJogo);
 
 module.exports = router;

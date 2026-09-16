@@ -6,7 +6,12 @@ const atletaController = require('../controllers/atletaController');
 router.post('/', atletaController.cadastrarAtleta);
 
 // Rota para listar atletas de uma equipe específica
-router.get('/equipe/:equipe_id', atletaController.listarAtletasPorEquipe);
+router.get('/equipe/:escola_id', atletaController.listarAtletasPorEquipe);
+
+// Rota para excluir um atleta
+router.delete('/:id', atletaController.excluirAtleta);
+
+// Rota para atualizar um atleta
+router.put('/:id', atletaController.atualizarAtleta);
 
 module.exports = router;
-

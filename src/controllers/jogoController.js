@@ -45,13 +45,16 @@ const listarJogos = async (req, res) => {
         const query = `
             SELECT 
                 j.id AS id_jogo, j.numero_jogo, j.fase, g.nome AS grupo, j.data_hora, j.status,
-                e1.nome AS escola_1, j.placar_escola_1, j.placar_escola_2, e2.nome AS escola_2
+                e1.nome AS escola_1, j.placar_escola_1, j.placar_escola_2, e2.nome AS escola_2,
+                l.nome AS local_jogo
             FROM jogos j
             JOIN escolas e1 ON j.escola_1_id = e1.id
             JOIN escolas e2 ON j.escola_2_id = e2.id
-            JOIN grupos g ON j.grupo_id = g.id
+            LEFT JOIN grupos g ON j.grupo_id = g.id
+            LEFT JOIN locais_disputa l ON j.local_id = l.id
             ORDER BY j.data_hora ASC, j.numero_jogo ASC
         `;
+        
         const [jogos] = await db.query(query);
 
         if (jogos.length === 0) return res.status(404).json({ mensagem: 'Nenhum jogo encontrado.' });
@@ -61,9 +64,36 @@ const listarJogos = async (req, res) => {
         res.status(500).json({ erro: 'Erro ao buscar a lista de jogos.' });
     }
 };
-// Exporta as duas funções para a Recepcionista usar
+const buscarPorId = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const query = `
+            SELECT j.*, e1.nome AS escola_1_nome, e2.nome AS escola_2_nome
+            FROM jogos j
+            JOIN escolas e1 ON j.escola_1_id = e1.id
+            JOIN escolas e2 ON j.escola_2_id = e2.id
+            WHERE j.id = ?
+        `;
+        const [jogo] = await db.query(query, [id]);
+
+        if (jogo.length === 0) {
+            return res.status(404).json({ mensagem: 'Jogo não encontrado.' });
+        }
+
+        res.status(200).json(jogo[0]);
+    } catch (erro) {
+        console.error(erro);
+        res.status(500).json({ erro: 'Erro ao buscar o jogo.' });
+    }
+};
+
+
+
+
+// Exporta as funções para a Recepcionista usar
 module.exports = {
     agendarJogo,
     finalizarJogo,
-    listarJogos
+    listarJogos,
+    buscarPorId
 };

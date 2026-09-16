@@ -16,17 +16,17 @@ const alunoRoutes = require('./src/routes/alunoRoutes');
 const sumulaRoutes = require('./src/routes/sumulaRoutes');
 const mataMataRoutes = require('./src/routes/mataMataRoutes');
 const classificacaoRoutes = require('./src/routes/classificacaoRoutes');
-
+const atletaRoutes = require('./src/routes/atletaRoutes');
 
 app.use('/api/alunos', alunoRoutes);
 app.use('/api/sumulas', sumulaRoutes);
 app.use('/api/matamata', mataMataRoutes);
 app.use('/api/classificacao', classificacaoRoutes);
 
-// Avisa o servidor para usar essas rotas
 app.use('/api/escolas', escolaRoutes);
 app.use('/api/jogos', jogoRoutes); // <-- Linha nova
-// Rota raiz de teste
+app.use('/api/atletas', atletaRoutes);
+
 app.get('/', (req, res) => {
     res.json({ mensagem: "API dos Jogos Estudantis rodando com sucesso!" });
 });
@@ -41,10 +41,6 @@ app.get('/api/etapas-ensino', async (req, res) => {
         res.status(500).json({ erro: 'Erro ao buscar dados no banco.' });
     }
 });
-
-// Rota para Cadastrar uma Nova Escola (Item 1)
-
-
 // Rota para Cadastrar um Diretor vinculado a uma Escola (Item 1)
 app.post('/api/diretores', async (req, res) => {
     const { escola_id, nome, cpf, email, senha } = req.body;
@@ -63,27 +59,6 @@ app.post('/api/diretores', async (req, res) => {
     } catch (erro) {
         console.error(erro);
         res.status(500).json({ erro: 'Erro ao cadastrar o diretor. Verifique se o CPF ou E-mail já existem.' });
-    }
-});
-// Rota para Cadastrar Atletas (Item 2)
-app.post('/api/atletas', async (req, res) => {
-    // Extrai os dados enviados, incluindo a data de nascimento para controle de categoria
-    const { escola_id, nome, data_nascimento, rg_ou_matricula } = req.body;
-
-    try {
-        const [resultado] = await db.query(
-            'INSERT INTO atletas (escola_id, nome, data_nascimento, rg_ou_matricula) VALUES (?, ?, ?, ?)',
-            [escola_id, nome, data_nascimento, rg_ou_matricula]
-        );
-        
-        res.status(201).json({ 
-            mensagem: 'Atleta cadastrado com sucesso!',
-            id_atleta: resultado.insertId 
-        });
-    } catch (erro) {
-        console.error(erro);
-        // O MySQL vai disparar um erro automaticamente se tentarem cadastrar o mesmo RG duas vezes
-        res.status(500).json({ erro: 'Erro ao cadastrar o atleta. Verifique se o RG/Matrícula já está em uso.' });
     }
 });
 
