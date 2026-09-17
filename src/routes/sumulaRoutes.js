@@ -2,12 +2,12 @@ const express = require('express');
 const router = express.Router();
 const sumulaController = require('../controllers/sumulaController');
 
-// Rota POST para gravar os eventos do atleta no jogo
+// Rotas estáticas primeiro
 router.post('/', sumulaController.registrarSumula);
+router.post('/placar', sumulaController.registrarPartida);
+router.get('/atleta/:atleta_id/status', sumulaController.verificarSuspensao);
 
-// Rota GET para o React consultar se o atleta tá suspenso
-router.get('/atleta/:aluno_id/status', sumulaController.verificarSuspensao);
-
-router.post('/placar', sumulaController.registrarPartida); 
+// Rota dinâmica por último: relatório da súmula de um jogo
+router.get('/:jogo_id', sumulaController.buscarSumulaPorJogo);
 
 module.exports = router;

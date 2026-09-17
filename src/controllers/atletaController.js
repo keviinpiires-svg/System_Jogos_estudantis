@@ -1,12 +1,12 @@
 const db = require('../config/db');
 
 const cadastrarAtleta = async (req, res) => {
-  const { nome, rg_ra, data_nascimento, equipe_id } = req.body;
-  
+  const { nome, rg_ou_matricula, data_nascimento, escola_id } = req.body;
+
   try {
     const [resultado] = await db.query(
-      'INSERT INTO atletas (nome, rg_ra, data_nascimento, equipe_id) VALUES (?, ?, ?, ?)',
-      [nome, rg_ra, data_nascimento, equipe_id]
+      'INSERT INTO atletas (nome, rg_ou_matricula, data_nascimento, escola_id) VALUES (?, ?, ?, ?)',
+      [nome, rg_ou_matricula, data_nascimento, escola_id]
     );
     
     res.status(201).json({
@@ -15,17 +15,22 @@ const cadastrarAtleta = async (req, res) => {
     });
   } catch (erro) {
     console.error(erro);
+    if (erro.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ erro: 'Já existe um atleta com este RG/matrícula.' });
+    }
+    if (erro.code === 'ER_NO_REFERENCED_ROW_2') {
+      return res.status(400).json({ erro: 'Escola informada não existe.' });
+    }
     res.status(500).json({ erro: 'Erro ao cadastrar o atleta. Verifique os dados.' });
   }
 };
 
 const listarAtletasPorEquipe = async (req, res) => {
-  console.log("Parâmetros recebidos na rota:", req.params);
   const { escola_id } = req.params;
 
   try {
     const [atletas] = await db.query(
-      'SELECT * FROM atletas WHERE escola_id = ?',
+      'SELECT * FROM atletas WHERE escola_id = ? ORDER BY nome ASC',
       [escola_id]
     );
     

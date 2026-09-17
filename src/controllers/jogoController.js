@@ -57,7 +57,7 @@ const listarJogos = async (req, res) => {
         
         const [jogos] = await db.query(query);
 
-        if (jogos.length === 0) return res.status(404).json({ mensagem: 'Nenhum jogo encontrado.' });
+        // Lista vazia não é erro: devolve [] para a tela mostrar "nenhum jogo"
         res.status(200).json(jogos);
     } catch (erro) {
         console.error(erro);

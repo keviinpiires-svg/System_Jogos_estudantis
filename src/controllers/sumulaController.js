@@ -29,7 +29,7 @@ const registrarSumula = async (req, res) => {
       const cartao_vermelho = evento.cartao_vermelho || 0;
 
       const query = `
-        INSERT INTO sumulas (jogo_id, aluno_id, gols, cartoes_amarelos, cartao_vermelho)
+        INSERT INTO sumulas (jogo_id, atleta_id, gols, cartoes_amarelos, cartao_vermelho)
         VALUES (?, ?, ?, ?, ?)
       `;
       await db.query(query, [idDoJogo, idDoAluno, gols, cartoes_amarelos, cartao_vermelho]);
@@ -42,13 +42,30 @@ const registrarSumula = async (req, res) => {
   }
 };
 
-const verificarSuspensao = async (req, res) => {
-  const { aluno_id } = req.params;
+const buscarSumulaPorJogo = async (req, res) => {
+  const { jogo_id } = req.params;
   try {
     const [resultado] = await db.query(`
-      SELECT cartao_vermelho FROM sumulas 
-      WHERE aluno_id = ? ORDER BY jogo_id DESC LIMIT 1
-    `, [aluno_id]);
+      SELECT s.*, a.nome AS atleta_nome, a.escola_id
+      FROM sumulas s
+      INNER JOIN atletas a ON s.atleta_id = a.id
+      WHERE s.jogo_id = ?
+      ORDER BY a.escola_id, a.nome
+    `, [jogo_id]);
+    res.status(200).json(resultado);
+  } catch (erro) {
+    console.error(erro);
+    res.status(500).json({ erro: 'Erro ao buscar a súmula do jogo.' });
+  }
+};
+
+const verificarSuspensao = async (req, res) => {
+  const { atleta_id } = req.params;
+  try {
+    const [resultado] = await db.query(`
+      SELECT cartao_vermelho FROM sumulas
+      WHERE atleta_id = ? ORDER BY jogo_id DESC LIMIT 1
+    `, [atleta_id]);
 
     if (resultado.length > 0 && resultado[0].cartao_vermelho === 1) {
       return res.status(200).json({ status: 'SUSPENSO', mensagem: 'Atleta suspenso. Recebeu cartão vermelho.' });
@@ -65,7 +82,9 @@ const verificarSuspensao = async (req, res) => {
 
 const registrarPartida = async (req, res) => {
     console.log('DADOS RECEBIDOS:', req.body); // Log para depuração 
-  const { grupo, timeA_id, golsA, timeB_id, golsB } = req.body;
+  const { grupo, timeA_id, timeB_id } = req.body;
+  const golsA = Number(req.body.golsA) || 0;
+  const golsB = Number(req.body.golsB) || 0;
   const conexao = await db.getConnection();
   
   try {
@@ -84,14 +103,15 @@ const registrarPartida = async (req, res) => {
 
 
 const queryUpdate = `
-  UPDATE classificacao SET pontos = pontos + ?, jogos = jogos + 1, 
-  vitorias = vitorias + ?, empates = empates + ?, derrotas = derrotas + ? 
+  UPDATE classificacao SET pontos = pontos + ?, jogos = jogos + 1,
+  vitorias = vitorias + ?, empates = empates + ?, derrotas = derrotas + ?,
+  gols_pro = gols_pro + ?, gols_contra = gols_contra + ?, saldo_gols = saldo_gols + ?
   WHERE escola_id = ?
 `;
 
 
-await conexao.query(queryUpdate, [pontosA, vitoriasA, empatesA, derrotasA, timeA_id]);
-await conexao.query(queryUpdate, [pontosB, vitoriasB, empatesB, derrotasB, timeB_id]);
+await conexao.query(queryUpdate, [pontosA, vitoriasA, empatesA, derrotasA, golsA, golsB, golsA - golsB, timeA_id]);
+await conexao.query(queryUpdate, [pontosB, vitoriasB, empatesB, derrotasB, golsB, golsA, golsB - golsA, timeB_id]);
 
     await conexao.commit();
     conexao.release();
@@ -107,6 +127,7 @@ await conexao.query(queryUpdate, [pontosB, vitoriasB, empatesB, derrotasB, timeB
 // Exportando todas as funções
 module.exports = {
   registrarSumula,
+  buscarSumulaPorJogo,
   verificarSuspensao,
   registrarPartida
 };
