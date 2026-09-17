@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const mataMataController = require('../controllers/mataMataController');
 
+router.get('/', mataMataController.listarMataMata);
+
 // Rota POST para gerar as semis
 router.post('/semifinais', mataMataController.gerarSemifinais);
 

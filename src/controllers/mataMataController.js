@@ -112,4 +112,23 @@ const gerarFinais = async (req, res) => {
     }
 };
 
-module.exports = { gerarSemifinais, gerarFinais };
+const listarMataMata = async (req, res) => {
+    try {
+        const [jogos] = await db.query(`
+            SELECT j.id, j.numero_jogo, UPPER(j.fase) AS fase, j.data_hora, j.status, j.local_id,
+                   j.escola_1_id, e1.nome AS escola_1_nome, j.placar_escola_1,
+                   j.escola_2_id, e2.nome AS escola_2_nome, j.placar_escola_2
+            FROM jogos j
+            INNER JOIN escolas e1 ON j.escola_1_id = e1.id
+            INNER JOIN escolas e2 ON j.escola_2_id = e2.id
+            WHERE j.fase IN ('SEMIFINAL', 'TERCEIRO_LUGAR', 'FINAL')
+            ORDER BY FIELD(j.fase, 'SEMIFINAL', 'TERCEIRO_LUGAR', 'FINAL'), j.data_hora, j.numero_jogo
+        `);
+        res.status(200).json(jogos);
+    } catch (erro) {
+        console.error(erro);
+        res.status(500).json({ erro: 'Erro ao buscar os jogos do mata-mata.' });
+    }
+};
+
+module.exports = { gerarSemifinais, gerarFinais, listarMataMata };

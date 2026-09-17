@@ -17,11 +17,15 @@ const sumulaRoutes = require('./src/routes/sumulaRoutes');
 const mataMataRoutes = require('./src/routes/mataMataRoutes');
 const classificacaoRoutes = require('./src/routes/classificacaoRoutes');
 const atletaRoutes = require('./src/routes/atletaRoutes');
+const artilhariaRoutes = require('./src/routes/artilhariaRoutes');
+const dashboardRoutes = require('./src/routes/dashboardRoutes');
 
 app.use('/api/alunos', alunoRoutes);
 app.use('/api/sumulas', sumulaRoutes);
 app.use('/api/matamata', mataMataRoutes);
 app.use('/api/classificacao', classificacaoRoutes);
+app.use('/api/artilharia', artilhariaRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 app.use('/api/escolas', escolaRoutes);
 app.use('/api/jogos', jogoRoutes); // <-- Linha nova
