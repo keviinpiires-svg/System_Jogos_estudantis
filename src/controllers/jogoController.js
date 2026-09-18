@@ -1,21 +1,38 @@
 const db = require('../config/db');
 
 // 1. Lógica para Agendar a Partida
+// Fases eliminatórias só podem nascer do cruzamento automático dos grupos
+// (POST /api/matamata/gerar e /finais), nunca de um agendamento manual.
+const FASES_BLOQUEADAS = ['SEMIFINAL', 'FINAL', 'TERCEIROLUGAR'];
+
 const agendarJogo = async (req, res) => {
-    const { numero_jogo, fase, grupo_id, local_id, data_hora, escola_1_id, escola_2_id } = req.body;
+    const { fase, grupo_id, local_id, data_hora, escola_1_id, escola_2_id } = req.body;
+
+    const faseNormalizada = String(fase || '').toUpperCase().replace(/[^A-Z]/g, '');
+    if (FASES_BLOQUEADAS.includes(faseNormalizada)) {
+        return res.status(403).json({
+            erro: 'Jogos de mata-mata não podem ser agendados manualmente. Use o botão "Gerar Semifinais" na tela de Mata-Mata.'
+        });
+    }
 
     try {
+        // O número do jogo é sequencial e definido aqui, nunca pelo cliente.
+        // Calcular dentro do próprio INSERT evita duas partidas pegarem o mesmo número.
         const [resultado] = await db.query(
-            `INSERT INTO jogos (numero_jogo, fase, grupo_id, local_id, data_hora, escola_1_id, escola_2_id) 
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [numero_jogo, fase, grupo_id, local_id, data_hora, escola_1_id, escola_2_id]
+            `INSERT INTO jogos (numero_jogo, fase, grupo_id, local_id, data_hora, escola_1_id, escola_2_id)
+             SELECT COALESCE(MAX(numero_jogo), 0) + 1, ?, ?, ?, ?, ?, ? FROM jogos`,
+            [fase, grupo_id, local_id, data_hora, escola_1_id, escola_2_id]
         );
-        res.status(201).json({ mensagem: 'Partida agendada com sucesso!', id_jogo: resultado.insertId });
+
+        const [[jogo]] = await db.query('SELECT numero_jogo FROM jogos WHERE id = ?', [resultado.insertId]);
+
+        res.status(201).json({
+            mensagem: `Partida agendada com sucesso! Jogo #${jogo.numero_jogo}.`,
+            id_jogo: resultado.insertId,
+            numero_jogo: jogo.numero_jogo
+        });
     } catch (erro) {
         console.error(erro);
-        if (erro.code === 'ER_DUP_ENTRY') {
-            return res.status(400).json({ erro: 'Já existe uma partida com este número.' });
-        }
         res.status(500).json({ erro: 'Erro ao agendar a partida.' });
     }
 };
@@ -88,12 +105,39 @@ const buscarPorId = async (req, res) => {
 };
 
 
+// Exclui um jogo agendado. A súmula do jogo vai junto, dentro da mesma
+// transação, para não deixar eventos órfãos apontando para um jogo apagado.
+const excluirJogo = async (req, res) => {
+    const { id } = req.params;
+    const conexao = await db.getConnection();
 
+    try {
+        const [jogo] = await conexao.query('SELECT id, numero_jogo, status FROM jogos WHERE id = ?', [id]);
+
+        if (jogo.length === 0) {
+            return res.status(404).json({ mensagem: 'Jogo não encontrado.' });
+        }
+
+        await conexao.beginTransaction();
+        await conexao.query('DELETE FROM sumulas WHERE jogo_id = ?', [id]);
+        await conexao.query('DELETE FROM jogos WHERE id = ?', [id]);
+        await conexao.commit();
+
+        res.status(200).json({ mensagem: `Jogo #${jogo[0].numero_jogo} excluído com sucesso.` });
+    } catch (erro) {
+        await conexao.rollback();
+        console.error(erro);
+        res.status(500).json({ erro: 'Erro ao excluir o jogo.' });
+    } finally {
+        conexao.release();
+    }
+};
 
 // Exporta as funções para a Recepcionista usar
 module.exports = {
     agendarJogo,
     finalizarJogo,
     listarJogos,
-    buscarPorId
+    buscarPorId,
+    excluirJogo
 };

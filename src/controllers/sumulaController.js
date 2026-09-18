@@ -1,58 +1,137 @@
 const db = require('../config/db');
 
 // ============================================================================
-// 1. GESTÃO INDIVIDUAL DOS ATLETAS (O código que você já tinha)
+// SÚMULA: única fonte de verdade da partida.
+// Os gols individuais dos atletas definem o placar do jogo, que por sua vez
+// alimenta a classificação. Artilharia e classificação nunca divergem.
 // ============================================================================
 
 const registrarSumula = async (req, res) => {
-  console.log('BODY RECEBIDO:', req.body);
+  const jogo_id = Number(req.body.jogo_id);
+  const eventos = Array.isArray(req.body.eventos) ? req.body.eventos : [];
 
-  // Transforma em array mesmo se vier apenas um objeto
-  const eventos = Array.isArray(req.body) ? req.body : [req.body];
+  if (!jogo_id) {
+    return res.status(400).json({ erro: 'Informe o jogo da súmula.' });
+  }
 
+  for (const evento of eventos) {
+    const numeros = [evento.gols, evento.cartoes_amarelos, evento.cartao_vermelho].map(Number);
+    if (!Number(evento.atleta_id) || numeros.some((n) => !Number.isInteger(n) || n < 0)) {
+      return res.status(400).json({ erro: 'Cada evento precisa de um atleta e de números inteiros não negativos.' });
+    }
+  }
+
+  let conexao;
   try {
-    for (const evento of eventos) {
-      // Tenta pegar o jogo_id (ou id_jogo) e o aluno_id (ou atleta_id)
-      const idDoJogo = evento.jogo_id || evento.id_jogo;
-      const idDoAluno = evento.aluno_id || evento.atleta_id;
+    conexao = await db.getConnection();
+    await conexao.beginTransaction();
 
-      if (!idDoJogo) {
-        return res.status(400).json({ erro: 'Campo jogo_id (ou id_jogo) ausente em um dos registros.' });
-      }
-      if (!idDoAluno) {
-        return res.status(400).json({ erro: 'Campo aluno_id (ou atleta_id) ausente em um dos registros.' });
-      }
+    const [[jogo]] = await conexao.query(
+      'SELECT id, escola_1_id, escola_2_id FROM jogos WHERE id = ?',
+      [jogo_id]
+    );
 
-      // Se os valores numéricos não vierem, assume 0
-      const gols = evento.gols || 0;
-      const cartoes_amarelos = evento.cartoes_amarelos || 0;
-      const cartao_vermelho = evento.cartao_vermelho || 0;
-
-      const query = `
-        INSERT INTO sumulas (jogo_id, atleta_id, gols, cartoes_amarelos, cartao_vermelho)
-        VALUES (?, ?, ?, ?, ?)
-      `;
-      await db.query(query, [idDoJogo, idDoAluno, gols, cartoes_amarelos, cartao_vermelho]);
+    if (!jogo) {
+      await conexao.rollback();
+      return res.status(404).json({ erro: 'Jogo não encontrado.' });
     }
 
-    res.status(201).json({ mensagem: 'Súmula(s) registrada(s) com sucesso!' });
+    // Todo atleta lançado precisa pertencer a uma das duas escolas da partida
+    const escolaPorAtleta = new Map();
+    if (eventos.length > 0) {
+      const ids = eventos.map((evento) => Number(evento.atleta_id));
+      const [atletas] = await conexao.query('SELECT id, escola_id FROM atletas WHERE id IN (?)', [ids]);
+
+      for (const atleta of atletas) {
+        escolaPorAtleta.set(atleta.id, atleta.escola_id);
+      }
+
+      const intruso = ids.find((id) => {
+        const escola = escolaPorAtleta.get(id);
+        return escola !== jogo.escola_1_id && escola !== jogo.escola_2_id;
+      });
+
+      if (intruso) {
+        await conexao.rollback();
+        return res.status(400).json({ erro: 'Há atletas que não pertencem a nenhuma das duas escolas da partida.' });
+      }
+    }
+
+    // Regrava a súmula inteira: permite corrigir um lançamento errado
+    await conexao.query('DELETE FROM sumulas WHERE jogo_id = ?', [jogo_id]);
+
+    let placar1 = 0;
+    let placar2 = 0;
+
+    for (const evento of eventos) {
+      const atletaId = Number(evento.atleta_id);
+      const gols = Number(evento.gols);
+
+      await conexao.query(
+        `INSERT INTO sumulas (jogo_id, atleta_id, gols, cartoes_amarelos, cartao_vermelho)
+         VALUES (?, ?, ?, ?, ?)`,
+        [jogo_id, atletaId, gols, Number(evento.cartoes_amarelos), Number(evento.cartao_vermelho)]
+      );
+
+      if (escolaPorAtleta.get(atletaId) === jogo.escola_1_id) {
+        placar1 += gols;
+      } else {
+        placar2 += gols;
+      }
+    }
+
+    await conexao.query(
+      `UPDATE jogos SET placar_escola_1 = ?, placar_escola_2 = ?, status = 'FINALIZADO' WHERE id = ?`,
+      [placar1, placar2, jogo_id]
+    );
+
+    await conexao.commit();
+    res.status(201).json({
+      mensagem: 'Súmula salva! O placar e a classificação foram atualizados.',
+      placar_escola_1: placar1,
+      placar_escola_2: placar2
+    });
   } catch (erro) {
-    console.error(erro);
+    if (conexao) await conexao.rollback();
+    console.error('Erro ao registrar a súmula:', erro);
     res.status(500).json({ erro: 'Erro ao registrar a súmula.' });
+  } finally {
+    if (conexao) conexao.release();
   }
 };
 
+// Relatório completo da partida: dados do jogo (com nomes e placar) + eventos
+// dos atletas. A tela de detalhes monta o documento oficial só com isso.
 const buscarSumulaPorJogo = async (req, res) => {
   const { jogo_id } = req.params;
   try {
-    const [resultado] = await db.query(`
-      SELECT s.*, a.nome AS atleta_nome, a.escola_id
+    const [[jogo]] = await db.query(`
+      SELECT j.id, j.numero_jogo, j.fase, j.data_hora, j.status,
+             j.escola_1_id, e1.nome AS escola_1_nome, j.placar_escola_1,
+             j.escola_2_id, e2.nome AS escola_2_nome, j.placar_escola_2,
+             l.nome AS local_nome
+      FROM jogos j
+      INNER JOIN escolas e1 ON j.escola_1_id = e1.id
+      INNER JOIN escolas e2 ON j.escola_2_id = e2.id
+      LEFT JOIN locais_disputa l ON j.local_id = l.id
+      WHERE j.id = ?
+    `, [jogo_id]);
+
+    if (!jogo) {
+      return res.status(404).json({ erro: 'Jogo não encontrado.' });
+    }
+
+    const [eventos] = await db.query(`
+      SELECT s.atleta_id, a.nome AS atleta_nome, a.escola_id, e.nome AS escola_nome,
+             s.gols, s.cartoes_amarelos, s.cartao_vermelho
       FROM sumulas s
       INNER JOIN atletas a ON s.atleta_id = a.id
+      INNER JOIN escolas e ON a.escola_id = e.id
       WHERE s.jogo_id = ?
-      ORDER BY a.escola_id, a.nome
+      ORDER BY e.nome, a.nome
     `, [jogo_id]);
-    res.status(200).json(resultado);
+
+    res.status(200).json({ jogo, eventos });
   } catch (erro) {
     console.error(erro);
     res.status(500).json({ erro: 'Erro ao buscar a súmula do jogo.' });
@@ -76,58 +155,9 @@ const verificarSuspensao = async (req, res) => {
   }
 };
 
-// ============================================================================
-// 2. GESTÃO GLOBAL DA PARTIDA (O código novo para a classificação)
-// ============================================================================
-
-const registrarPartida = async (req, res) => {
-    console.log('DADOS RECEBIDOS:', req.body); // Log para depuração 
-  const { grupo, timeA_id, timeB_id } = req.body;
-  const golsA = Number(req.body.golsA) || 0;
-  const golsB = Number(req.body.golsB) || 0;
-  const conexao = await db.getConnection();
-  
-  try {
-    await conexao.beginTransaction();
-
-    let pontosA = 0, vitoriasA = 0, empatesA = 0, derrotasA = 0;
-    let pontosB = 0, vitoriasB = 0, empatesB = 0, derrotasB = 0;
-
-    if (golsA > golsB) {
-      pontosA = 3; vitoriasA = 1; derrotasB = 1;
-    } else if (golsA < golsB) {
-      pontosB = 3; vitoriasB = 1; derrotasA = 1;
-    } else {
-      pontosA = 1; empatesA = 1; pontosB = 1; empatesB = 1;
-    }
-
-
-const queryUpdate = `
-  UPDATE classificacao SET pontos = pontos + ?, jogos = jogos + 1,
-  vitorias = vitorias + ?, empates = empates + ?, derrotas = derrotas + ?,
-  gols_pro = gols_pro + ?, gols_contra = gols_contra + ?, saldo_gols = saldo_gols + ?
-  WHERE escola_id = ?
-`;
-
-
-await conexao.query(queryUpdate, [pontosA, vitoriasA, empatesA, derrotasA, golsA, golsB, golsA - golsB, timeA_id]);
-await conexao.query(queryUpdate, [pontosB, vitoriasB, empatesB, derrotasB, golsB, golsA, golsB - golsA, timeB_id]);
-
-    await conexao.commit();
-    conexao.release();
-    res.status(200).json({ mensagem: 'Placar processado e classificação atualizada!' });
-  } catch (erro) {
-    await conexao.rollback();
-    conexao.release();
-    console.error(erro);
-    res.status(500).json({ erro: 'Erro ao processar o placar.' });
-  }
-};
-
 // Exportando todas as funções
 module.exports = {
   registrarSumula,
   buscarSumulaPorJogo,
-  verificarSuspensao,
-  registrarPartida
+  verificarSuspensao
 };
