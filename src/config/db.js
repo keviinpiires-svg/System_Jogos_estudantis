@@ -20,7 +20,10 @@ if (emProducao && !urlDeConexao) {
 }
 
 // Provedores em nuvem exigem TLS; no MySQL local ele fica desligado.
-const ssl = process.env.DB_SSL === 'true' ? { minVersion: 'TLSv1.2', rejectUnauthorized: true } : undefined;
+// rejectUnauthorized: false aceita o certificado autoassinado da Railway, que
+// não é emitido por uma autoridade pública. A conexão continua criptografada,
+// mas sem validação da cadeia — o que é o custo de usar o certificado deles.
+const ssl = process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined;
 
 const opcoes = urlDeConexao
     ? { uri: urlDeConexao, ssl }
