@@ -3,9 +3,26 @@ const cors = require('cors');
 const db = require('./src/config/db'); // Puxa a conexão que criamos
 
 const app = express();
-const PORT = 3000;
 
-app.use(cors());
+// A nuvem (Render/Railway) injeta a porta e derruba o serviço se ele não a usar
+const PORT = process.env.PORT || 3000;
+
+// Sem o segredo do JWT o login quebra em tempo de execução com erro obscuro,
+// então a falha acontece aqui, na subida, com mensagem clara.
+if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET não definido. Configure essa variável de ambiente antes de iniciar o servidor.');
+}
+
+// Em produção, só o domínio do frontend pode consumir a API.
+// Aceita vários domínios separados por vírgula (ex: preview + produção da Vercel).
+const origensPermitidas = (process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map((origem) => origem.trim())
+    .filter(Boolean);
+
+app.use(cors({
+    origin: origensPermitidas.length > 0 ? origensPermitidas : true
+}));
 app.use(express.json());
 
 // No Express 5, uma requisição sem corpo (ou sem Content-Type: application/json)
@@ -31,6 +48,7 @@ const artilhariaRoutes = require('./src/routes/artilhariaRoutes');
 const dashboardRoutes = require('./src/routes/dashboardRoutes');
 const authRoutes = require('./src/routes/authRoutes');
 const grupoRoutes = require('./src/routes/grupoRoutes');
+const campeonatoRoutes = require('./src/routes/campeonatoRoutes');
 const verificarToken = require('./src/middlewares/authMiddleware');
 
 app.use('/api/alunos', alunoRoutes);
@@ -40,6 +58,7 @@ app.use('/api/classificacao', classificacaoRoutes);
 app.use('/api/artilharia', artilhariaRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/grupos', grupoRoutes);
+app.use('/api/campeonato', campeonatoRoutes);
 app.use('/api', authRoutes);
 
 app.use('/api/escolas', escolaRoutes);
