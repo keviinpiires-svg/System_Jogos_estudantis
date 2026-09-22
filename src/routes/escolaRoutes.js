@@ -9,4 +9,7 @@ router.post('/', verificarToken, escolaController.cadastrarEscola);
 // Nova porta aberta para o React conseguir ler os dados do banco
 router.get('/', escolaController.listarEscolas);
 
+// Edição pela tela: mesma normalização e o mesmo 409 do cadastro
+router.put('/:id', verificarToken, escolaController.atualizarEscola);
+
 module.exports = router;
