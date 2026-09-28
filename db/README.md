@@ -71,4 +71,6 @@ ORDER BY numero_jogo ASC;
 
 ## Nota sobre a validação
 
-Este schema foi conferido por script (tabelas, colunas, tipos e alvos das chaves estrangeiras), mas **ainda não foi executado num MySQL real**. Se algum comando falhar na primeira execução, corrija aqui no arquivo e rode de novo a sequência completa.
+Este schema foi conferido por script (tabelas, colunas, tipos e alvos das chaves estrangeiras) e **executado com sucesso no banco de desenvolvimento `jogos_estudantis_dev` em 28/09/2026**, com a carga base e a importação dos grupos.
+
+**Ainda não foi aplicado na produção** (Railway), que segue com o schema antigo do `schema_producao_baseline.sql`. A migração da produção só acontece quando o código novo estiver pronto, com backup antes.

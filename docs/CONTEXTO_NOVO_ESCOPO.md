@@ -154,7 +154,8 @@ Imagem: `docs/referencias/sumula_futsal_modelo.png`. Folha A4 retrato, duas equi
 > O schema novo está em **`System_jogos/db/01_schema.sql`** (23 tabelas, 33 chaves estrangeiras), com
 > `00_apagar_tudo.sql`, `02_carga_base.sql` e `db/README.md` (como aplicar, criar usuários, regras).
 > O schema antigo de produção ficou registrado em `db/schema_producao_baseline.sql` (não executar).
-> **Ainda não foi executado num MySQL real** — o primeiro passo no VS Code é rodá-lo num banco de desenvolvimento.
+> **Executado no banco de desenvolvimento `jogos_estudantis_dev` em 28/09/2026**, com a carga base e a importação dos grupos.
+> A produção ainda roda o schema antigo: a migração só acontece quando o código novo estiver pronto.
 
 **Decisões do usuário (28/09):** todos os dados atuais são de teste e podem ser apagados; o banco é recriado do zero;
 chaves estrangeiras em tudo; `rg_ou_matricula` vira **`rg`** (obrigatório e único — todos os alunos têm RG, e a idade é
@@ -192,7 +193,7 @@ fácil de mudar).
 
 1. **Preparar:** tag do estado atual + branch nova nos dois repositórios. ~~Obter o schema do banco~~ (feito).
 2. **Limpeza (commit separado)** — ver seção 10.
-3. **Modelo de dados novo** — schema pronto em `db/`; falta **testar num banco de desenvolvimento** e fazer a carga de escolas/competições/grupos importada da tabela de grupos, conferida pelo usuário.
+3. ~~**Modelo de dados novo**~~ (feito) — schema em `db/`, aplicado no `jogos_estudantis_dev` com a carga base e a importação de escolas, competições, grupos e equipes. Falta a **conferência das 50 competições** pelo usuário (`docs/CONFERENCIA_COMPETICOES.md`) e a migração da produção.
 4. **Atleta e inscrição:** sexo, RG obrigatório, ano de nascimento × categoria, máx. 14, limite de 2 modalidades, número da camisa.
 5. **Futsal completo** de ponta a ponta: sidebar/rotas por modalidade e categoria, tabela de jogos, súmula igual ao modelo (em branco e preenchida),
    classificação com o **desempate certo**, suspensão por cartões, perfil placar.
