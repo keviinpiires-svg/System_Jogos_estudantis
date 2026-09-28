@@ -10,23 +10,36 @@ const login = async (req, res) => {
   }
 
   try {
-    const [usuarios] = await db.query('SELECT id, nome, email, senha FROM usuarios WHERE email = ?', [email]);
+    const [usuarios] = await db.query(
+      'SELECT id, nome, email, senha, perfil, ativo FROM usuarios WHERE email = ?',
+      [email]
+    );
     const usuario = usuarios[0];
 
-    // Mesma resposta para e-mail inexistente e senha errada: não revela quais e-mails existem
-    if (!usuario || !(await bcrypt.compare(senha, usuario.senha))) {
+    // A comparação roda antes da checagem de ativo de propósito: assim uma conta
+    // desativada demora o mesmo que uma ativa e o tempo de resposta não denuncia
+    // quais contas existem.
+    const senhaConfere = usuario ? await bcrypt.compare(senha, usuario.senha) : false;
+
+    // Mesma resposta para e-mail inexistente, senha errada e conta desativada
+    if (!usuario || !senhaConfere || !usuario.ativo) {
       return res.status(401).json({ erro: 'E-mail ou senha inválidos.' });
     }
 
     const token = jwt.sign(
-      { id: usuario.id, nome: usuario.nome, email: usuario.email },
+      { id: usuario.id, nome: usuario.nome, email: usuario.email, perfil: usuario.perfil },
       process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
 
     res.status(200).json({
       token,
-      usuario: { id: usuario.id, nome: usuario.nome, email: usuario.email }
+      usuario: {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email,
+        perfil: usuario.perfil
+      }
     });
   } catch (erro) {
     console.error('Erro ao realizar login:', erro);

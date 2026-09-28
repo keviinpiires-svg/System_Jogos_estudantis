@@ -27,13 +27,22 @@ const registrarSumula = async (req, res) => {
     await conexao.beginTransaction();
 
     const [[jogo]] = await conexao.query(
-      'SELECT id, escola_1_id, escola_2_id FROM jogos WHERE id = ?',
+      'SELECT id, escola_1_id, escola_2_id, status FROM jogos WHERE id = ?',
       [jogo_id]
     );
 
     if (!jogo) {
       await conexao.rollback();
       return res.status(404).json({ erro: 'Jogo não encontrado.' });
+    }
+
+    // Partida já encerrada: só o administrador corrige o resultado. O perfil
+    // PLACAR lança a súmula, mas não reabre o que já foi fechado.
+    if (jogo.status === 'FINALIZADO' && req.usuario.perfil !== 'ADMIN') {
+      await conexao.rollback();
+      return res.status(403).json({
+        erro: 'Esta súmula já foi finalizada. Peça a um administrador para reabri-la.'
+      });
     }
 
     // Todo atleta lançado precisa pertencer a uma das duas escolas da partida

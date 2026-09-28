@@ -4,6 +4,10 @@ const db = require('./src/config/db'); // Puxa a conexão que criamos
 
 const app = express();
 
+// O Render entrega a requisição por trás de um proxy: sem isto, o rate limit do
+// login enxergaria o IP do proxy e contaria todo mundo como um visitante só.
+app.set('trust proxy', 1);
+
 // A nuvem (Render/Railway) injeta a porta e derruba o serviço se ele não a usar
 const PORT = process.env.PORT || 3000;
 
@@ -49,7 +53,8 @@ const dashboardRoutes = require('./src/routes/dashboardRoutes');
 const authRoutes = require('./src/routes/authRoutes');
 const grupoRoutes = require('./src/routes/grupoRoutes');
 const campeonatoRoutes = require('./src/routes/campeonatoRoutes');
-const verificarToken = require('./src/middlewares/authMiddleware');
+const usuarioRoutes = require('./src/routes/usuarioRoutes');
+const { verificarToken, exigirPerfil } = require('./src/middlewares/authMiddleware');
 
 app.use('/api/alunos', alunoRoutes);
 app.use('/api/sumulas', sumulaRoutes);
@@ -60,6 +65,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/grupos', grupoRoutes);
 app.use('/api/campeonato', campeonatoRoutes);
 app.use('/api', authRoutes);
+app.use('/api/usuarios', usuarioRoutes);
 
 app.use('/api/escolas', escolaRoutes);
 app.use('/api/jogos', jogoRoutes); // <-- Linha nova
@@ -91,7 +97,7 @@ app.get('/api/etapas-ensino', async (req, res) => {
     }
 });
 // Rota para Cadastrar um Diretor vinculado a uma Escola (Item 1)
-app.post('/api/diretores', verificarToken, async (req, res) => {
+app.post('/api/diretores', verificarToken, exigirPerfil('ADMIN'), async (req, res) => {
     const { escola_id, nome, cpf, email, senha } = req.body;
 
     try {
@@ -112,7 +118,7 @@ app.post('/api/diretores', verificarToken, async (req, res) => {
 });
 
 // Rota para Inscrever o Atleta em uma Modalidade e Categoria
-app.post('/api/inscricoes', verificarToken, async (req, res) => {
+app.post('/api/inscricoes', verificarToken, exigirPerfil('ADMIN'), async (req, res) => {
     const { atleta_id, modalidade_id, categoria_id } = req.body;
 
     try {
@@ -165,7 +171,7 @@ app.get('/api/sorteio/participantes/:modalidadeId/:categoriaId', async (req, res
 });
 
 // Rota para Gerar o Sorteio e Dividir em Grupos (Item 3)
-app.post('/api/sorteio/gerar', verificarToken, async (req, res) => {
+app.post('/api/sorteio/gerar', verificarToken, exigirPerfil('ADMIN'), async (req, res) => {
     // Recebe qual a modalidade, a categoria, e quantos grupos o torneio vai ter (ex: 2 grupos, A e B)
     const { modalidade_id, categoria_id, quantidade_grupos } = req.body;
 
@@ -218,7 +224,7 @@ app.post('/api/sorteio/gerar', verificarToken, async (req, res) => {
 });
 
 // Rota para Salvar o Sorteio Aprovado Manualmente (Item 3)
-app.post('/api/sorteio/salvar', verificarToken, async (req, res) => {
+app.post('/api/sorteio/salvar', verificarToken, exigirPerfil('ADMIN'), async (req, res) => {
     const { modalidade_id, categoria_id, resultado } = req.body;
 
     try {
