@@ -8,6 +8,11 @@ const LIMITE_COMPETICOES_COLETIVAS = 2;
 const CAMISA_MINIMA = 1;
 const CAMISA_MAXIMA = 99;
 
+// "competição masculino" soa errado: o adjetivo concorda com competição.
+const ADJETIVO_GENERO = { MASCULINO: 'masculina', FEMININO: 'feminina', MISTO: 'mista' };
+
+const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+
 const sexoCombina = (genero, sexo) => {
   if (genero === 'MISTO') return true;
   return genero === 'MASCULINO' ? sexo === 'M' : sexo === 'F';
@@ -87,7 +92,7 @@ const inscreverAtleta = async (req, res) => {
     if (!sexoCombina(competicao.genero, atleta.sexo)) {
       await conexao.rollback();
       return res.status(400).json({
-        erro: `${competicao.modalidade_nome} ${competicao.categoria_nome} é uma competição ${competicao.genero.toLowerCase()}.`
+        erro: `${competicao.modalidade_nome} ${competicao.categoria_nome} é uma competição ${ADJETIVO_GENERO[competicao.genero]} e não aceita este atleta.`
       });
     }
 
@@ -122,7 +127,7 @@ const inscreverAtleta = async (req, res) => {
       if (coletivas >= LIMITE_COMPETICOES_COLETIVAS) {
         await conexao.rollback();
         return res.status(409).json({
-          erro: `${atleta.nome} já está em ${coletivas} competições coletivas, o máximo permitido pelo regulamento.`
+          erro: `${atleta.nome} já está em ${plural(coletivas, 'competição coletiva', 'competições coletivas')}, o máximo permitido pelo regulamento.`
         });
       }
     }
@@ -136,7 +141,7 @@ const inscreverAtleta = async (req, res) => {
     if (competicao.max_atletas !== null && inscritos >= competicao.max_atletas) {
       await conexao.rollback();
       return res.status(409).json({
-        erro: `Esta equipe já tem ${inscritos} atletas, o máximo permitido em ${competicao.modalidade_nome}.`
+        erro: `Esta equipe já tem ${plural(inscritos, 'atleta', 'atletas')}, o máximo permitido em ${competicao.modalidade_nome}.`
       });
     }
 
@@ -151,7 +156,7 @@ const inscreverAtleta = async (req, res) => {
 
     // O mínimo do regulamento é aviso, nunca bloqueio (decisão do usuário)
     const aviso = competicao.min_atletas !== null && total < competicao.min_atletas
-      ? `A equipe tem ${total} atletas e ${competicao.modalidade_nome} pede pelo menos ${competicao.min_atletas}.`
+      ? `A equipe tem ${plural(total, 'atleta', 'atletas')} e ${competicao.modalidade_nome} pede pelo menos ${competicao.min_atletas}.`
       : null;
 
     res.status(201).json({
@@ -218,7 +223,7 @@ const listarInscritos = async (req, res) => {
     );
 
     const aviso = equipe.min_atletas !== null && atletas.length < equipe.min_atletas
-      ? `A equipe tem ${atletas.length} atletas e ${equipe.modalidade_nome} pede pelo menos ${equipe.min_atletas}.`
+      ? `A equipe tem ${plural(atletas.length, 'atleta', 'atletas')} e ${equipe.modalidade_nome} pede pelo menos ${equipe.min_atletas}.`
       : null;
 
     res.status(200).json({ equipe, atletas, total_inscritos: atletas.length, aviso });
