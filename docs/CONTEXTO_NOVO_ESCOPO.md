@@ -189,17 +189,22 @@ dois); máx. 2 modalidades coletivas; equipe da súmula é uma das duas do jogo;
 **Pressupostos até o usuário confirmar:** numeração de jogos **por competição**; fase de grupos **3/1/0** (guardado por competição,
 fácil de mudar).
 
-## 9. Plano de implementação (ordem sugerida)
+## 9. Fatias (lista única — fonte de verdade da ordem)
 
-1. **Preparar:** tag do estado atual + branch nova nos dois repositórios. ~~Obter o schema do banco~~ (feito).
-2. ~~**Limpeza (commit separado)**~~ (feito em 28/09/2026) — ver seção 10.
-3. ~~**Modelo de dados novo**~~ (feito) — schema em `db/`, aplicado no `jogos_estudantis_dev` com a carga base e a importação de escolas, competições, grupos e equipes. Falta a **conferência das 50 competições** pelo usuário (`docs/CONFERENCIA_COMPETICOES.md`) e a migração da produção.
-4. **Atleta e inscrição:** sexo, RG obrigatório, ano de nascimento × categoria, máx. 14, limite de 2 modalidades, número da camisa.
-5. **Futsal completo** de ponta a ponta: sidebar/rotas por modalidade e categoria, tabela de jogos, súmula igual ao modelo (em branco e preenchida),
-   classificação com o **desempate certo**, suspensão por cartões, perfil placar.
-6. **Handebol, Society e Basquete** (reaproveitam quase tudo do futsal), depois **Vôlei** (sets) e **Baleado** (eliminados).
-7. **Mata-mata configurável** por competição, com 3º lugar calculado; pênaltis/prorrogação.
-8. **Tabela geral** (10/8/6/4/2) e ajuste de pontos; **Atletismo**; renumeração de jogos; técnicos e dirigentes (se entrarem).
+> **Esta tabela é a única numeração válida das fatias.** Ao citar uma fatia em conversa, commit, comentário de código
+> ou em qualquer outra seção deste documento, use o número e o nome daqui ("fatia 5 — futsal completo"). Se a ordem
+> mudar, **mude primeiro aqui** e depois ajuste as referências. Não numere fatias de cabeça.
+
+| # | Fatia | Estado | O que inclui |
+|---|---|---|---|
+| 1 | Preparar | ✅ feito | Tag do estado anterior e branch `feat/novo-escopo` nos dois repositórios. |
+| 2 | Limpeza | ✅ feito (28/09/2026) | Código morto removido, rotas soltas do `server.js` viraram rota + controller, reset adaptado. Ver seção 10. |
+| 3 | Modelo de dados novo | ✅ feito, falta conferir | Schema em `db/`, aplicado no `jogos_estudantis_dev` com carga base e importação dos grupos. Falta a **conferência das 50 competições** (`docs/CONFERENCIA_COMPETICOES.md`) e a migração da produção. |
+| 4 | Atleta e inscrição | ⬜ próxima | Sexo, RG obrigatório, ano de nascimento × categoria, máximo de 14, limite de 2 modalidades coletivas, número da camisa. |
+| 5 | Futsal completo | ⬜ a fazer | Ponta a ponta: menu lateral e rotas por modalidade/categoria, tabela de jogos, súmula igual ao modelo (em branco e preenchida), classificação com o desempate certo, suspensão por cartões, perfil PLACAR, `finalizar` só para W.O. |
+| 6 | Demais modalidades coletivas | ⬜ a fazer | Handebol, Society e Basquete (reaproveitam o futsal); depois Vôlei (sets) e Baleado (eliminados). |
+| 7 | Mata-mata configurável | ⬜ a fazer | Formato por competição, 3º lugar calculado, pênaltis e prorrogação. |
+| 8 | Tabela geral e o que sobra | ⬜ a fazer | Pontuação 10/8/6/4/2 e ajuste de pontos, Atletismo, renumeração de jogos, técnicos e dirigentes (se entrarem). |
 
 ## 10. Limpeza do código antigo
 
@@ -211,15 +216,15 @@ painel de sorteio de `FaseGrupos.jsx` (e `salvarDistribuicao` em `services/grupo
 ~~**Reorganizar**~~ (feito): `/api/locais`, `/api/etapas-ensino` e `/api/inscricoes` saíram do `server.js` para rota + controller
 (`localRoutes`/`localController`, `etapaEnsinoRoutes`/`etapaEnsinoController`, `inscricaoRoutes`/`inscricaoController`).
 O `server.js` não fala mais direto com o banco. A inscrição foi adaptada ao schema novo (equipe + atleta + camisa, escola vinda
-do atleta); **as regras de elenco (14, idade, sexo, 2 modalidades) entram na fatia 4**.
+do atleta); **as regras de elenco (14, idade, sexo, 2 modalidades) entram na fatia 4 — atleta e inscrição**.
 
 **Decidido com o usuário (28/09/2026):**
 - **Reiniciar campeonato:** mantido e **adaptado ao schema novo**. Apaga só o que o evento produz — `sumula_atletas`,
   `sumula_equipes`, `jogo_sets`, `suspensoes`, `colocacoes_finais`, `ajustes_pontos_geral`, `resultados_atletismo` e `jogos`.
   **Preserva** a base importada (escolas, competições, grupos, equipes), atletas, inscrições e cadastros fixos: nada precisa ser reimportado.
 - **`PUT /api/jogos/finalizar/:id`:** fica **só para W.O.** e casos excepcionais, com motivo obrigatório; o placar normal passa a sair
-  da súmula. **A reescrita acontece na fatia 5 (futsal)**, junto com o controller de jogos do schema novo — hoje a rota ainda é a antiga.
-- **`verificarSuspensao`:** **refeito na fatia 5 (futsal)**, conforme o regulamento (2 amarelos = 1 jogo, amarelos zerados na 2ª fase,
+  da súmula. **A reescrita acontece na fatia 5 — futsal completo**, junto com o controller de jogos do schema novo — hoje a rota ainda é a antiga.
+- **`verificarSuspensao`:** **refeito na fatia 5 — futsal completo**, conforme o regulamento (2 amarelos = 1 jogo, amarelos zerados na 2ª fase,
   expulsão = 1 jogo). Até lá continua o cálculo antigo, que **não** segue o regulamento.
 
 **Já sabemos que muda:** o `TERCEIRO_LUGAR` esperado pelo front **não deve ser criado** (o 3º é calculado); `FaseGrupos` tem A/B fixos; o
@@ -259,4 +264,5 @@ mata-mata fixo (1ºA×2ºB) cobre só um dos formatos.
 - Não faça commit/push sem o usuário pedir. Trabalhe na branch nova.
 - Mudanças de banco: sempre por **script SQL versionado** (crie `db/schema.sql` e `db/migracoes/`), nunca só à mão.
 - Antes de mexer em regra de classificação, releia a seção 5 (desempate por modalidade).
+- **Numeração das fatias: só a tabela da seção 9 vale.** Ao concluir uma fatia, atualize o estado dela ali no mesmo commit.
 - Prefira reaproveitar padrões existentes (services no front, controllers/rotas no back, transações, mensagens `{ erro }`).

@@ -5,8 +5,8 @@ const db = require('../config/db');
 // inscricoes_atletas exigem que atleta e equipe sejam da mesma escola.
 //
 // ATENÇÃO: as regras de elenco (máximo de 14, idade pela categoria, sexo ×
-// gênero e o limite de 2 modalidades coletivas) entram na fatia de atletas e
-// inscrições. Hoje só o banco protege: duplicidade e número de camisa repetido.
+// gênero e o limite de 2 modalidades coletivas) entram na fatia 4 — atleta e
+// inscrição. Hoje só o banco protege: duplicidade e número de camisa repetido.
 const inscreverAtleta = async (req, res) => {
   const { equipe_id, atleta_id } = req.body;
   const numero_camisa = req.body.numero_camisa ?? null;

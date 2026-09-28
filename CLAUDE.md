@@ -30,3 +30,4 @@ Fontes originais em texto: `docs/referencias/` (regulamento, tabela de grupos, i
 - Não faça commit/push sem o usuário pedir. Trabalhe na branch de desenvolvimento.
 - Regras do regulamento e decisões estão no contexto acima. Itens marcados **[PENDENTE]** exigem perguntar ao usuário antes de implementar.
 - Dúvidas de negócio: pare e pergunte. Não invente regra.
+- **Fatias:** a numeração válida é a da tabela da seção 9 do contexto. Cite número e nome ("fatia 5 — futsal completo") e atualize o estado ao concluir.
