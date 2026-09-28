@@ -54,7 +54,7 @@ Fica no código do backend (dentro de transação):
 - máximo de 14 atletas por equipe (`modalidades.max_atletas`); abaixo do mínimo, só aviso;
 - idade: `YEAR(data_nascimento) >= configuracao_evento.ano - categorias.idade_maxima` (Aberto sem limite);
 - sexo do atleta × gênero da competição (`MISTO` aceita os dois);
-- no máximo 2 modalidades do tipo `COLETIVO` por atleta;
+- no máximo **2 competições coletivas** por atleta — conta competições de modalidade `COLETIVO`, não modalidades: Futsal Sub 13 e Futsal Sub 15 são duas. Atletismo é `INDIVIDUAL` e não entra na conta;
 - a equipe lançada na súmula é uma das duas do jogo;
 - suspensões por cartão (calculadas a partir de `sumula_atletas`).
 

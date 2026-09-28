@@ -5,16 +5,19 @@ const { verificarToken, exigirPerfil } = require('../middlewares/authMiddleware'
 
 const somenteAdmin = [verificarToken, exigirPerfil('ADMIN')];
 
-// Rota para cadastrar um atleta
 router.post('/', somenteAdmin, atletaController.cadastrarAtleta);
 
-// Rota para listar atletas de uma equipe específica
-router.get('/equipe/:escola_id', atletaController.listarAtletasPorEquipe);
+// Rotas com prefixo fixo vêm antes de /:id para não serem engolidas por ele
+router.get('/escola/:escola_id', atletaController.listarAtletasPorEscola);
 
-// Rota para excluir um atleta
-router.delete('/:id', somenteAdmin, atletaController.excluirAtleta);
+// Caminho antigo, mantido enquanto o frontend não for migrado. "Equipe" aqui
+// sempre significou escola; no schema novo equipe é escola x competição.
+router.get('/equipe/:escola_id', atletaController.listarAtletasPorEscola);
 
-// Rota para atualizar um atleta
+// Traz o RG, por isso é restrita ao administrador
+router.get('/:id', somenteAdmin, atletaController.buscarAtletaPorId);
+
 router.put('/:id', somenteAdmin, atletaController.atualizarAtleta);
+router.delete('/:id', somenteAdmin, atletaController.excluirAtleta);
 
 module.exports = router;

@@ -22,7 +22,8 @@
 --   * máximo de atletas por equipe (modalidades.max_atletas = 14);
 --   * idade pela categoria: ano de nascimento >= ano do evento - idade_maxima;
 --   * sexo do atleta x gênero da competição (MISTO aceita os dois);
---   * limite de 2 modalidades COLETIVAS por atleta;
+--   * limite de 2 COMPETIÇÕES de modalidade COLETIVA por atleta
+--     (Futsal Sub 13 + Futsal Sub 15 = duas; atletismo não conta);
 --   * equipe da súmula é uma das duas equipes do jogo.
 -- =====================================================================
 
@@ -103,7 +104,7 @@ CREATE TABLE escola_apelidos (
 
 -- ---------------------------------------------------------------------
 -- Modalidades
--- tipo: COLETIVO conta no limite de 2 modalidades por atleta.
+-- tipo: COLETIVO entra no limite de 2 competições coletivas por atleta.
 -- tipo_placar define súmula, placar e desempate:
 --   GOLS (futsal, society, handebol), PONTOS (basquete), SETS (vôlei),
 --   ELIMINADOS (baleado), MARCA (atletismo: tempo/distância).
