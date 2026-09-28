@@ -1,23 +1,26 @@
 const db = require('../config/db');
 
-// Ordem obrigatória: filhos antes dos pais. Assim as chaves estrangeiras
-// continuam ativas durante todo o reset e o banco valida cada passo.
+// Tabelas zeradas pelo reset, na ordem: filhos antes dos pais. Assim as chaves
+// estrangeiras continuam ativas durante todo o reset e o banco valida cada passo.
+//
+// O reset apaga só o que é produzido durante o evento. A base importada da
+// tabela de grupos (escolas, competições, grupos e equipes), os atletas, as
+// inscrições e os cadastros fixos (usuários, modalidades, categorias, locais,
+// etapas de ensino, pontuação da tabela geral e provas de atletismo) ficam de
+// pé — nada precisa ser reimportado depois.
 const TABELAS_EM_ORDEM = [
-  'sumulas',
-  'sumulas_jogadores',
-  'resultados_provas',
-  'inscricoes_atletas',
-  'jogos',
-  'grupos_escolas',
-  'classificacao',
-  'alunos',
-  'diretores',
-  'atletas',
-  'escolas'
+  'sumula_atletas',
+  'sumula_equipes',
+  'jogo_sets',
+  'suspensoes',
+  'colocacoes_finais',
+  'ajustes_pontos_geral',
+  'resultados_atletismo',
+  'jogos'
 ];
 
-// Zera o campeonato inteiro, preservando o login do administrador e os
-// cadastros base (locais, modalidades, categorias, etapas de ensino e grupos).
+// Zera os jogos e as súmulas do campeonato, preservando a base importada,
+// os atletas, as inscrições e os cadastros fixos.
 const resetarCampeonato = async (req, res) => {
   const { confirmacao } = req.body;
 
@@ -49,7 +52,7 @@ const resetarCampeonato = async (req, res) => {
     }
 
     res.status(200).json({
-      mensagem: 'Campeonato reiniciado! O sistema está pronto para um novo torneio.',
+      mensagem: 'Jogos e súmulas apagados! As escolas, equipes e atletas continuam cadastrados.',
       registros_apagados: apagados
     });
   } catch (erro) {

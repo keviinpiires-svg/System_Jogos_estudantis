@@ -192,7 +192,7 @@ fácil de mudar).
 ## 9. Plano de implementação (ordem sugerida)
 
 1. **Preparar:** tag do estado atual + branch nova nos dois repositórios. ~~Obter o schema do banco~~ (feito).
-2. **Limpeza (commit separado)** — ver seção 10.
+2. ~~**Limpeza (commit separado)**~~ (feito em 28/09/2026) — ver seção 10.
 3. ~~**Modelo de dados novo**~~ (feito) — schema em `db/`, aplicado no `jogos_estudantis_dev` com a carga base e a importação de escolas, competições, grupos e equipes. Falta a **conferência das 50 competições** pelo usuário (`docs/CONFERENCIA_COMPETICOES.md`) e a migração da produção.
 4. **Atleta e inscrição:** sexo, RG obrigatório, ano de nascimento × categoria, máx. 14, limite de 2 modalidades, número da camisa.
 5. **Futsal completo** de ponta a ponta: sidebar/rotas por modalidade e categoria, tabela de jogos, súmula igual ao modelo (em branco e preenchida),
@@ -203,15 +203,24 @@ fácil de mudar).
 
 ## 10. Limpeza do código antigo
 
-**Seguro remover** (sem uso): `main.js` (vazio); `src/pages/Home.jsx` (sem rota); README padrão do Vite (trocar);
-`alunoController.js` + `alunoRoutes.js`; `criar_grupos.sql` (assume Futsal/Sub-17 fixo); rotas `/api/sorteio/*` e `/api/diretores`
-do `server.js`; painel de sorteio de `FaseGrupos.jsx`; `limpar_escolas_duplicadas.sql` (script pontual — arquivar).
+~~**Seguro remover**~~ (feito): `main.js`; `src/pages/Home.jsx`; README padrão do Vite (reescrito);
+`alunoController.js` + `alunoRoutes.js`; `criar_grupos.sql`; rotas `/api/sorteio/*` e `/api/diretores` do `server.js`;
+painel de sorteio de `FaseGrupos.jsx` (e `salvarDistribuicao` em `services/grupos.js`);
+`limpar_escolas_duplicadas.sql` → arquivado em `db/arquivo/`.
 
-**Reorganizar (não apagar):** mover `/api/locais`, `/api/etapas-ensino` e `/api/inscricoes` do `server.js` para rota + controller.
+~~**Reorganizar**~~ (feito): `/api/locais`, `/api/etapas-ensino` e `/api/inscricoes` saíram do `server.js` para rota + controller
+(`localRoutes`/`localController`, `etapaEnsinoRoutes`/`etapaEnsinoController`, `inscricaoRoutes`/`inscricaoController`).
+O `server.js` não fala mais direto com o banco. A inscrição foi adaptada ao schema novo (equipe + atleta + camisa, escola vinda
+do atleta); **as regras de elenco (14, idade, sexo, 2 modalidades) entram na fatia 4**.
 
-**Decidir com o usuário:** botão "Reiniciar campeonato" (`campeonatoController`; apaga a tabela `sumulas_jogadores`, que pode não existir mais);
-`PUT /api/jogos/finalizar/:id` (placar manual que contradiz "súmula = fonte de verdade"); `verificarSuspensao` (**refazer** conforme o
-regulamento, não só apagar).
+**Decidido com o usuário (28/09/2026):**
+- **Reiniciar campeonato:** mantido e **adaptado ao schema novo**. Apaga só o que o evento produz — `sumula_atletas`,
+  `sumula_equipes`, `jogo_sets`, `suspensoes`, `colocacoes_finais`, `ajustes_pontos_geral`, `resultados_atletismo` e `jogos`.
+  **Preserva** a base importada (escolas, competições, grupos, equipes), atletas, inscrições e cadastros fixos: nada precisa ser reimportado.
+- **`PUT /api/jogos/finalizar/:id`:** fica **só para W.O.** e casos excepcionais, com motivo obrigatório; o placar normal passa a sair
+  da súmula. **A reescrita acontece na fatia 5 (futsal)**, junto com o controller de jogos do schema novo — hoje a rota ainda é a antiga.
+- **`verificarSuspensao`:** **refeito na fatia 5 (futsal)**, conforme o regulamento (2 amarelos = 1 jogo, amarelos zerados na 2ª fase,
+  expulsão = 1 jogo). Até lá continua o cálculo antigo, que **não** segue o regulamento.
 
 **Já sabemos que muda:** o `TERCEIRO_LUGAR` esperado pelo front **não deve ser criado** (o 3º é calculado); `FaseGrupos` tem A/B fixos; o
 mata-mata fixo (1ºA×2ºB) cobre só um dos formatos.
@@ -240,7 +249,7 @@ mata-mata fixo (1ºA×2ºB) cobre só um dos formatos.
 8. **Gênero do Baleado** (o regulamento não diz; a tabela de grupos tem masculino e feminino) e **como o placar é lançado** (eliminados).
 9. **Numeração dos jogos:** por competição (assumido no schema) ou global?
 10. ~~Schema do banco~~ — **resolvido** (ver seção 8).
-11. Limpeza: destino do reset de campeonato, do `finalizar` manual e da suspensão.
+11. ~~Limpeza: destino do reset de campeonato, do `finalizar` manual e da suspensão~~ — **resolvido** (ver seção 10).
 
 ## 13. Como trabalhar neste projeto
 
