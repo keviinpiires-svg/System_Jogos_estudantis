@@ -4,16 +4,20 @@ const jogoController = require('../controllers/jogoController');
 const { verificarToken, exigirPerfil } = require('../middlewares/authMiddleware');
 
 const somenteAdmin = [verificarToken, exigirPerfil('ADMIN')];
-// Encerrar a partida é trabalho de mesa, então o perfil de placar também pode
+// Iniciar a partida é trabalho de mesa, então o perfil de placar também pode
 const mesaOuAdmin = [verificarToken, exigirPerfil('ADMIN', 'PLACAR')];
 
-// 1. Rotas estáticas (não recebem parâmetros) ficam em cima
-router.post('/agendar', somenteAdmin, jogoController.agendarJogo);
+// Agendar e listar. Filtros do GET: competicao_id, fase, status.
+router.post('/', somenteAdmin, jogoController.agendarJogo);
 router.get('/', jogoController.listarJogos);
 
-// 2. Rotas dinâmicas (que recebem /:id) ficam embaixo
+// Rotas por id
 router.get('/:id', jogoController.buscarPorId);
-router.put('/finalizar/:id', mesaOuAdmin, jogoController.finalizarJogo);
+router.put('/:id', somenteAdmin, jogoController.atualizarJogo);
+router.put('/:id/iniciar', mesaOuAdmin, jogoController.iniciarJogo);
 router.delete('/:id', somenteAdmin, jogoController.excluirJogo);
+
+// PUT /finalizar/:id saiu: o placar passa a vir da súmula (fatia 5c), e o
+// W.O. vira rota própria quando a regra do placar de W.O. for definida.
 
 module.exports = router;
