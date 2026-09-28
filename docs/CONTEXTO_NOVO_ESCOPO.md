@@ -149,32 +149,50 @@ Imagem: `docs/referencias/sumula_futsal_modelo.png`. Folha A4 retrato, duas equi
 - **[PENDENTE]** se cada gol é uma marca em caixa (fiel ao papel) ou um campo numérico com a grade só na impressão; se faltas/tempo
   técnico são lançados no sistema ou ficam em branco na impressão; se campeonato/cidade/estado/árbitros são fixos do evento ou por jogo.
 
-## 8. Modelo de dados proposto (RASCUNHO — validar contra o schema real)
+## 8. Modelo de dados (DEFINIDO — ver `System_jogos/db/`)
 
-> Ainda **não vimos o schema real**. Antes de criar migrações, obter `SHOW CREATE TABLE` de todas as tabelas.
-> Tabelas já mencionadas no código: `escolas`, `atletas`, `alunos` (órfã), `diretores`, `usuarios`, `jogos`, `sumulas`,
-> `sumulas_jogadores` (parece legada), `grupos`, `grupos_escolas`, `classificacao` (legada; a classificação é calculada),
-> `inscricoes_atletas`, `modalidades`, `categorias`, `etapas_ensino`, `locais_disputa`, `resultados_provas` (sugere atletismo).
+> O schema novo está em **`System_jogos/db/01_schema.sql`** (23 tabelas, 33 chaves estrangeiras), com
+> `00_apagar_tudo.sql`, `02_carga_base.sql` e `db/README.md` (como aplicar, criar usuários, regras).
+> O schema antigo de produção ficou registrado em `db/schema_producao_baseline.sql` (não executar).
+> **Ainda não foi executado num MySQL real** — o primeiro passo no VS Code é rodá-lo num banco de desenvolvimento.
 
-Ideia central: **competição** = modalidade + categoria + gênero (`M`/`F`/`MISTO`).
-- `competicoes` (modalidade_id, categoria_id, genero, regras de classificação: nº de grupos, quantos classificam,
-  semifinal?, melhor de dois jogos?, tempo de jogo).
-- `equipes` (competicao_id, escola_id, grupo) — única por (competição, escola).
-- `atletas` (+ `sexo`, RG **obrigatório**, `data_nascimento`); `inscricoes_atletas` (atleta ↔ equipe, `numero_camisa`, `capitao`);
-  **máx. 14 por equipe**; limite de **2 modalidades coletivas** por atleta; validação do ano de nascimento pela categoria.
-- `jogos` (+ `competicao_id`, rodada, chave, árbitros 1 e 2, anotador, cidade/estado ou vindos de configuração; status com **W.O.**;
-  pênaltis; prorrogação; `numero_jogo` **por competição**, renumerado na exclusão).
-- `sumulas` por atleta (gols, amarelos como 2 campos, vermelho) + dados **por equipe/jogo** (técnico, capitão, faltas 1º/2º T, tempo técnico).
-- Vôlei: **sets** por jogo. Baleado: **atletas eliminados** como placar.
-- `usuarios.perfil` (`ADMIN` | `PLACAR`) no JWT + middleware por perfil.
-- Ajuste manual de pontos da tabela geral (punições de 5 a 10). Suspensões/cartões acumulados por atleta.
-- Atletismo: prova, categoria, gênero, resultado (tempo/distância/tentativas), colocação — **[PENDENTE]**.
+**Decisões do usuário (28/09):** todos os dados atuais são de teste e podem ser apagados; o banco é recriado do zero;
+chaves estrangeiras em tudo; `rg_ou_matricula` vira **`rg`** (obrigatório e único — todos os alunos têm RG, e a idade é
+conferida pela data de nascimento).
+
+**O que o schema antigo tinha de errado:** nenhuma chave estrangeira; quase nenhum índice único (só `uq_escolas_nome`);
+tabelas órfãs (`alunos`, `classificacao`, `diretores`, `sumulas_jogadores`, `equipes` sem ligação com nada);
+`status` do jogo com valor acentuado e sem W.O. Tudo isso foi descartado.
+
+**Tabelas novas (resumo):**
+- `configuracao_evento` (ano, cidade, estado, datas — o ano entra na regra de idade).
+- `usuarios` (+ `perfil` ADMIN/PLACAR, e-mail único).
+- `etapas_ensino` (3 blocos), `escolas` (+ `escola_apelidos` para as grafias da tabela de grupos).
+- `modalidades` (+ `slug` para as rotas, `tipo` COLETIVO/INDIVIDUAL, `tipo_placar` GOLS/PONTOS/SETS/ELIMINADOS/MARCA, mín./máx. de atletas).
+- `categorias` (+ `idade_maxima`; NULL = Aberto; `etapa_ensino_id` opcional).
+- `competicoes` (modalidade × categoria × gênero; regra de disputa como **dado**: grupos, classificados, melhores segundos,
+  próxima fase, turno/ida e volta, tempos, pontos por vitória/empate/derrota).
+- `grupos` (por competição), `equipes` (escola na competição, com grupo e técnico).
+- `atletas` (+ `sexo`, `rg` único), `inscricoes_atletas` (atleta ↔ equipe, número da camisa; mesma escola garantida pelo banco).
+- `jogos` (por competição; equipes em vez de escolas; rodada, árbitros, anotador, pênaltis, prorrogação, W.O., vencedor;
+  `numero_jogo` único por competição).
+- `sumula_atletas` (substitui `sumulas`: gols/pontos, 0–2 amarelos, vermelho, capitão, presença, desqualificação),
+  `sumula_equipes` (técnico, faltas 1º/2º T, tempo técnico), `jogo_sets` (vôlei).
+- `suspensoes` (só as disciplinares; as de cartão são calculadas), `pontuacao_geral` (10/8/6/4/2), `colocacoes_finais`,
+  `ajustes_pontos_geral` (punições com motivo).
+- `provas_atletismo` e `resultados_atletismo` (rascunho — forma de lançar ainda **[PENDENTE]**).
+
+**Validações que ficam no código** (em transação): máx. 14 por equipe; idade pela categoria; sexo × gênero (MISTO aceita os
+dois); máx. 2 modalidades coletivas; equipe da súmula é uma das duas do jogo; suspensões por cartão.
+
+**Pressupostos até o usuário confirmar:** numeração de jogos **por competição**; fase de grupos **3/1/0** (guardado por competição,
+fácil de mudar).
 
 ## 9. Plano de implementação (ordem sugerida)
 
-1. **Preparar:** tag do estado atual + branch nova nos dois repositórios. Obter o schema do banco.
+1. **Preparar:** tag do estado atual + branch nova nos dois repositórios. ~~Obter o schema do banco~~ (feito).
 2. **Limpeza (commit separado)** — ver seção 10.
-3. **Modelo de dados novo** (schema versionado + carga de escolas/competições/grupos importada da tabela de grupos, conferida pelo usuário).
+3. **Modelo de dados novo** — schema pronto em `db/`; falta **testar num banco de desenvolvimento** e fazer a carga de escolas/competições/grupos importada da tabela de grupos, conferida pelo usuário.
 4. **Atleta e inscrição:** sexo, RG obrigatório, ano de nascimento × categoria, máx. 14, limite de 2 modalidades, número da camisa.
 5. **Futsal completo** de ponta a ponta: sidebar/rotas por modalidade e categoria, tabela de jogos, súmula igual ao modelo (em branco e preenchida),
    classificação com o **desempate certo**, suspensão por cartões, perfil placar.
@@ -219,8 +237,8 @@ mata-mata fixo (1ºA×2ºB) cobre só um dos formatos.
 6. Ambiguidades da tabela de grupos (seção 6) e a interpretação "frase vale para a tabela abaixo".
 7. **Súmula:** gols por clique em caixa ou campo numérico? Faltas/tempo técnico lançados ou em branco? Cabeçalho fixo ou por jogo?
 8. **Gênero do Baleado** (o regulamento não diz; a tabela de grupos tem masculino e feminino) e **como o placar é lançado** (eliminados).
-9. **Numeração dos jogos:** por competição (sugerido) ou global?
-10. **Schema do banco:** ainda não foi fornecido.
+9. **Numeração dos jogos:** por competição (assumido no schema) ou global?
+10. ~~Schema do banco~~ — **resolvido** (ver seção 8).
 11. Limpeza: destino do reset de campeonato, do `finalizar` manual e da suspensão.
 
 ## 13. Como trabalhar neste projeto
