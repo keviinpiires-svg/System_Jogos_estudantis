@@ -56,6 +56,8 @@ const authRoutes = require('./src/routes/authRoutes');
 const grupoRoutes = require('./src/routes/grupoRoutes');
 const campeonatoRoutes = require('./src/routes/campeonatoRoutes');
 const usuarioRoutes = require('./src/routes/usuarioRoutes');
+const modalidadeRoutes = require('./src/routes/modalidadeRoutes');
+const competicaoRoutes = require('./src/routes/competicaoRoutes');
 const localRoutes = require('./src/routes/localRoutes');
 const etapaEnsinoRoutes = require('./src/routes/etapaEnsinoRoutes');
 const inscricaoRoutes = require('./src/routes/inscricaoRoutes');
@@ -76,6 +78,8 @@ app.use('/api/atletas', atletaRoutes);
 app.use('/api/locais', localRoutes);
 app.use('/api/etapas-ensino', etapaEnsinoRoutes);
 app.use('/api/inscricoes', inscricaoRoutes);
+app.use('/api/modalidades', modalidadeRoutes);
+app.use('/api/competicoes', competicaoRoutes);
 
 app.get('/', (req, res) => {
     res.json({ mensagem: "API dos Jogos Estudantis rodando com sucesso!" });
