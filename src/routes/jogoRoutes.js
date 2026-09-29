@@ -15,9 +15,7 @@ router.get('/', jogoController.listarJogos);
 router.get('/:id', jogoController.buscarPorId);
 router.put('/:id', somenteAdmin, jogoController.atualizarJogo);
 router.put('/:id/iniciar', mesaOuAdmin, jogoController.iniciarJogo);
+router.put('/:id/wo', somenteAdmin, jogoController.declararWO);
 router.delete('/:id', somenteAdmin, jogoController.excluirJogo);
-
-// PUT /finalizar/:id saiu: o placar passa a vir da súmula (fatia 5c), e o
-// W.O. vira rota própria quando a regra do placar de W.O. for definida.
 
 module.exports = router;

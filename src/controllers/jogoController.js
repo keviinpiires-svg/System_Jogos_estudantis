@@ -415,8 +415,108 @@ const iniciarJogo = async (req, res) => {
   }
 };
 
+// W.O.: só a Comissão Organizadora declara (regulamento), por isso é de ADMIN.
+// O placar é informado — a tela sugere 1x0, mas quem decide é quem declara.
+// Como não há súmula, estes gols não entram na artilharia, que é somada de
+// sumula_atletas. Eles contam na classificação, que lê o placar do jogo.
+const declararWO = async (req, res) => {
+  const id = Number(req.params.id);
+  const vencedor_equipe_id = Number(req.body.vencedor_equipe_id);
+  const placar_1 = Number(req.body.placar_1);
+  const placar_2 = Number(req.body.placar_2);
+  const motivo = (req.body.motivo || '').trim();
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ erro: 'Identificador de jogo inválido.' });
+  }
+
+  if (!motivo) {
+    return res.status(400).json({ erro: 'Informe o motivo do W.O.' });
+  }
+
+  for (const placar of [placar_1, placar_2]) {
+    if (!Number.isInteger(placar) || placar < 0) {
+      return res.status(400).json({ erro: 'Informe os dois placares como inteiros não negativos.' });
+    }
+  }
+
+  if (placar_1 === placar_2) {
+    return res.status(400).json({ erro: 'Um W.O. não termina empatado.' });
+  }
+
+  let conexao;
+  try {
+    conexao = await db.getConnection();
+    await conexao.beginTransaction();
+
+    const [[jogo]] = await conexao.query(
+      'SELECT id, equipe_1_id, equipe_2_id, status FROM jogos WHERE id = ? FOR UPDATE',
+      [id]
+    );
+
+    if (!jogo) {
+      await conexao.rollback();
+      return res.status(404).json({ erro: 'Jogo não encontrado.' });
+    }
+
+    if (ENCERRADOS.includes(jogo.status)) {
+      await conexao.rollback();
+      return res.status(409).json({ erro: `Este jogo já está como ${jogo.status}.` });
+    }
+
+    if (![jogo.equipe_1_id, jogo.equipe_2_id].includes(vencedor_equipe_id)) {
+      await conexao.rollback();
+      return res.status(400).json({ erro: 'O vencedor precisa ser uma das duas equipes do jogo.' });
+    }
+
+    // O vencedor declarado e o placar informado têm que contar a mesma história
+    const vencedorPeloPlacar = placar_1 > placar_2 ? jogo.equipe_1_id : jogo.equipe_2_id;
+    if (vencedorPeloPlacar !== vencedor_equipe_id) {
+      await conexao.rollback();
+      return res.status(400).json({ erro: 'O placar informado não corresponde ao vencedor escolhido.' });
+    }
+
+    // Uma súmula lançada contradiz o W.O.: o placar sairia de dois lugares.
+    const [[{ lancamentos }]] = await conexao.query(
+      'SELECT COUNT(*) AS lancamentos FROM sumula_atletas WHERE jogo_id = ?',
+      [id]
+    );
+
+    if (lancamentos > 0) {
+      await conexao.rollback();
+      return res.status(409).json({
+        erro: 'Este jogo já tem súmula lançada. Apague a súmula antes de declarar W.O.'
+      });
+    }
+
+    await conexao.query(
+      `UPDATE jogos
+          SET status = 'WO', placar_1 = ?, placar_2 = ?,
+              vencedor_equipe_id = ?, observacoes = ?
+        WHERE id = ?`,
+      [placar_1, placar_2, vencedor_equipe_id, motivo, id]
+    );
+
+    await conexao.commit();
+
+    res.status(200).json({
+      mensagem: 'W.O. declarado.',
+      id_jogo: id,
+      placar: `${placar_1} x ${placar_2}`,
+      vencedor_equipe_id
+    });
+  } catch (erro) {
+    if (conexao) await conexao.rollback();
+    console.error(erro);
+    res.status(500).json({ erro: 'Erro ao declarar o W.O.' });
+  } finally {
+    if (conexao) conexao.release();
+  }
+};
+
 module.exports = {
   agendarJogo,
+  declararWO,
   listarJogos,
   buscarPorId,
   atualizarJogo,

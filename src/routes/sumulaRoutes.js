@@ -8,11 +8,13 @@ const { verificarToken, exigirPerfil } = require('../middlewares/authMiddleware'
 // controller, que é quem enxerga o status do jogo.
 const mesaOuAdmin = [verificarToken, exigirPerfil('ADMIN', 'PLACAR')];
 
-// Rotas estáticas primeiro
 router.post('/', mesaOuAdmin, sumulaController.registrarSumula);
-router.get('/atleta/:atleta_id/status', sumulaController.verificarSuspensao);
 
-// Rota dinâmica por último: relatório da súmula de um jogo
+// Leitura pública: é o que a impressão consome, em branco ou preenchida
 router.get('/:jogo_id', sumulaController.buscarSumulaPorJogo);
+
+// GET /atleta/:id/status saiu daqui: o cálculo antigo não seguia o regulamento
+// (2 amarelos = 1 jogo, amarelos zerados na 2ª fase, expulsão = 1 jogo).
+// Volta refeito na fatia 5e — suspensão por cartões.
 
 module.exports = router;
