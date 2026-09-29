@@ -137,6 +137,10 @@ semifinal, vale a classificação da fase classificatória. (Como saem 4º e 5º
 
 ## 7. Súmula (modelo de futsal — vale para Futsal e Society)
 
+> **Todas as modalidades:** `docs/referencias/sumulas_modelos.md` descreve as quatro folhas oficiais (futsal/society, handebol,
+> basquete e vôlei), com os PDFs ao lado e as lacunas do schema para atendê-las (falta de faltas individuais no basquete,
+> contadores até 7, 12 linhas no papel contra 14 do regulamento). O Baleado não tem modelo em papel.
+
 Imagem: `docs/referencias/sumula_futsal_modelo.png`. Folha A4 retrato, duas equipes empilhadas. Campos:
 - **Cabeçalho:** Campeonato, Chave, Rodada, Ginásio, Cidade, Estado, Categoria, Data, Horário; Árbitro 1, Árbitro 2, Anotador;
   caixas de placar entre EQUIPE A e EQUIPE B.
@@ -199,10 +203,15 @@ fácil de mudar).
 |---|---|---|---|
 | 1 | Preparar | ✅ feito | Tag do estado anterior e branch `feat/novo-escopo` nos dois repositórios. |
 | 2 | Limpeza | ✅ feito (28/09/2026) | Código morto removido, rotas soltas do `server.js` viraram rota + controller, reset adaptado. Ver seção 10. |
-| 3 | Modelo de dados novo | ✅ feito, falta conferir | Schema em `db/`, aplicado no `jogos_estudantis_dev` com carga base e importação dos grupos. Falta a **conferência das 50 competições** (`docs/CONFERENCIA_COMPETICOES.md`) e a migração da produção. |
+| 3 | Modelo de dados novo | ✅ feito | Schema em `db/`, aplicado no `jogos_estudantis_dev` com carga base e importação dos grupos; as 50 competições foram conferidas (`docs/CONFERENCIA_COMPETICOES.md`). **2 pontos de regra seguem abertos** (seção 6): "melhor de dois jogos" com 3 equipes e o critério do "segundo mais bem colocado". Falta a migração da produção. |
 | 4 | Atleta e inscrição | ✅ feito (28/09/2026) | Sexo, RG obrigatório e único, ano de nascimento × categoria, máximo de 14, limite de 2 competições coletivas, número da camisa. Cadastro de atleta e inscrição são só de ADMIN. |
-| 5 | Futsal completo | ⬜ a fazer | Ponta a ponta: menu lateral e rotas por modalidade/categoria, tabela de jogos, súmula igual ao modelo (em branco e preenchida), classificação com o desempate certo, suspensão por cartões, perfil PLACAR, `finalizar` só para W.O. |
-| 6 | Demais modalidades coletivas | ⬜ a fazer | Handebol, Society e Basquete (reaproveitam o futsal); depois Vôlei (sets) e Baleado (eliminados). |
+| 5 | Futsal completo | 🟡 em andamento | Ponta a ponta, em cinco sub-fatias (abaixo). **Modelo de súmula: `sumula_futsal_modelo.pdf`** — 14 linhas por equipe, cartões (A, A, V), nº, atleta, grade de gols, capitão; rodapé com faltas 1º/2º T (1 a 5), tempo técnico e técnico. A mesma folha vale para o **Futebol Society** (só muda o título). |
+| 5a | ↳ Menu e competições | ✅ feito | Menu lateral por modalidade, lista de competições e o detalhe da competição. `GET /api/modalidades` e `/api/competicoes`. |
+| 5b | ↳ Jogos por competição | ✅ feito | Controller de jogos no schema novo, `numero_jogo` por competição, renumeração ao excluir, tabela de jogos na tela. |
+| 5c | ↳ Súmula e W.O. | ✅ feito | Súmula como única fonte do placar (em branco e preenchida, mesma rota), impressão da folha e `PUT /api/jogos/:id/wo` só de ADMIN. |
+| 5d | ↳ Classificação e perfil PLACAR | ⬜ pendente | Classificação da competição com o desempate do regulamento (seção 5) e o perfil PLACAR no frontend — hoje o `AuthContext` ainda trata todo logado como admin. |
+| 5e | ↳ Suspensão por cartões | ⬜ pendente | 2 amarelos = 1 jogo, amarelos zerados na 2ª fase, expulsão = 1 jogo. O `GET /sumulas/atleta/:id/status` antigo foi removido na 5c e volta aqui, refeito. |
+| 6 | Demais modalidades coletivas | ⬜ a fazer | Handebol, Society e Basquete (reaproveitam o futsal); depois Vôlei (sets) e Baleado (eliminados). **Modelos de súmula** (`docs/referencias/sumulas_modelos.md`): Society e Handebol usam a **folha do futsal** (`sumula_handebol_modelo.pdf` é a mesma, só muda o título); Basquete tem folha própria (`sumula_basquete_modelo.pdf`: 12 linhas, faltas individuais 1–5, grade de pontos, faltas acumulativas 1–7); Vôlei tem folha própria (`sumula_volei_modelo.pdf`: 12 linhas por equipe, controle de sets, sem gols nem cartões). **Baleado não tem modelo em papel — [PENDENTE]**. |
 | 7 | Mata-mata configurável | ⬜ a fazer | Formato por competição, 3º lugar calculado, pênaltis e prorrogação. |
 | 8 | Tabela geral e o que sobra | ⬜ a fazer | Pontuação 10/8/6/4/2 e ajuste de pontos, Atletismo, renumeração de jogos, técnicos e dirigentes (se entrarem). |
 
@@ -255,6 +264,7 @@ mata-mata fixo (1ºA×2ºB) cobre só um dos formatos.
 9. **Numeração dos jogos:** por competição (assumido no schema) ou global?
 10. ~~Schema do banco~~ — **resolvido** (ver seção 8).
 11. ~~Limpeza: destino do reset de campeonato, do `finalizar` manual e da suspensão~~ — **resolvido** (ver seção 10).
+12. **Súmula do Baleado:** não há folha oficial entre os modelos recebidos. Criar uma no estilo das outras, e definir o que a linha do atleta registra (eliminados?).
 
 ## 13. Como trabalhar neste projeto
 
