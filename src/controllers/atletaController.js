@@ -60,7 +60,23 @@ const cadastrarAtleta = async (req, res) => {
     });
   } catch (erro) {
     if (erro.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({ erro: 'Já existe um atleta cadastrado com este RG.' });
+      // Quem já tem esse RG entra na resposta: a tela usa isso para oferecer
+      // seguir com o atleta existente, em vez de deixar o usuário travado
+      // tentando cadastrar de novo o mesmo aluno.
+      const [[existente]] = await db.query(
+        `SELECT a.id, a.nome, a.escola_id, esc.nome AS escola_nome
+           FROM atletas a
+           INNER JOIN escolas esc ON esc.id = a.escola_id
+          WHERE a.rg = ?`,
+        [atleta.rg]
+      );
+
+      return res.status(409).json({
+        erro: existente
+          ? `${existente.nome} já está cadastrado com este RG (${existente.escola_nome}).`
+          : 'Já existe um atleta cadastrado com este RG.',
+        atleta: existente || null
+      });
     }
     if (erro.code === 'ER_NO_REFERENCED_ROW_2') {
       return res.status(400).json({ erro: 'A escola informada não existe.' });
