@@ -209,9 +209,9 @@ fácil de mudar).
 | 5a | ↳ Menu e competições | ✅ feito | Menu lateral por modalidade, lista de competições e o detalhe da competição. `GET /api/modalidades` e `/api/competicoes`. |
 | 5b | ↳ Jogos por competição | ✅ feito | Controller de jogos no schema novo, `numero_jogo` por competição, renumeração ao excluir, tabela de jogos na tela. |
 | 5c | ↳ Súmula e W.O. | ✅ feito | Súmula como única fonte do placar (em branco e preenchida, mesma rota), impressão da folha e `PUT /api/jogos/:id/wo` só de ADMIN. |
-| 5d | ↳ Classificação e perfil PLACAR | ⬜ pendente | Classificação da competição com o desempate do regulamento (seção 5) e o perfil PLACAR no frontend — hoje o `AuthContext` ainda trata todo logado como admin. |
+| 5d | ↳ Classificação e perfil PLACAR | ✅ feito (29/09/2026) | `GET /api/classificacao/competicao/:id` calcula a tabela a partir dos jogos da fase de grupos, com o desempate da modalidade (GOLS, PONTOS, SETS e ELIMINADOS) e marca quem ficou empatado até o sorteio. A tela da competição mostra a tabela por grupo, destaca quem avança e **avisa na própria tela os 2 casos de regra em aberto** (melhor segundo com grupos de tamanhos diferentes; "melhor de dois jogos" com mais de duas equipes). No frontend, `isAdmin`/`isPlacar`/`podeLancar` vêm do perfil e a `RotaPrivada` aceita a lista de perfis: a mesa entra na súmula, não no cadastro. |
 | 5e | ↳ Suspensão por cartões | ⬜ pendente | 2 amarelos = 1 jogo, amarelos zerados na 2ª fase, expulsão = 1 jogo. O `GET /sumulas/atleta/:id/status` antigo foi removido na 5c e volta aqui, refeito. |
-| 6 | Demais modalidades coletivas | ⬜ a fazer | Handebol, Society e Basquete (reaproveitam o futsal); depois Vôlei (sets) e Baleado (eliminados). **Modelos de súmula** (`docs/referencias/sumulas_modelos.md`): Society e Handebol usam a **folha do futsal** (`sumula_handebol_modelo.pdf` é a mesma, só muda o título); Basquete tem folha própria (`sumula_basquete_modelo.pdf`: 12 linhas, faltas individuais 1–5, grade de pontos, faltas acumulativas 1–7); Vôlei tem folha própria (`sumula_volei_modelo.pdf`: 12 linhas por equipe, controle de sets, sem gols nem cartões). **Baleado não tem modelo em papel — [PENDENTE]**. |
+| 6 | Demais modalidades coletivas | ⬜ a fazer | Handebol, Society e Basquete (reaproveitam o futsal); depois Vôlei (sets) e Baleado (eliminados). **Modelos de súmula** (`docs/referencias/sumulas_modelos.md`): **toda folha impressa tem 14 linhas por equipe** (decisão de 29/09/2026), inclusive basquete e vôlei, cujos papéis trazem 12 — o elenco do regulamento é 14. **Society e Handebol usam exatamente a folha do futsal**, só muda o título; Basquete tem folha própria (faltas individuais 1–5, grade de pontos, faltas acumulativas 1–7); Vôlei tem folha própria (controle de sets, sem gols nem cartões). **Baleado não tem modelo em papel — [PENDENTE]**. |
 | 7 | Mata-mata configurável | ⬜ a fazer | Formato por competição, 3º lugar calculado, pênaltis e prorrogação. |
 | 8 | Tabela geral e o que sobra | ⬜ a fazer | Pontuação 10/8/6/4/2 e ajuste de pontos, Atletismo, renumeração de jogos, técnicos e dirigentes (se entrarem). |
 
@@ -241,7 +241,7 @@ mata-mata fixo (1ºA×2ºB) cobre só um dos formatos.
 
 ## 11. Problemas conhecidos no código atual
 
-- Todo usuário logado é tratado como admin (não há coluna de perfil).
+- ~~Todo usuário logado é tratado como admin~~ — resolvido: perfis ADMIN e PLACAR no backend e no frontend (fatia 5d).
 - `POST /api/diretores` grava senha em **texto puro** (será removido).
 - CORS aberto quando `CORS_ORIGIN` está vazio; sem rate limit no login; JWT em `localStorage`.
 - Admin padrão `admin@sge.com` / `admin123` está no SQL versionado (`criar_usuarios.sql`) — trocar antes de produção.
