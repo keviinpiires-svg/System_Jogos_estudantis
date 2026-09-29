@@ -12,6 +12,8 @@ Os scripts **não fixam collation**: usam a padrão do servidor (no MySQL 8, `ut
 | `01_schema.sql` | Cria as 23 tabelas do schema novo, com chaves estrangeiras e restrições. |
 | `02_carga_base.sql` | Dados fixos: configuração do evento, etapas de ensino, categorias, modalidades, pontuação da tabela geral e provas de atletismo. |
 | `03_importar_grupos.sql` | Gerado da tabela de grupos: 18 escolas (+ grafias alternativas), 50 competições com a regra de classificação, 77 grupos e 240 equipes. Confira antes em `docs/CONFERENCIA_COMPETICOES.md`. |
+| `04_locais.sql` | Locais de disputa (ginásios, quadras e campos). Rode uma vez, depois do 03. |
+| `05_faltas_basquete.sql` | Migração: coluna `faltas` (0 a 5) em `sumula_atletas`, para as faltas individuais do basquete. **Aplicada no `jogos_estudantis_dev` em 29/09/2026**; falta na produção. |
 | `schema_producao_baseline.sql` | Registro de como a produção estava em 28/09/2026. **Não execute.** |
 
 Escolas, competições, grupos e equipes **não** estão na carga base: vêm de `03_importar_grupos.sql` (a partir de `docs/referencias/tabela_de_grupos.md`).
