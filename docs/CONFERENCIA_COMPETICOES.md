@@ -84,4 +84,20 @@ Linhas com ⚠ têm algo para você decidir (veja a seção final).
 | 2 | Handebol Masculino Aberto | Todos contra todos em turno único; 1º e 2º à final | `db/06_ajustes_regras_provisorios.sql` (é dado, não código) |
 | 3 | Empate após a prorrogação (handebol e basquete) | Segunda prorrogação e, persistindo, cobranças: 7 metros no handebol, lances livres no basquete | `regrasProvisorias.desempateMataMata` — aplicado em `sumulaController` |
 | 4 | Placar do W.O. | 1×0, editável pelo ADMIN | `regrasProvisorias.wo` — aplicado em `jogoController.declararWO` |
-| 5 | Súmula do baleado | Folha no estilo da do futsal, com coluna de eliminações por atleta no lugar dos gols | `regrasProvisorias.baleado` — aplicado na impressão e no preenchimento |
+| 5 | Súmula do baleado | Folha no estilo da do futsal, com coluna de eliminações por atleta no lugar dos gols (14 caixas, sem faltas acumuladas) | `regrasProvisorias.baleado` — aplicado na impressão e no preenchimento |
+| 6 | Semifinal com 3 grupos + melhor 2º | Melhor 1º × melhor 2º e os outros dois 1ºs entre si; se forem do mesmo grupo, troca os pares | `chavesMataMata.cruzamentoTresGruposComMelhorSegundo` |
+| 7 | Empate na soma dos dois jogos (ida e volta) | Campeão é quem soma mais; empatada a soma, decide nas cobranças do 2º jogo | `chavesMataMata.somaDosDoisJogos` |
+| 8 | 3º lugar sem semifinal | 3º do grupo único, ou o melhor dos dois segundos com dois grupos. Não há jogo de 3º lugar | `chavesMataMata.terceiroSemSemifinal` |
+
+**Não provisória:** com 2 grupos e 2 classificados, a semifinal é cruzada (1ºA × 2ºB e 1ºB × 2ºA) —
+`chavesMataMata.cruzamentoDoisGrupos`, o padrão do futebol.
+
+### Os cinco formatos das 50 competições (levantados no banco em 30/09/2026)
+
+| | Formato | Competições | Mata-mata |
+|---|---|---|---|
+| A | 1 grupo, 2 classificados → FINAL | 20 | final: 1º × 2º do grupo |
+| B | 2 grupos × 1 → FINAL | 11 | final: 1ºA × 1ºB; 3º é o melhor 2º |
+| C | 2 grupos × 2 → SEMIFINAL | 10 | 1ºA × 2ºB e 1ºB × 2ºA |
+| D | 3 grupos × 1 + 1 melhor 2º → SEMIFINAL | 3 | melhor 1º × melhor 2º, evitando o mesmo grupo |
+| E | 1 grupo, ida e volta, sem mata-mata | 6 | nenhum: campeão pela soma dos dois jogos |

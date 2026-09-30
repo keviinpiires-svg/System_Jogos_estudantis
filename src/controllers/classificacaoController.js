@@ -8,6 +8,9 @@ const { REGRAS } = require('../config/regrasProvisorias');
 // Cada critério devolve um número por equipe em que MAIOR É MELHOR, e vale
 // só dentro do bloco de equipes ainda empatadas — é assim que "confronto
 // direto" e "saldo entre as empatadas" funcionam.
+//
+// O mata-mata (fatia 7) usa este mesmo cálculo: montarClassificacao devolve a
+// tabela por grupo e compararEntreGrupos resolve o "melhor segundo".
 
 // Pontos do jogo para cada lado, conforme a pontuação da competição
 const resultado = (jogo, competicao) => {
@@ -24,6 +27,15 @@ const resultado = (jogo, competicao) => {
   if (p1 > p2) return [competicao.pontos_vitoria, competicao.pontos_derrota];
   if (p1 < p2) return [competicao.pontos_derrota, competicao.pontos_vitoria];
   return [competicao.pontos_empate, competicao.pontos_empate];
+};
+
+// Quem ganhou o jogo, ou null no empate
+const vencedorDoJogo = (jogo) => {
+  if (jogo.status === 'WO' && jogo.vencedor_equipe_id) return jogo.vencedor_equipe_id;
+  const p1 = jogo.placar_1 ?? 0;
+  const p2 = jogo.placar_2 ?? 0;
+  if (p1 === p2) return null;
+  return p1 > p2 ? jogo.equipe_1_id : jogo.equipe_2_id;
 };
 
 // Pontos que cada equipe do bloco fez jogando contra as outras do bloco
@@ -150,6 +162,297 @@ const desempatar = (bloco, criterios, indice, ctx) => {
   });
 };
 
+// Ordena uma lista de equipes: primeiro por pontos, depois pelos critérios
+const ordenarPorCampanha = (linhas, criterios, ctx) => {
+  const porPontos = new Map();
+  for (const equipe of linhas) {
+    if (!porPontos.has(equipe.pontos)) porPontos.set(equipe.pontos, []);
+    porPontos.get(equipe.pontos).push(equipe);
+  }
+
+  const chaves = [...porPontos.keys()].sort((a, b) => b - a);
+  return chaves.flatMap((chave) => desempatar(porPontos.get(chave), criterios, 0, ctx));
+};
+
+// ---------------------------------------------------------------------------
+// Carga e soma da campanha
+// ---------------------------------------------------------------------------
+
+// Erro de regra, para o chamador transformar em status HTTP
+class ErroDeRegra extends Error {
+  constructor(status, mensagem) {
+    super(mensagem);
+    this.status = status;
+  }
+}
+
+const carregarDados = async (id) => {
+  const [[competicao]] = await db.query(
+    `SELECT c.id, c.genero, c.status, c.qtd_grupos, c.classificados_por_grupo,
+            c.melhores_segundos, c.proxima_fase, c.turno,
+            c.pontos_vitoria, c.pontos_empate, c.pontos_derrota,
+            m.nome AS modalidade_nome, m.slug AS modalidade_slug, m.tipo_placar,
+            cat.nome AS categoria_nome
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+      WHERE c.id = ?`,
+    [id]
+  );
+
+  if (!competicao) throw new ErroDeRegra(404, 'Competição não encontrada.');
+
+  const criterios = ORDEM_DESEMPATE[competicao.tipo_placar];
+
+  if (!criterios) {
+    // Atletismo (MARCA) não tem tabela de grupos: o resultado é por prova
+    throw new ErroDeRegra(400, `${competicao.modalidade_nome} não tem classificação por grupos.`);
+  }
+
+  const [equipes] = await db.query(
+    `SELECT e.id AS equipe_id, e.escola_id, esc.nome AS escola_nome,
+            g.id AS grupo_id, g.nome AS grupo_nome,
+            (SELECT COUNT(*) FROM inscricoes_atletas i WHERE i.equipe_id = e.id) AS total_inscritos
+       FROM equipes e
+       INNER JOIN escolas esc ON esc.id = e.escola_id
+       LEFT JOIN grupos g ON g.id = e.grupo_id
+      WHERE e.competicao_id = ?
+      ORDER BY g.nome IS NULL, g.nome, esc.nome`,
+    [id]
+  );
+
+  // Só a fase de grupos entra na classificação: mata-mata não dá pontos
+  const [jogos] = await db.query(
+    `SELECT id, grupo_id, equipe_1_id, equipe_2_id, placar_1, placar_2, status, vencedor_equipe_id
+       FROM jogos
+      WHERE competicao_id = ? AND fase = 'GRUPOS' AND status IN ('FINALIZADO', 'WO')`,
+    [id]
+  );
+
+  // Por JOGO, e não só por equipe: é o que permite recontar a campanha
+  // descartando jogos, como a regra do "melhor segundo" exige.
+  const [cartoes] = await db.query(
+    `SELECT j.id AS jogo_id, s.equipe_id,
+            COALESCE(SUM(s.amarelos), 0)        AS amarelos,
+            COALESCE(SUM(s.vermelho), 0)        AS vermelhos,
+            COALESCE(SUM(s.desqualificado), 0)  AS desqualificacoes
+       FROM sumula_atletas s
+       INNER JOIN jogos j ON j.id = s.jogo_id
+      WHERE j.competicao_id = ? AND j.fase = 'GRUPOS'
+      GROUP BY j.id, s.equipe_id`,
+    [id]
+  );
+
+  // Vôlei: o saldo de pontos dos sets é critério de desempate
+  const [sets] = competicao.tipo_placar === 'SETS'
+    ? await db.query(
+      `SELECT js.jogo_id, js.pontos_1, js.pontos_2
+         FROM jogo_sets js
+         INNER JOIN jogos j ON j.id = js.jogo_id
+        WHERE j.competicao_id = ? AND j.fase = 'GRUPOS'`,
+      [id]
+    )
+    : [[]];
+
+  return { competicao, criterios, equipes, jogos, cartoes, sets };
+};
+
+// Soma a campanha de cada equipe a partir de UMA lista de jogos. Chamar com a
+// lista filtrada é o que permite descartar jogos na comparação entre grupos.
+const somarCampanha = (equipes, jogos, competicao, cartoes, sets) => {
+  const tabela = new Map();
+
+  for (const equipe of equipes) {
+    tabela.set(equipe.equipe_id, {
+      equipe_id: equipe.equipe_id,
+      escola_id: equipe.escola_id,
+      escola_nome: equipe.escola_nome,
+      grupo_id: equipe.grupo_id,
+      grupo_nome: equipe.grupo_nome || 'Sem grupo',
+      total_inscritos: equipe.total_inscritos,
+      jogos: 0,
+      vitorias: 0,
+      empates: 0,
+      derrotas: 0,
+      pontos: 0,
+      marcados: 0,
+      sofridos: 0,
+      saldo: 0,
+      pontos_set_pro: 0,
+      pontos_set_contra: 0,
+      amarelos: 0,
+      vermelhos: 0,
+      desqualificacoes: 0,
+      wo: 0
+    });
+  }
+
+  const idsDosJogos = new Set(jogos.map((j) => j.id));
+
+  for (const jogo of jogos) {
+    const casa = tabela.get(jogo.equipe_1_id);
+    const fora = tabela.get(jogo.equipe_2_id);
+    if (!casa || !fora) continue;
+
+    const [p1, p2] = resultado(jogo, competicao);
+    const placar1 = jogo.placar_1 ?? 0;
+    const placar2 = jogo.placar_2 ?? 0;
+
+    for (const [equipe, feitos, sofridos, pontos] of [
+      [casa, placar1, placar2, p1],
+      [fora, placar2, placar1, p2]
+    ]) {
+      equipe.jogos += 1;
+      equipe.marcados += feitos;
+      equipe.sofridos += sofridos;
+      equipe.saldo += feitos - sofridos;
+      equipe.pontos += pontos;
+      if (jogo.status === 'WO') equipe.wo += 1;
+    }
+
+    const vencedor = vencedorDoJogo(jogo);
+
+    if (vencedor === null) {
+      casa.empates += 1;
+      fora.empates += 1;
+    } else if (vencedor === casa.equipe_id) {
+      casa.vitorias += 1;
+      fora.derrotas += 1;
+    } else {
+      fora.vitorias += 1;
+      casa.derrotas += 1;
+    }
+  }
+
+  for (const linha of cartoes) {
+    if (!idsDosJogos.has(linha.jogo_id)) continue;
+    const equipe = tabela.get(linha.equipe_id);
+    if (!equipe) continue;
+    equipe.amarelos += Number(linha.amarelos);
+    equipe.vermelhos += Number(linha.vermelhos);
+    equipe.desqualificacoes += Number(linha.desqualificacoes);
+  }
+
+  if (sets.length > 0) {
+    const porJogo = new Map(jogos.map((j) => [j.id, j]));
+
+    for (const set of sets) {
+      const jogo = porJogo.get(set.jogo_id);
+      if (!jogo) continue;
+
+      const casa = tabela.get(jogo.equipe_1_id);
+      const fora = tabela.get(jogo.equipe_2_id);
+      if (!casa || !fora) continue;
+
+      casa.pontos_set_pro += set.pontos_1;
+      casa.pontos_set_contra += set.pontos_2;
+      fora.pontos_set_pro += set.pontos_2;
+      fora.pontos_set_contra += set.pontos_1;
+    }
+  }
+
+  return tabela;
+};
+
+// Agrupa as linhas por grupo e ordena cada grupo, numerando as posições
+const montarGrupos = (tabela, jogos, competicao, criterios) => {
+  const grupos = [];
+  const porGrupo = new Map();
+
+  for (const equipe of tabela.values()) {
+    const chave = equipe.grupo_id ?? 'sem-grupo';
+    if (!porGrupo.has(chave)) {
+      const grupo = { id: equipe.grupo_id, nome: equipe.grupo_nome, equipes: [] };
+      porGrupo.set(chave, grupo);
+      grupos.push(grupo);
+    }
+    porGrupo.get(chave).equipes.push(equipe);
+  }
+
+  for (const grupo of grupos) {
+    // Jogos do próprio grupo; num grupo único o grupo_id do jogo pode ser nulo
+    const ctx = {
+      competicao,
+      jogos: grupos.length === 1 ? jogos : jogos.filter((j) => j.grupo_id === grupo.id)
+    };
+
+    grupo.equipes = ordenarPorCampanha(grupo.equipes, criterios, ctx);
+    grupo.equipes.forEach((equipe, indice) => {
+      equipe.posicao = indice + 1;
+    });
+  }
+
+  return grupos;
+};
+
+// A classificação inteira de uma competição. O mata-mata usa esta função:
+// devolve também os dados crus, porque a comparação entre grupos precisa
+// recontar a campanha com outra lista de jogos.
+const montarClassificacao = async (id) => {
+  const dados = await carregarDados(id);
+  const tabela = somarCampanha(
+    dados.equipes, dados.jogos, dados.competicao, dados.cartoes, dados.sets
+  );
+
+  return { ...dados, grupos: montarGrupos(tabela, dados.jogos, dados.competicao, dados.criterios) };
+};
+
+// ---------------------------------------------------------------------------
+// Comparação entre grupos: o "melhor segundo" e a ordem dos primeiros
+// ---------------------------------------------------------------------------
+
+// Regra PROVISÓRIA de 30/09/2026 (regrasProvisorias.melhorSegundo): com grupos
+// de tamanhos diferentes, descarta os jogos contra os últimos colocados dos
+// grupos maiores, para todas as candidatas serem medidas pelo mesmo número de
+// partidas. Serve para escolher o melhor segundo e para ordenar os primeiros
+// colocados entre si, que é o que a chave da semifinal pede.
+const compararEntreGrupos = (posicao, dados) => {
+  const { competicao, criterios, equipes, jogos, cartoes, sets, grupos } = dados;
+
+  const menorGrupo = Math.min(...grupos.map((g) => g.equipes.length));
+  const descartadas = new Set();
+
+  for (const grupo of grupos) {
+    // Um grupo com uma equipe a mais tem um último colocado a descartar
+    const excedente = grupo.equipes.length - menorGrupo;
+    for (let i = 0; i < excedente; i += 1) {
+      descartadas.add(grupo.equipes[grupo.equipes.length - 1 - i].equipe_id);
+    }
+  }
+
+  const jogosValidos = descartadas.size === 0
+    ? jogos
+    : jogos.filter((j) => !descartadas.has(j.equipe_1_id) && !descartadas.has(j.equipe_2_id));
+
+  // Recontagem da campanha sem os jogos descartados. Linhas novas, para não
+  // sujar as da tabela com os critérios usados aqui.
+  const recontada = somarCampanha(equipes, jogosValidos, competicao, cartoes, sets);
+
+  const candidatas = grupos
+    .map((grupo) => grupo.equipes[posicao - 1])
+    .filter(Boolean)
+    .map((equipe) => ({
+      ...recontada.get(equipe.equipe_id),
+      posicao_no_grupo: equipe.posicao
+    }));
+
+  const ordenadas = ordenarPorCampanha(candidatas, criterios, { competicao, jogos: jogosValidos });
+
+  return {
+    posicao,
+    ordenadas,
+    // Para a tela poder explicar o que aconteceu
+    descartadas: [...descartadas],
+    jogos_descartados: jogos.length - jogosValidos.length,
+    provisoria: REGRAS.melhorSegundo.provisorio,
+    decididoEm: REGRAS.melhorSegundo.decididoEm
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Avisos e rota
+// ---------------------------------------------------------------------------
+
 // Regras que o regulamento não fecha e que mudariam esta tabela. Desde
 // 30/09/2026 elas têm decisão PROVISÓRIA (src/config/regrasProvisorias.js);
 // o aviso continua na tela para lembrar que o chefe ainda vai revisar.
@@ -190,196 +493,7 @@ const classificacaoDaCompeticao = async (req, res) => {
   }
 
   try {
-    const [[competicao]] = await db.query(
-      `SELECT c.id, c.genero, c.status, c.qtd_grupos, c.classificados_por_grupo,
-              c.melhores_segundos, c.proxima_fase, c.turno,
-              c.pontos_vitoria, c.pontos_empate, c.pontos_derrota,
-              m.nome AS modalidade_nome, m.slug AS modalidade_slug, m.tipo_placar,
-              cat.nome AS categoria_nome
-         FROM competicoes c
-         INNER JOIN modalidades m ON m.id = c.modalidade_id
-         INNER JOIN categorias cat ON cat.id = c.categoria_id
-        WHERE c.id = ?`,
-      [id]
-    );
-
-    if (!competicao) {
-      return res.status(404).json({ erro: 'Competição não encontrada.' });
-    }
-
-    const criterios = ORDEM_DESEMPATE[competicao.tipo_placar];
-
-    if (!criterios) {
-      // Atletismo (MARCA) não tem tabela de grupos: o resultado é por prova
-      return res.status(400).json({
-        erro: `${competicao.modalidade_nome} não tem classificação por grupos.`
-      });
-    }
-
-    const [equipes] = await db.query(
-      `SELECT e.id AS equipe_id, e.escola_id, esc.nome AS escola_nome,
-              g.id AS grupo_id, g.nome AS grupo_nome,
-              (SELECT COUNT(*) FROM inscricoes_atletas i WHERE i.equipe_id = e.id) AS total_inscritos
-         FROM equipes e
-         INNER JOIN escolas esc ON esc.id = e.escola_id
-         LEFT JOIN grupos g ON g.id = e.grupo_id
-        WHERE e.competicao_id = ?
-        ORDER BY g.nome IS NULL, g.nome, esc.nome`,
-      [id]
-    );
-
-    // Só a fase de grupos entra na classificação: mata-mata não dá pontos
-    const [jogos] = await db.query(
-      `SELECT id, grupo_id, equipe_1_id, equipe_2_id, placar_1, placar_2, status, vencedor_equipe_id
-         FROM jogos
-        WHERE competicao_id = ? AND fase = 'GRUPOS' AND status IN ('FINALIZADO', 'WO')`,
-      [id]
-    );
-
-    const [cartoes] = await db.query(
-      `SELECT s.equipe_id,
-              COALESCE(SUM(s.amarelos), 0) AS amarelos,
-              COALESCE(SUM(s.vermelho), 0) AS vermelhos,
-              COALESCE(SUM(s.desqualificado), 0) AS desqualificacoes
-         FROM sumula_atletas s
-         INNER JOIN jogos j ON j.id = s.jogo_id
-        WHERE j.competicao_id = ? AND j.fase = 'GRUPOS'
-        GROUP BY s.equipe_id`,
-      [id]
-    );
-
-    // Vôlei: o saldo de pontos dos sets é critério de desempate
-    const [sets] = competicao.tipo_placar === 'SETS'
-      ? await db.query(
-        `SELECT js.jogo_id, js.pontos_1, js.pontos_2
-           FROM jogo_sets js
-           INNER JOIN jogos j ON j.id = js.jogo_id
-          WHERE j.competicao_id = ? AND j.fase = 'GRUPOS'`,
-        [id]
-      )
-      : [[]];
-
-    const tabela = new Map();
-    for (const equipe of equipes) {
-      tabela.set(equipe.equipe_id, {
-        equipe_id: equipe.equipe_id,
-        escola_id: equipe.escola_id,
-        escola_nome: equipe.escola_nome,
-        grupo_id: equipe.grupo_id,
-        grupo_nome: equipe.grupo_nome || 'Sem grupo',
-        total_inscritos: equipe.total_inscritos,
-        jogos: 0,
-        vitorias: 0,
-        empates: 0,
-        derrotas: 0,
-        pontos: 0,
-        marcados: 0,
-        sofridos: 0,
-        saldo: 0,
-        pontos_set_pro: 0,
-        pontos_set_contra: 0,
-        amarelos: 0,
-        vermelhos: 0,
-        desqualificacoes: 0,
-        wo: 0
-      });
-    }
-
-    for (const jogo of jogos) {
-      const casa = tabela.get(jogo.equipe_1_id);
-      const fora = tabela.get(jogo.equipe_2_id);
-      if (!casa || !fora) continue;
-
-      const [p1, p2] = resultado(jogo, competicao);
-      const placar1 = jogo.placar_1 ?? 0;
-      const placar2 = jogo.placar_2 ?? 0;
-
-      for (const [equipe, feitos, sofridos, pontos] of [
-        [casa, placar1, placar2, p1],
-        [fora, placar2, placar1, p2]
-      ]) {
-        equipe.jogos += 1;
-        equipe.marcados += feitos;
-        equipe.sofridos += sofridos;
-        equipe.saldo += feitos - sofridos;
-        equipe.pontos += pontos;
-        if (jogo.status === 'WO') equipe.wo += 1;
-      }
-
-      const vencedor = jogo.status === 'WO' && jogo.vencedor_equipe_id
-        ? jogo.vencedor_equipe_id
-        : placar1 === placar2 ? null : placar1 > placar2 ? jogo.equipe_1_id : jogo.equipe_2_id;
-
-      if (vencedor === null) {
-        casa.empates += 1;
-        fora.empates += 1;
-      } else if (vencedor === casa.equipe_id) {
-        casa.vitorias += 1;
-        fora.derrotas += 1;
-      } else {
-        fora.vitorias += 1;
-        casa.derrotas += 1;
-      }
-    }
-
-    for (const linha of cartoes) {
-      const equipe = tabela.get(linha.equipe_id);
-      if (!equipe) continue;
-      equipe.amarelos = Number(linha.amarelos);
-      equipe.vermelhos = Number(linha.vermelhos);
-      equipe.desqualificacoes = Number(linha.desqualificacoes);
-    }
-
-    if (sets.length > 0) {
-      const porJogo = new Map(jogos.map((j) => [j.id, j]));
-      for (const set of sets) {
-        const jogo = porJogo.get(set.jogo_id);
-        if (!jogo) continue;
-
-        const casa = tabela.get(jogo.equipe_1_id);
-        const fora = tabela.get(jogo.equipe_2_id);
-        if (!casa || !fora) continue;
-
-        casa.pontos_set_pro += set.pontos_1;
-        casa.pontos_set_contra += set.pontos_2;
-        fora.pontos_set_pro += set.pontos_2;
-        fora.pontos_set_contra += set.pontos_1;
-      }
-    }
-
-    // Agrupa, ordena por pontos e desempata bloco a bloco
-    const grupos = [];
-    const porGrupo = new Map();
-
-    for (const equipe of tabela.values()) {
-      const chave = equipe.grupo_id ?? 'sem-grupo';
-      if (!porGrupo.has(chave)) {
-        const grupo = { id: equipe.grupo_id, nome: equipe.grupo_nome, equipes: [] };
-        porGrupo.set(chave, grupo);
-        grupos.push(grupo);
-      }
-      porGrupo.get(chave).equipes.push(equipe);
-    }
-
-    for (const grupo of grupos) {
-      // Jogos do próprio grupo; num grupo único o grupo_id do jogo pode ser nulo
-      const ctx = {
-        competicao,
-        jogos: grupos.length === 1 ? jogos : jogos.filter((j) => j.grupo_id === grupo.id)
-      };
-
-      const porPontos = new Map();
-      for (const equipe of grupo.equipes) {
-        if (!porPontos.has(equipe.pontos)) porPontos.set(equipe.pontos, []);
-        porPontos.get(equipe.pontos).push(equipe);
-      }
-
-      const chaves = [...porPontos.keys()].sort((a, b) => b - a);
-      grupo.equipes = chaves.flatMap((chave) => desempatar(porPontos.get(chave), criterios, 0, ctx));
-      grupo.equipes.forEach((equipe, indice) => {
-        equipe.posicao = indice + 1;
-      });
-    }
+    const { competicao, criterios, equipes, jogos, grupos } = await montarClassificacao(id);
 
     res.status(200).json({
       competicao: {
@@ -399,9 +513,20 @@ const classificacaoDaCompeticao = async (req, res) => {
       grupos
     });
   } catch (erro) {
+    if (erro instanceof ErroDeRegra) {
+      return res.status(erro.status).json({ erro: erro.message });
+    }
     console.error(erro);
     res.status(500).json({ erro: 'Erro ao montar a classificação.' });
   }
 };
 
-module.exports = { classificacaoDaCompeticao };
+module.exports = {
+  classificacaoDaCompeticao,
+  // Usados pelo mata-mata (fatia 7)
+  montarClassificacao,
+  compararEntreGrupos,
+  vencedorDoJogo,
+  ErroDeRegra,
+  CRITERIOS
+};

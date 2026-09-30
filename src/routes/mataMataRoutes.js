@@ -1,16 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const mataMataController = require('../controllers/mataMataController');
-const { verificarToken, exigirPerfil } = require('../middlewares/authMiddleware');
 
-const somenteAdmin = [verificarToken, exigirPerfil('ADMIN')];
-
-router.get('/', mataMataController.listarMataMata);
-
-// Rota POST para gerar as semis a partir da classificação dinâmica dos grupos
-router.post('/gerar', somenteAdmin, mataMataController.gerarSemifinais);
-
-// NOVA: Rota POST para gerar a final e 3º lugar
-router.post('/final', somenteAdmin, mataMataController.gerarFinal);
+// Leitura pública, como as outras da competição: a chave, os classificados e
+// as colocações finais são todos calculados a partir dos jogos.
+// A geração e o desfazer entram na parte 7b, só para ADMIN.
+router.get('/competicao/:competicao_id', mataMataController.chaveDaCompeticao);
 
 module.exports = router;

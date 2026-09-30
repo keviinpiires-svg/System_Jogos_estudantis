@@ -1,204 +1,394 @@
 const db = require('../config/db');
+const {
+  montarClassificacao, compararEntreGrupos, vencedorDoJogo, ErroDeRegra
+} = require('./classificacaoController');
+const {
+  REGRAS_DA_CHAVE, chaveDaSemifinal, chaveDaFinal, temMataMata
+} = require('../config/chavesMataMata');
 
-// Próximo número de jogo livre (evita erro de número duplicado)
-const proximoNumeroJogo = async (conexao) => {
-    const [[linha]] = await conexao.query('SELECT COALESCE(MAX(numero_jogo), 0) + 1 AS proximo FROM jogos');
-    return linha.proximo;
+// ============================================================================
+// MATA-MATA — a chave de cada competição, montada a partir da classificação.
+//
+// Nada aqui é guardado: os classificados e as colocações saem dos jogos, como
+// a classificação. O que o ADMIN grava são os JOGOS da semifinal e da final,
+// e é só isso que este controller escreve.
+//
+// O cruzamento (quem pega quem) mora em src/config/chavesMataMata.js.
+// O empate dentro do jogo é do sumulaController, que já lê a sequência de
+// desempate de cada modalidade em src/config/regrasProvisorias.js.
+// ============================================================================
+
+const RESOLVIDO = ['FINALIZADO', 'WO'];
+
+// Os classificados de cada grupo, já cortados no que a competição classifica
+const classificadosPorGrupo = (grupos, quantos) => grupos.map((grupo) => ({
+  grupo_id: grupo.id,
+  grupo_nome: grupo.nome,
+  equipes: grupo.equipes.slice(0, quantos)
+}));
+
+// Estado dos jogos de uma fase: o que existe, o que já foi decidido
+const jogosDaFase = (jogos, fase) => jogos.filter((j) => j.fase === fase);
+
+const decidido = (jogo) => RESOLVIDO.includes(jogo.status) && jogo.vencedor_equipe_id;
+
+// Monta tudo o que a chave precisa saber. Serve ao GET e à geração.
+const montarChave = async (id) => {
+  const dados = await montarClassificacao(id);
+  const { competicao, grupos, jogos } = dados;
+
+  const [todosOsJogos] = await db.query(
+    `SELECT j.id, j.numero_jogo, j.fase, j.status, j.data_hora, j.rodada,
+            j.equipe_1_id, j.equipe_2_id, j.placar_1, j.placar_2,
+            j.penaltis_1, j.penaltis_2, j.vencedor_equipe_id,
+            e1.escola_id AS escola_1_id, esc1.nome AS escola_1_nome,
+            e2.escola_id AS escola_2_id, esc2.nome AS escola_2_nome
+       FROM jogos j
+       INNER JOIN equipes e1 ON e1.id = j.equipe_1_id
+       INNER JOIN escolas esc1 ON esc1.id = e1.escola_id
+       INNER JOIN equipes e2 ON e2.id = j.equipe_2_id
+       INNER JOIN escolas esc2 ON esc2.id = e2.escola_id
+      WHERE j.competicao_id = ?
+      ORDER BY j.fase, j.numero_jogo`,
+    [id]
+  );
+
+  const deGrupos = jogosDaFase(todosOsJogos, 'GRUPOS');
+  const pendentesDeGrupos = deGrupos.filter((j) => !RESOLVIDO.includes(j.status));
+
+  const faseDeGrupos = {
+    total: deGrupos.length,
+    pendentes: pendentesDeGrupos.length,
+    // Sem jogo nenhum a fase não está completa, está vazia
+    completa: deGrupos.length > 0 && pendentesDeGrupos.length === 0
+  };
+
+  // A comparação entre grupos só é necessária quando há mais de um grupo
+  const entreGrupos = grupos.length > 1;
+  const primeiros = entreGrupos ? compararEntreGrupos(1, dados) : null;
+  const segundos = entreGrupos ? compararEntreGrupos(2, dados) : null;
+
+  const contexto = {
+    grupos,
+    classificadosPorGrupo: classificadosPorGrupo(grupos, competicao.classificados_por_grupo),
+    melhoresSegundos: segundos ? segundos.ordenadas.slice(0, competicao.melhores_segundos) : [],
+    primeirosOrdenados: primeiros ? primeiros.ordenadas : []
+  };
+
+  return {
+    ...dados,
+    todosOsJogos,
+    jogosDeGrupos: jogos,
+    faseDeGrupos,
+    contexto,
+    comparacoes: { primeiros, segundos }
+  };
 };
 
-// Busca os 2 primeiros de um grupo calculando a classificação a partir dos jogos
-// finalizados, com os mesmos critérios de desempate da tabela geral.
-// O grupo vem do vínculo escola -> grupo (grupos_escolas), e não de jogos.grupo_id:
-// assim um jogo agendado sem grupo_id preenchido continua contando.
-const topDoisDoGrupo = async (conexao, grupo) => {
-    const [linhas] = await conexao.query(
-        `SELECT p.escola_id
-         FROM (
-           SELECT j.escola_1_id AS escola_id, j.placar_escola_1 AS gols_pro, j.placar_escola_2 AS gols_contra
-           FROM jogos j
-           WHERE j.status = 'FINALIZADO' AND UPPER(j.fase) NOT IN ('SEMIFINAL', 'TERCEIRO_LUGAR', 'FINAL')
-           UNION ALL
-           SELECT j.escola_2_id AS escola_id, j.placar_escola_2 AS gols_pro, j.placar_escola_1 AS gols_contra
-           FROM jogos j
-           WHERE j.status = 'FINALIZADO' AND UPPER(j.fase) NOT IN ('SEMIFINAL', 'TERCEIRO_LUGAR', 'FINAL')
-         ) p
-         INNER JOIN grupos_escolas ge ON ge.escola_id = p.escola_id
-         INNER JOIN grupos g ON g.id = ge.grupo_id
-         WHERE g.nome = ?
-         GROUP BY p.escola_id
-         ORDER BY SUM((p.gols_pro > p.gols_contra) * 3 + (p.gols_pro = p.gols_contra)) DESC,
-                  SUM(p.gols_pro > p.gols_contra) DESC,
-                  SUM(p.gols_pro - p.gols_contra) DESC,
-                  SUM(p.gols_pro) DESC,
-                  p.escola_id ASC
-         LIMIT 2`,
-        [grupo]
+// Quem venceu cada semifinal, na ordem dos jogos
+const vencedoresDaSemifinal = (semifinais) => semifinais
+  .filter(decidido)
+  .map((jogo) => {
+    const venceu = jogo.vencedor_equipe_id;
+    return {
+      equipe_id: venceu,
+      escola_nome: venceu === jogo.equipe_1_id ? jogo.escola_1_nome : jogo.escola_2_nome,
+      jogo_id: jogo.id
+    };
+  });
+
+// Qual fase pode ser gerada agora, e por que não
+const proximaGeracao = (chave) => {
+  const { competicao, faseDeGrupos, todosOsJogos } = chave;
+
+  if (!temMataMata(competicao)) {
+    return {
+      fase: null,
+      motivo: 'Esta competição não tem mata-mata: são duas equipes em ida e volta, '
+        + 'e o campeão sai da soma dos dois jogos.'
+    };
+  }
+
+  if (!faseDeGrupos.completa) {
+    return {
+      fase: null,
+      motivo: faseDeGrupos.total === 0
+        ? 'A fase de grupos ainda não tem jogos.'
+        : `Faltam ${faseDeGrupos.pendentes} de ${faseDeGrupos.total} jogos da fase de grupos.`
+    };
+  }
+
+  const semifinais = jogosDaFase(todosOsJogos, 'SEMIFINAL');
+  const finais = jogosDaFase(todosOsJogos, 'FINAL');
+
+  if (finais.length > 0) {
+    return { fase: null, motivo: 'A chave está completa: a final já está gerada.' };
+  }
+
+  if (competicao.proxima_fase === 'SEMIFINAL') {
+    if (semifinais.length === 0) return { fase: 'SEMIFINAL', motivo: null };
+
+    const decididas = semifinais.filter(decidido).length;
+
+    return decididas === semifinais.length
+      ? { fase: 'FINAL', motivo: null }
+      : {
+        fase: null,
+        motivo: `A final sai das semifinais: ${semifinais.length - decididas} de `
+          + `${semifinais.length} ainda sem resultado.`
+      };
+  }
+
+  return { fase: 'FINAL', motivo: null };
+};
+
+// Os confrontos que a fase teria, pela regra da competição
+const confrontosPrevistos = (chave, fase) => {
+  const contexto = fase === 'FINAL'
+    ? {
+      ...chave.contexto,
+      vencedoresDaSemifinal: vencedoresDaSemifinal(jogosDaFase(chave.todosOsJogos, 'SEMIFINAL'))
+    }
+    : chave.contexto;
+
+  return fase === 'SEMIFINAL'
+    ? chaveDaSemifinal(chave.competicao, contexto)
+    : chaveDaFinal(chave.competicao, contexto);
+};
+
+// ---------------------------------------------------------------------------
+// Colocações finais — calculadas, nunca gravadas
+// ---------------------------------------------------------------------------
+// Regulamento: NÃO existe jogo de 3º lugar. Com semifinal, o 3º é quem perdeu
+// a semifinal PARA O CAMPEÃO. Sem semifinal, vale a fase classificatória:
+// o 3º do grupo único ou, com dois grupos, o melhor dos dois segundos
+// (REGRAS_DA_CHAVE.terceiroSemSemifinal, decisão provisória de 30/09/2026).
+const colocacoesFinais = (chave) => {
+  const { competicao, todosOsJogos, grupos, comparacoes, faseDeGrupos } = chave;
+  const colocacoes = [];
+
+  const nomeDaEquipe = (equipe_id) => {
+    for (const grupo of grupos) {
+      const equipe = grupo.equipes.find((e) => e.equipe_id === equipe_id);
+      if (equipe) return equipe.escola_nome;
+    }
+    return '';
+  };
+
+  // Competição sem mata-mata: campeão pela soma dos dois jogos
+  if (!temMataMata(competicao)) {
+    if (!faseDeGrupos.completa) return [];
+
+    const [grupo] = grupos;
+    if (!grupo || grupo.equipes.length < 2) return [];
+
+    const [primeiro, segundo] = grupo.equipes;
+    const somaEmpatada = primeiro.pontos === segundo.pontos && primeiro.saldo === segundo.saldo;
+    // Empatada a soma, o título sai das cobranças do último jogo
+    const ultimo = jogosDaFase(todosOsJogos, 'GRUPOS').slice(-1)[0];
+    const porCobranca = somaEmpatada && ultimo?.vencedor_equipe_id
+      ? ultimo.vencedor_equipe_id
+      : null;
+
+    if (somaEmpatada && !porCobranca) {
+      return [];
+    }
+
+    const campeao = porCobranca || primeiro.equipe_id;
+    const vice = campeao === primeiro.equipe_id ? segundo.equipe_id : primeiro.equipe_id;
+
+    return [
+      {
+        posicao: 1,
+        equipe_id: campeao,
+        escola_nome: nomeDaEquipe(campeao),
+        como: porCobranca
+          ? 'campeão nas cobranças, com a soma dos dois jogos empatada'
+          : 'campeão pela soma dos dois jogos'
+      },
+      { posicao: 2, equipe_id: vice, escola_nome: nomeDaEquipe(vice), como: 'vice' }
+    ];
+  }
+
+  const finais = jogosDaFase(todosOsJogos, 'FINAL');
+  const final = finais.find(decidido);
+
+  if (!final) return [];
+
+  const campeao = final.vencedor_equipe_id;
+  const vice = campeao === final.equipe_1_id ? final.equipe_2_id : final.equipe_1_id;
+
+  colocacoes.push(
+    {
+      posicao: 1,
+      equipe_id: campeao,
+      escola_nome: campeao === final.equipe_1_id ? final.escola_1_nome : final.escola_2_nome,
+      como: 'campeão da final'
+    },
+    {
+      posicao: 2,
+      equipe_id: vice,
+      escola_nome: vice === final.equipe_1_id ? final.escola_1_nome : final.escola_2_nome,
+      como: 'vice'
+    }
+  );
+
+  const semifinais = jogosDaFase(todosOsJogos, 'SEMIFINAL');
+
+  if (semifinais.length > 0) {
+    // O 3º é quem perdeu a semifinal para o campeão — não há jogo de 3º lugar
+    const doCampeao = semifinais.find(
+      (j) => decidido(j) && j.vencedor_equipe_id === campeao
     );
-    return linhas.map((l) => l.escola_id);
-};
 
-// Data padrão quando o administrador gera as chaves sem informar o calendário
-const daquiA = (dias, hora) => {
-    const data = new Date();
-    data.setDate(data.getDate() + dias);
-    data.setHours(hora, 0, 0, 0);
-    return data.toISOString().slice(0, 19).replace('T', ' ');
-};
+    if (doCampeao) {
+      const terceiro = campeao === doCampeao.equipe_1_id
+        ? doCampeao.equipe_2_id
+        : doCampeao.equipe_1_id;
 
-// Semifinais: 1º A x 2º B  e  1º B x 2º A
-// Body (tudo opcional): { local_id, data_hora_semi1, data_hora_semi2 }
-const gerarSemifinais = async (req, res) => {
-    const { local_id, data_hora_semi1, data_hora_semi2 } = req.body || {};
-
-    let conexao;
-    try {
-        conexao = await db.getConnection();
-        await conexao.beginTransaction();
-
-        const grupoA = await topDoisDoGrupo(conexao, 'A');
-        const grupoB = await topDoisDoGrupo(conexao, 'B');
-
-        if (grupoA.length < 2 || grupoB.length < 2) {
-            await conexao.rollback();
-            const faltando = [grupoA.length < 2 && 'A', grupoB.length < 2 && 'B'].filter(Boolean).join(' e ');
-            return res.status(400).json({
-                erro: `O grupo ${faltando} ainda não tem dois times com jogos finalizados. Registre as súmulas da fase de grupos antes de gerar as chaves.`
-            });
-        }
-
-        const [jaExiste] = await conexao.query(`SELECT id FROM jogos WHERE UPPER(fase) = 'SEMIFINAL' LIMIT 1`);
-        if (jaExiste.length > 0) {
-            await conexao.rollback();
-            return res.status(400).json({ erro: 'As semifinais já foram geradas.' });
-        }
-
-        // Sem local informado, usa o primeiro local de disputa cadastrado
-        let localEscolhido = Number(local_id);
-        if (!localEscolhido) {
-            const [[local]] = await conexao.query('SELECT id FROM locais_disputa ORDER BY id LIMIT 1');
-            if (!local) {
-                await conexao.rollback();
-                return res.status(400).json({ erro: 'Cadastre um local de disputa antes de gerar as chaves.' });
-            }
-            localEscolhido = local.id;
-        }
-
-        const dataSemi1 = data_hora_semi1 || daquiA(7, 10);
-        const dataSemi2 = data_hora_semi2 || daquiA(7, 13);
-
-        const numero = await proximoNumeroJogo(conexao);
-        const insert = `
-            INSERT INTO jogos (numero_jogo, fase, escola_1_id, escola_2_id, local_id, data_hora, status)
-            VALUES (?, 'SEMIFINAL', ?, ?, ?, ?, 'AGENDADO')
-        `;
-        await conexao.query(insert, [numero, grupoA[0], grupoB[1], localEscolhido, dataSemi1]);
-        await conexao.query(insert, [numero + 1, grupoB[0], grupoA[1], localEscolhido, dataSemi2]);
-
-        await conexao.commit();
-        res.status(201).json({
-            mensagem: 'Semifinais agendadas com sucesso!',
-            semifinal_1: { escola_1_id: grupoA[0], escola_2_id: grupoB[1], numero_jogo: numero },
-            semifinal_2: { escola_1_id: grupoB[0], escola_2_id: grupoA[1], numero_jogo: numero + 1 }
-        });
-    } catch (erro) {
-        if (conexao) await conexao.rollback();
-        console.error(erro);
-        res.status(500).json({ erro: 'Erro ao gerar as semifinais.' });
-    } finally {
-        if (conexao) conexao.release();
+      colocacoes.push({
+        posicao: 3,
+        equipe_id: terceiro,
+        escola_nome: terceiro === doCampeao.equipe_1_id
+          ? doCampeao.escola_1_nome
+          : doCampeao.escola_2_nome,
+        como: 'perdeu a semifinal para o campeão (não há jogo de 3º lugar)'
+      });
     }
-};
 
-// Grande Final: os finalistas saem dos vencedores das semifinais já finalizadas.
-// Quem venceu nunca vem do cliente, para o chaveamento não poder ser burlado.
-// Body (tudo opcional): { local_id, data_hora_final }
-const gerarFinal = async (req, res) => {
-    const { local_id, data_hora_final } = req.body || {};
+    return colocacoes;
+  }
 
-    let conexao;
-    try {
-        conexao = await db.getConnection();
-        await conexao.beginTransaction();
-
-        const [semifinais] = await conexao.query(`
-            SELECT id, escola_1_id, escola_2_id, placar_escola_1, placar_escola_2, status, local_id
-            FROM jogos
-            WHERE UPPER(fase) = 'SEMIFINAL'
-            ORDER BY data_hora, numero_jogo
-        `);
-
-        if (semifinais.length < 2) {
-            await conexao.rollback();
-            return res.status(400).json({ erro: 'As semifinais ainda não foram geradas.' });
-        }
-
-        if (semifinais.some((jogo) => jogo.status !== 'FINALIZADO')) {
-            await conexao.rollback();
-            return res.status(400).json({ erro: 'Registre a súmula das duas semifinais antes de gerar a final.' });
-        }
-
-        const empatada = semifinais.find((jogo) => jogo.placar_escola_1 === jogo.placar_escola_2);
-        if (empatada) {
-            await conexao.rollback();
-            return res.status(400).json({
-                erro: 'Uma das semifinais terminou empatada e não tem vencedor definido. Ajuste o placar para definir quem avança.'
-            });
-        }
-
-        const [jaExiste] = await conexao.query(`SELECT id FROM jogos WHERE UPPER(fase) = 'FINAL' LIMIT 1`);
-        if (jaExiste.length > 0) {
-            await conexao.rollback();
-            return res.status(400).json({ erro: 'A Grande Final já foi gerada.' });
-        }
-
-        const vencedor = (jogo) =>
-            jogo.placar_escola_1 > jogo.placar_escola_2 ? jogo.escola_1_id : jogo.escola_2_id;
-
-        const finalista1 = vencedor(semifinais[0]);
-        const finalista2 = vencedor(semifinais[1]);
-
-        // Sem local informado, repete o local da primeira semifinal
-        const localEscolhido = Number(local_id) || semifinais[0].local_id;
-        const dataFinal = data_hora_final || daquiA(7, 16);
-
-        const numero = await proximoNumeroJogo(conexao);
-        await conexao.query(
-            `INSERT INTO jogos (numero_jogo, fase, escola_1_id, escola_2_id, local_id, data_hora, status)
-             VALUES (?, 'FINAL', ?, ?, ?, ?, 'AGENDADO')`,
-            [numero, finalista1, finalista2, localEscolhido, dataFinal]
-        );
-
-        await conexao.commit();
-        res.status(201).json({
-            mensagem: 'Grande Final agendada com sucesso!',
-            final: { escola_1_id: finalista1, escola_2_id: finalista2, numero_jogo: numero }
-        });
-    } catch (erro) {
-        if (conexao) await conexao.rollback();
-        console.error(erro);
-        res.status(500).json({ erro: 'Erro ao gerar a Grande Final.' });
-    } finally {
-        if (conexao) conexao.release();
+  // Sem semifinal: o 3º vem da fase classificatória
+  if (grupos.length === 1) {
+    const terceiro = grupos[0].equipes[2];
+    if (terceiro) {
+      colocacoes.push({
+        posicao: 3,
+        equipe_id: terceiro.equipe_id,
+        escola_nome: terceiro.escola_nome,
+        como: '3º do grupo (sem semifinal, vale a fase classificatória)',
+        provisoria: REGRAS_DA_CHAVE.terceiroSemSemifinal.provisorio
+      });
     }
+    return colocacoes;
+  }
+
+  const melhorSegundo = comparacoes.segundos?.ordenadas?.[0];
+
+  if (melhorSegundo) {
+    colocacoes.push({
+      posicao: 3,
+      equipe_id: melhorSegundo.equipe_id,
+      escola_nome: melhorSegundo.escola_nome,
+      como: `melhor 2º colocado (grupo ${melhorSegundo.grupo_nome}), `
+        + 'sem semifinal e sem jogo de 3º lugar',
+      provisoria: REGRAS_DA_CHAVE.terceiroSemSemifinal.provisorio
+    });
+  }
+
+  return colocacoes;
 };
 
-const listarMataMata = async (req, res) => {
-    try {
-        const [jogos] = await db.query(`
-            SELECT j.id, j.numero_jogo, UPPER(j.fase) AS fase, j.data_hora, j.status, j.local_id,
-                   j.escola_1_id, e1.nome AS escola_1_nome, j.placar_escola_1,
-                   j.escola_2_id, e2.nome AS escola_2_nome, j.placar_escola_2
-            FROM jogos j
-            INNER JOIN escolas e1 ON j.escola_1_id = e1.id
-            INNER JOIN escolas e2 ON j.escola_2_id = e2.id
-            WHERE j.fase IN ('SEMIFINAL', 'TERCEIRO_LUGAR', 'FINAL')
-            ORDER BY FIELD(j.fase, 'SEMIFINAL', 'TERCEIRO_LUGAR', 'FINAL'), j.data_hora, j.numero_jogo
-        `);
-        res.status(200).json(jogos);
-    } catch (erro) {
-        console.error(erro);
-        res.status(500).json({ erro: 'Erro ao buscar os jogos do mata-mata.' });
+// ---------------------------------------------------------------------------
+// GET /api/matamata/competicao/:competicao_id
+// ---------------------------------------------------------------------------
+const chaveDaCompeticao = async (req, res) => {
+  const id = Number(req.params.competicao_id);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ erro: 'Identificador de competição inválido.' });
+  }
+
+  try {
+    const chave = await montarChave(id);
+    const { competicao, contexto, comparacoes, faseDeGrupos, todosOsJogos } = chave;
+
+    const geracao = proximaGeracao(chave);
+    const semifinais = jogosDaFase(todosOsJogos, 'SEMIFINAL');
+    const finais = jogosDaFase(todosOsJogos, 'FINAL');
+
+    // O previsto de cada fase, para a tela mostrar a chave antes de gerar
+    const previsto = (fase, existentes) => {
+      if (!temMataMata(competicao)) return null;
+      if (existentes.length > 0) return { gerada: true, jogos: existentes };
+      if (!faseDeGrupos.completa) return { gerada: false, jogos: [], pendente: true };
+
+      const resultado = confrontosPrevistos(chave, fase);
+      return {
+        gerada: false,
+        jogos: [],
+        confrontos: resultado.confrontos || [],
+        erro: resultado.erro || null,
+        observacao: resultado.observacao || null,
+        regra: resultado.regra || null
+      };
+    };
+
+    res.status(200).json({
+      competicao: {
+        id: competicao.id,
+        modalidade_nome: competicao.modalidade_nome,
+        modalidade_slug: competicao.modalidade_slug,
+        categoria_nome: competicao.categoria_nome,
+        genero: competicao.genero,
+        tipo_placar: competicao.tipo_placar
+      },
+      formato: {
+        qtd_grupos: competicao.qtd_grupos,
+        classificados_por_grupo: competicao.classificados_por_grupo,
+        melhores_segundos: competicao.melhores_segundos,
+        proxima_fase: competicao.proxima_fase,
+        turno: competicao.turno,
+        tem_mata_mata: temMataMata(competicao)
+      },
+      fase_de_grupos: faseDeGrupos,
+      classificados: contexto.classificadosPorGrupo,
+      melhores_segundos: contexto.melhoresSegundos.map((e) => ({
+        equipe_id: e.equipe_id,
+        escola_nome: e.escola_nome,
+        grupo_nome: e.grupo_nome,
+        pontos: e.pontos,
+        saldo: e.saldo,
+        jogos: e.jogos
+      })),
+      // Como a comparação entre grupos foi feita — a regra é provisória
+      comparacao_entre_grupos: comparacoes.segundos
+        ? {
+          jogos_descartados: comparacoes.segundos.jogos_descartados,
+          equipes_descartadas: comparacoes.segundos.descartadas,
+          provisoria: comparacoes.segundos.provisoria,
+          decidido_em: comparacoes.segundos.decididoEm,
+          ordem_dos_primeiros: (comparacoes.primeiros?.ordenadas || []).map((e) => ({
+            equipe_id: e.equipe_id, escola_nome: e.escola_nome, grupo_nome: e.grupo_nome
+          })),
+          ordem_dos_segundos: (comparacoes.segundos.ordenadas || []).map((e) => ({
+            equipe_id: e.equipe_id, escola_nome: e.escola_nome, grupo_nome: e.grupo_nome
+          }))
+        }
+        : null,
+      chave: {
+        semifinal: competicao.proxima_fase === 'SEMIFINAL' ? previsto('SEMIFINAL', semifinais) : null,
+        final: previsto('FINAL', finais)
+      },
+      colocacoes: colocacoesFinais(chave),
+      pode_gerar: geracao
+    });
+  } catch (erro) {
+    if (erro instanceof ErroDeRegra) {
+      return res.status(erro.status).json({ erro: erro.message });
     }
+    console.error(erro);
+    res.status(500).json({ erro: 'Erro ao montar a chave do mata-mata.' });
+  }
 };
 
-module.exports = { gerarSemifinais, gerarFinal, listarMataMata };
+module.exports = {
+  chaveDaCompeticao,
+  // Usados pela geração (parte 7b)
+  montarChave,
+  proximaGeracao,
+  confrontosPrevistos,
+  colocacoesFinais,
+  vencedoresDaSemifinal
+};
