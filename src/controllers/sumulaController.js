@@ -1,17 +1,16 @@
 const db = require('../config/db');
 const { desempateDaModalidade } = require('../config/regrasProvisorias');
+const { folhaDaModalidade } = require('../config/folhasSumula');
 
 // ============================================================================
 // SÚMULA: única fonte de verdade do placar.
 // Os gols lançados por atleta somam o placar do jogo, que por sua vez alimenta
 // a classificação e a artilharia. Nunca divergem, porque saem do mesmo lugar.
 //
-// O modelo em papel (docs/referencias/sumula_futsal_modelo.png) tem 14 linhas
-// por equipe — o mesmo teto de elenco do regulamento.
+// Cada modalidade tem o seu papel (14 linhas por equipe, cartões ou faltas,
+// teto de faltas acumuladas). Esse desenho está em src/config/folhasSumula.js
+// — aqui só o consultamos, para validar e para mandar à tela.
 // ============================================================================
-
-const LINHAS_SUMULA = 14;
-const MAX_AMARELOS = 2;
 
 const inteiroNaoNegativo = (valor) => {
   const numero = Number(valor ?? 0);
@@ -73,6 +72,7 @@ const buscarSumulaPorJogo = async (req, res) => {
               COALESCE(s.capitao, FALSE)        AS capitao,
               COALESCE(s.gols, 0)               AS gols,
               COALESCE(s.amarelos, 0)           AS amarelos,
+              COALESCE(s.faltas, 0)             AS faltas,
               COALESCE(s.vermelho, FALSE)       AS vermelho,
               COALESCE(s.desqualificado, FALSE) AS desqualificado
          FROM inscricoes_atletas i
@@ -124,21 +124,26 @@ const buscarSumulaPorJogo = async (req, res) => {
           capitao: Boolean(atleta.capitao),
           gols: Number(atleta.gols),
           amarelos: Number(atleta.amarelos),
+          faltas: Number(atleta.faltas),
           vermelho: Boolean(atleta.vermelho),
           desqualificado: Boolean(atleta.desqualificado)
         }))
       };
     };
 
+    const folha = folhaDaModalidade(jogo.modalidade_slug);
+
     res.status(200).json({
       evento,
       jogo,
-      // A regra de desempate viaja junto para a tela não precisar de uma
-      // cópia dela: a fonte continua sendo src/config/regrasProvisorias.js
+      // A regra de desempate e o desenho da folha viajam junto para a tela não
+      // precisar de cópia deles: a fonte continua sendo src/config/
       desempate: desempateDaModalidade(jogo.modalidade_slug),
-      linhas_sumula: LINHAS_SUMULA,
+      folha,
+      linhas_sumula: folha.linhas,
       equipes: [montarEquipe(jogo.equipe_1_id), montarEquipe(jogo.equipe_2_id)],
-      lancada: linhas.some((l) => Number(l.gols) > 0 || Number(l.amarelos) > 0 || l.vermelho)
+      lancada: linhas.some((l) => Number(l.gols) > 0 || Number(l.amarelos) > 0
+        || Number(l.faltas) > 0 || l.vermelho)
     });
   } catch (erro) {
     console.error(erro);
@@ -212,17 +217,35 @@ const registrarSumula = async (req, res) => {
     );
     const inscricaoValida = new Set(inscritos.map((i) => `${i.equipe_id}:${i.atleta_id}`));
 
+    // O papel da modalidade manda nas validações: quantas linhas, se tem
+    // cartão, quantas faltas cabem. Está em src/config/folhasSumula.js.
+    const folha = folhaDaModalidade(jogo.modalidade_slug);
     const golsPorEquipe = new Map();
 
     for (const equipe of equipesEnviadas) {
       const equipe_id = Number(equipe.equipe_id);
       const atletas = Array.isArray(equipe.atletas) ? equipe.atletas : [];
 
-      if (atletas.length > LINHAS_SUMULA) {
+      if (atletas.length > folha.linhas) {
         await conexao.rollback();
         return res.status(400).json({
-          erro: `A súmula tem ${LINHAS_SUMULA} linhas por equipe.`
+          erro: `A súmula tem ${folha.linhas} linhas por equipe.`
         });
+      }
+
+      // Faltas acumuladas da equipe: 5 por tempo no futsal e no handebol,
+      // 7 no basquete. Quem não tem o campo na folha não pode lançar.
+      for (const [campo, rotulo] of [['faltas_1t', '1º tempo'], ['faltas_2t', '2º tempo']]) {
+        const faltas = inteiroNaoNegativo(equipe[campo]) ?? 0;
+
+        if (faltas > folha.faltasAcumuladas) {
+          await conexao.rollback();
+          return res.status(400).json({
+            erro: folha.faltasAcumuladas === 0
+              ? `A folha de ${jogo.modalidade_nome} não tem faltas acumuladas.`
+              : `As faltas acumuladas do ${rotulo} vão até ${folha.faltasAcumuladas} em ${jogo.modalidade_nome}.`
+          });
+        }
       }
 
       let golsDaEquipe = 0;
@@ -237,21 +260,41 @@ const registrarSumula = async (req, res) => {
         const atleta_id = Number(atleta.atleta_id);
         const gols = inteiroNaoNegativo(atleta.gols);
         const amarelos = inteiroNaoNegativo(atleta.amarelos);
+        const faltas = inteiroNaoNegativo(atleta.faltas);
 
         if (!Number.isInteger(atleta_id) || atleta_id <= 0) {
           await conexao.rollback();
           return res.status(400).json({ erro: 'Há linha de súmula sem atleta.' });
         }
 
-        if (gols === null || amarelos === null) {
-          await conexao.rollback();
-          return res.status(400).json({ erro: 'Gols e cartões precisam ser inteiros não negativos.' });
-        }
-
-        if (amarelos > MAX_AMARELOS) {
+        if (gols === null || amarelos === null || faltas === null) {
           await conexao.rollback();
           return res.status(400).json({
-            erro: `A súmula tem duas caixas de amarelo: o máximo é ${MAX_AMARELOS}.`
+            erro: `${folha.rotuloEstatistica || 'Os lançamentos'}, cartões e faltas precisam ser inteiros não negativos.`
+          });
+        }
+
+        // O basquete não tem cartão no papel; o futsal não tem falta individual.
+        if (!folha.cartoes && (amarelos > 0 || booleano(atleta.vermelho))) {
+          await conexao.rollback();
+          return res.status(400).json({
+            erro: `A folha de ${jogo.modalidade_nome} não tem cartões.`
+          });
+        }
+
+        if (amarelos > folha.maxAmarelos) {
+          await conexao.rollback();
+          return res.status(400).json({
+            erro: `A súmula tem duas caixas de amarelo: o máximo é ${folha.maxAmarelos}.`
+          });
+        }
+
+        if (faltas > folha.faltasIndividuais) {
+          await conexao.rollback();
+          return res.status(400).json({
+            erro: folha.faltasIndividuais === 0
+              ? `A folha de ${jogo.modalidade_nome} não tem faltas por atleta.`
+              : `As faltas individuais vão de 0 a ${folha.faltasIndividuais}: com ${folha.faltasIndividuais} o atleta está excluído.`
           });
         }
 
@@ -292,14 +335,15 @@ const registrarSumula = async (req, res) => {
         await conexao.query(
           `INSERT INTO sumula_atletas
              (jogo_id, equipe_id, atleta_id, numero_camisa, presente, capitao,
-              gols, amarelos, vermelho, desqualificado)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              gols, amarelos, faltas, vermelho, desqualificado)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             jogo_id, equipe_id, Number(atleta.atleta_id),
             atleta.numero_camisa ? Number(atleta.numero_camisa) : null,
             booleano(atleta.presente), booleano(atleta.capitao),
             inteiroNaoNegativo(atleta.gols) ?? 0,
             inteiroNaoNegativo(atleta.amarelos) ?? 0,
+            inteiroNaoNegativo(atleta.faltas) ?? 0,
             booleano(atleta.vermelho), booleano(atleta.desqualificado)
           ]
         );
