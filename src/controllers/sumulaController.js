@@ -24,6 +24,117 @@ const textoOuNulo = (valor) => {
   return texto || null;
 };
 
+// ---------------------------------------------------------------------------
+// Vôlei: o placar do jogo são os SETS, guardados em jogo_sets.
+// ---------------------------------------------------------------------------
+
+// Devolve sempre os espaços do papel (3 sets), zerados enquanto não lançados.
+const lerSets = async (conexao, jogo_id, folha) => {
+  const [linhas] = await conexao.query(
+    'SELECT numero_set, pontos_1, pontos_2 FROM jogo_sets WHERE jogo_id = ? ORDER BY numero_set',
+    [jogo_id]
+  );
+
+  return Array.from({ length: folha.maxSets }, (_, i) => {
+    const gravado = linhas.find((l) => Number(l.numero_set) === i + 1);
+    return {
+      numero_set: i + 1,
+      pontos_1: gravado ? Number(gravado.pontos_1) : 0,
+      pontos_2: gravado ? Number(gravado.pontos_2) : 0
+    };
+  });
+};
+
+// Um set está fechado quando alguém chega aos 21 com 2 pontos de vantagem
+// (regulamento: melhor de 3, set de 21). Abaixo disso o set está em andamento,
+// que é o que a mesa salva enquanto o jogo corre.
+const setFechado = (set, folha) => {
+  const maior = Math.max(set.pontos_1, set.pontos_2);
+  const menor = Math.min(set.pontos_1, set.pontos_2);
+  return maior >= folha.pontosPorSet && maior - menor >= 2;
+};
+
+const setVazio = (set) => set.pontos_1 === 0 && set.pontos_2 === 0;
+
+const ORDINAL_SET = ['1º', '2º', '3º', '4º', '5º'];
+
+// Lê os sets enviados, valida o que o papel permite e diz quantos cada equipe
+// venceu. Devolve { erro } em vez de lançar, para o controller responder 400.
+const apurarSets = (enviados, folha, finalizar) => {
+  const sets = [];
+
+  for (let i = 0; i < folha.maxSets; i += 1) {
+    const enviado = (Array.isArray(enviados) ? enviados : [])
+      .find((s) => Number(s.numero_set) === i + 1) || {};
+    const pontos_1 = inteiroNaoNegativo(enviado.pontos_1);
+    const pontos_2 = inteiroNaoNegativo(enviado.pontos_2);
+
+    if (pontos_1 === null || pontos_2 === null) {
+      return { erro: `Os pontos do ${ORDINAL_SET[i]} set precisam ser inteiros não negativos.` };
+    }
+
+    sets.push({ numero_set: i + 1, pontos_1, pontos_2 });
+  }
+
+  // Ninguém pode começar o 2º set sem fechar o 1º
+  const ultimoLancado = sets.reduce((ultimo, set, i) => (setVazio(set) ? ultimo : i), -1);
+
+  for (let i = 0; i < ultimoLancado; i += 1) {
+    if (setVazio(sets[i])) {
+      return { erro: `O ${ORDINAL_SET[ultimoLancado]} set está lançado, mas o ${ORDINAL_SET[i]} está vazio.` };
+    }
+    if (!setFechado(sets[i], folha)) {
+      return {
+        erro: `O ${ORDINAL_SET[i]} set está ${sets[i].pontos_1} x ${sets[i].pontos_2}: `
+          + `um set termina em ${folha.pontosPorSet} pontos, com 2 de vantagem.`
+      };
+    }
+  }
+
+  const vencidos = sets.reduce((conta, set) => {
+    if (!setFechado(set, folha)) return conta;
+    if (set.pontos_1 > set.pontos_2) conta.um += 1;
+    else conta.dois += 1;
+    return conta;
+  }, { um: 0, dois: 0 });
+
+  if (!finalizar) return { sets, vencidos };
+
+  // Ao finalizar, o último set também precisa estar fechado
+  if (ultimoLancado >= 0 && !setFechado(sets[ultimoLancado], folha)) {
+    return {
+      erro: `O ${ORDINAL_SET[ultimoLancado]} set está ${sets[ultimoLancado].pontos_1} x `
+        + `${sets[ultimoLancado].pontos_2}: um set termina em ${folha.pontosPorSet} pontos, com 2 de vantagem.`
+    };
+  }
+
+  if (Math.max(vencidos.um, vencidos.dois) < folha.setsParaVencer) {
+    return {
+      erro: `O jogo termina quando uma equipe vence ${folha.setsParaVencer} sets. `
+        + `Está ${vencidos.um} x ${vencidos.dois}.`
+    };
+  }
+
+  // Decidido em dois sets não se joga o terceiro
+  const decidiuEm = sets.findIndex((_, i) => {
+    const ate = sets.slice(0, i + 1).reduce((conta, set) => {
+      if (!setFechado(set, folha)) return conta;
+      if (set.pontos_1 > set.pontos_2) conta.um += 1;
+      else conta.dois += 1;
+      return conta;
+    }, { um: 0, dois: 0 });
+    return Math.max(ate.um, ate.dois) >= folha.setsParaVencer;
+  });
+
+  if (decidiuEm >= 0 && ultimoLancado > decidiuEm) {
+    return {
+      erro: `O jogo foi decidido no ${ORDINAL_SET[decidiuEm]} set: o ${ORDINAL_SET[ultimoLancado]} não se joga.`
+    };
+  }
+
+  return { sets, vencidos };
+};
+
 // Monta a súmula de um jogo: cabeçalho, as duas equipes e, em cada uma, o
 // elenco inscrito já cruzado com o que foi lançado.
 // Serve tanto para preencher quanto para imprimir. Antes de qualquer
@@ -131,7 +242,11 @@ const buscarSumulaPorJogo = async (req, res) => {
       };
     };
 
-    const folha = folhaDaModalidade(jogo.modalidade_slug);
+    const folha = folhaDaModalidade(jogo.modalidade_slug, jogo.modalidade_nome);
+
+    // Vôlei: o placar são os sets. A folha traz sempre os três espaços do
+    // papel, mesmo antes de qualquer lançamento.
+    const sets = folha.sets ? await lerSets(db, jogo_id, folha) : null;
 
     res.status(200).json({
       evento,
@@ -140,6 +255,7 @@ const buscarSumulaPorJogo = async (req, res) => {
       // precisar de cópia deles: a fonte continua sendo src/config/
       desempate: desempateDaModalidade(jogo.modalidade_slug),
       folha,
+      sets,
       linhas_sumula: folha.linhas,
       equipes: [montarEquipe(jogo.equipe_1_id), montarEquipe(jogo.equipe_2_id)],
       lancada: linhas.some((l) => Number(l.gols) > 0 || Number(l.amarelos) > 0
@@ -219,8 +335,17 @@ const registrarSumula = async (req, res) => {
 
     // O papel da modalidade manda nas validações: quantas linhas, se tem
     // cartão, quantas faltas cabem. Está em src/config/folhasSumula.js.
-    const folha = folhaDaModalidade(jogo.modalidade_slug);
+    const folha = folhaDaModalidade(jogo.modalidade_slug, jogo.modalidade_nome);
     const golsPorEquipe = new Map();
+
+    // Vôlei: o placar são os sets, e eles são validados antes de qualquer
+    // escrita — set em andamento passa no parcial, mas não ao finalizar.
+    const apuracao = folha.sets ? apurarSets(req.body.sets, folha, finalizar) : null;
+
+    if (apuracao?.erro) {
+      await conexao.rollback();
+      return res.status(400).json({ erro: apuracao.erro });
+    }
 
     for (const equipe of equipesEnviadas) {
       const equipe_id = Number(equipe.equipe_id);
@@ -289,6 +414,13 @@ const registrarSumula = async (req, res) => {
           });
         }
 
+        if (folha.sets && gols > 0) {
+          await conexao.rollback();
+          return res.status(400).json({
+            erro: `Em ${jogo.modalidade_nome} o placar são os sets: não se lança ponto por atleta.`
+          });
+        }
+
         if (faltas > folha.faltasIndividuais) {
           await conexao.rollback();
           return res.status(400).json({
@@ -315,6 +447,19 @@ const registrarSumula = async (req, res) => {
     // o que vale é sempre o último lançamento da mesa.
     await conexao.query('DELETE FROM sumula_atletas WHERE jogo_id = ?', [jogo_id]);
     await conexao.query('DELETE FROM sumula_equipes WHERE jogo_id = ?', [jogo_id]);
+
+    if (apuracao) {
+      await conexao.query('DELETE FROM jogo_sets WHERE jogo_id = ?', [jogo_id]);
+
+      // Só os sets jogados vão para a tabela: o papel tem três espaços, o
+      // jogo pode ter acabado em dois.
+      for (const set of apuracao.sets.filter((s) => !setVazio(s))) {
+        await conexao.query(
+          'INSERT INTO jogo_sets (jogo_id, numero_set, pontos_1, pontos_2) VALUES (?, ?, ?, ?)',
+          [jogo_id, set.numero_set, set.pontos_1, set.pontos_2]
+        );
+      }
+    }
 
     for (const equipe of equipesEnviadas) {
       const equipe_id = Number(equipe.equipe_id);
@@ -350,8 +495,10 @@ const registrarSumula = async (req, res) => {
       }
     }
 
-    const placar_1 = golsPorEquipe.get(jogo.equipe_1_id) ?? 0;
-    const placar_2 = golsPorEquipe.get(jogo.equipe_2_id) ?? 0;
+    // No vôlei o placar do jogo são os sets vencidos; nas outras modalidades,
+    // a soma da coluna do atleta (gols, pontos ou eliminações).
+    const placar_1 = apuracao ? apuracao.vencidos.um : (golsPorEquipe.get(jogo.equipe_1_id) ?? 0);
+    const placar_2 = apuracao ? apuracao.vencidos.dois : (golsPorEquipe.get(jogo.equipe_2_id) ?? 0);
 
     const prorrogacao = booleano(req.body.prorrogacao);
     let status = jogo.status === 'AGENDADO' ? 'EM_ANDAMENTO' : jogo.status;

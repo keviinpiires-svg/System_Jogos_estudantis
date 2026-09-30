@@ -25,13 +25,29 @@ A folha impressa do sistema deve seguir estes modelos.
   12 para 14, a grade fica num bloco só ao lado delas, mantendo os seus 12 degraus e os números do papel.
 - **Acréscimo do sistema:** uma coluna estreita **"Pts"** com os pontos de cada atleta, que o papel não tem.
   O sistema guarda essa informação (é o que alimenta o cestinha) e a folha preenchida a mostra.
-- O papel oficial escreve "SÚMULA DE BASQUETEBOL"; a folha impressa usa o nome da modalidade cadastrada, **Basquete**.
+- O papel oficial escreve "SÚMULA DE BASQUETEBOL", e é esse o título impresso: **ele sai de `folhasSumula.js`**,
+  não do nome da modalidade cadastrada (Basquete). Decisão do usuário de 30/09/2026.
 
-## Vôlei
-- Um bloco com as duas equipes lado a lado. O papel traz **12 linhas** por equipe (Nº e Atleta); o sistema imprime **14**, Nome da equipe e **Assinatura do Capitão**.
-- **Controle dos sets**: 1º, 2º e 3º set, cada um com Saque A / Saque B (marcação de quem saca) e a sequência de pontos 1 a 20 por equipe, mais o **Placar** do set (___ x ___).
-- **Resultado final**: sets de cada equipe, Vencedor (marcar A ou B), Observações, assinaturas dos Árbitros 1 e 2.
-- Não há gols, cartões, faltas nem tempo técnico.
+## Vôlei — ✅ feito (30/09/2026, fatia 6)
+- Folha à parte, não uma variação da do futsal: o cabeçalho **não tem caixa de placar** (o resultado fica no rodapé).
+- Um bloco com as duas equipes **lado a lado**. O papel traz **12 linhas** por equipe (Nº e Atleta); o sistema imprime **14**,
+  com a linha mais baixa para a folha continuar cabendo em uma página. Nome da equipe e **Assinatura do Capitão**.
+- **Controle dos sets**: 1º, 2º e 3º set, cada um com Saque A / Saque B e a sequência de pontos 1 a 20 por equipe,
+  mais o **Placar** do set (___ x ___). Na folha preenchida a sequência vem riscada até o ponto que a equipe fez.
+- **Resultado final**: sets de cada equipe, Vencedor (marcado em A ou B), Observações, assinaturas dos Árbitros 1 e 2.
+- Não há gols, cartões, faltas nem tempo técnico — e o sistema **recusa** ponto por atleta no vôlei.
+- **As caixas de Saque A/B saem em branco nas duas versões:** o sistema guarda o placar dos sets, não quem sacou.
+  Registrar o saque exigiria uma coluna nova em `jogo_sets` (seria uma migração `db/07`).
+- O papel oficial escreve "SÚMULA DE VOLEIBOL"; como no basquete, **o título sai de `folhasSumula.js`**, não do nome
+  da modalidade cadastrada (Vôlei).
+- **Diferença de leitura do papel:** no modelo, a coluna "Nº" vem pré-impressa de 1 a 12, o que é um contador de linha.
+  Aqui ela guarda o **número da camisa** do atleta, como em todas as outras folhas do sistema (em branco nas linhas vazias).
+
+### Regra do set, no backend
+Um set termina em **21 pontos com 2 de vantagem** (por isso 23 x 21 vale e 21 x 20 não), e o jogo acaba quando uma
+equipe vence **2 sets** — decidido em dois, o terceiro não se joga. Enquanto o set está em andamento a mesa **salva
+parcial** normalmente; a validação só fecha o cerco ao finalizar. O placar do jogo (`jogos.placar_1/2`) são os
+**sets vencidos**, e os pontos de cada set ficam em `jogo_sets`, que a classificação já usa como critério de desempate.
 
 ## O que muda no sistema
 | Item | Futsal/Society | Handebol | Basquete | Vôlei |
@@ -53,6 +69,6 @@ Estado do schema:
   em 29/09/2026 e **lida e gravada desde 30/09/2026**. Falta aplicar na produção.
 - Os pontos do basquete usam a coluna `gols` (ali significa "pontos marcados"), como as eliminações do baleado.
 - `sumula_equipes` já cobre faltas por tempo e tempo técnico; no basquete os contadores vão até 7.
-- Vôlei usa `jogo_sets` (até 3 sets, vence quem faz 2) — **ainda sem tratamento no backend**.
+- Vôlei usa `jogo_sets` (até 3 sets, vence quem faz 2) — **gravado e lido desde 30/09/2026**.
 - **Baleado não tem folha oficial** entre os modelos recebidos (pendência 12 da seção 12 do contexto).
   Decisão provisória de 30/09/2026: folha do futsal com coluna de eliminações.
