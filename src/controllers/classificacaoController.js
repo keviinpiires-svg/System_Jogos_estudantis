@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { REGRAS } = require('../config/regrasProvisorias');
 
 // A classificação é sempre calculada a partir dos jogos, nunca guardada:
 // corrigir uma súmula corrige a tabela no mesmo instante.
@@ -149,21 +150,21 @@ const desempatar = (bloco, criterios, indice, ctx) => {
   });
 };
 
-// Regras que o documento ainda não fecha e que mudariam esta tabela.
-// Viram aviso na tela em vez de virarem palpite no código.
-// Ver docs/CONFERENCIA_COMPETICOES.md e a seção 6 do contexto.
+// Regras que o regulamento não fecha e que mudariam esta tabela. Desde
+// 30/09/2026 elas têm decisão PROVISÓRIA (src/config/regrasProvisorias.js);
+// o aviso continua na tela para lembrar que o chefe ainda vai revisar.
 const avisosDeRegra = (competicao, grupos) => {
   const avisos = [];
   const tamanhos = [...new Set(grupos.map((g) => g.equipes.length))];
 
   if (competicao.melhores_segundos > 0 && tamanhos.length > 1) {
     avisos.push({
-      titulo: 'Critério do "melhor segundo" ainda em aberto',
+      titulo: 'Critério do "melhor segundo" — decisão provisória',
       texto:
-        `Os grupos têm tamanhos diferentes (${grupos.map((g) => `${g.nome}: ${g.equipes.length}`).join(', ')}) ` +
-        'e o regulamento não diz como comparar os segundos colocados nesse caso — por pontos, por média, ' +
-        'ou desprezando o resultado contra o último de cada grupo. A ordem abaixo é só a de pontos e ' +
-        'critérios de desempate dentro de cada grupo: não use para definir quem avança sem decidir a regra.'
+        `Os grupos têm tamanhos diferentes (${grupos.map((g) => `${g.nome}: ${g.equipes.length}`).join(', ')}). ` +
+        `Decisão de ${REGRAS.melhorSegundo.decididoEm}, ainda a confirmar: ${REGRAS.melhorSegundo.descricao} ` +
+        'A tabela abaixo é a classificação dentro de cada grupo; a comparação entre os segundos acontece ' +
+        'na geração da semifinal.'
     });
   }
 

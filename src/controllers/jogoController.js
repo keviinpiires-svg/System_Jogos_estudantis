@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { REGRAS } = require('../config/regrasProvisorias');
 
 const FASES = ['GRUPOS', 'SEMIFINAL', 'FINAL'];
 const STATUS = ['AGENDADO', 'EM_ANDAMENTO', 'FINALIZADO', 'WO'];
@@ -422,9 +423,15 @@ const iniciarJogo = async (req, res) => {
 const declararWO = async (req, res) => {
   const id = Number(req.params.id);
   const vencedor_equipe_id = Number(req.body.vencedor_equipe_id);
-  const placar_1 = Number(req.body.placar_1);
-  const placar_2 = Number(req.body.placar_2);
   const motivo = (req.body.motivo || '').trim();
+
+  // O placar é opcional: sem ele vale o padrão da regra provisória (1x0), que
+  // mora em src/config/regrasProvisorias.js. Qual lado leva o 1 só se sabe
+  // depois de carregar o jogo, então o padrão é aplicado lá embaixo.
+  const placarInformado = req.body.placar_1 !== undefined && req.body.placar_2 !== undefined;
+  const placarPedido = placarInformado
+    ? { um: Number(req.body.placar_1), dois: Number(req.body.placar_2) }
+    : null;
 
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ erro: 'Identificador de jogo inválido.' });
@@ -434,14 +441,16 @@ const declararWO = async (req, res) => {
     return res.status(400).json({ erro: 'Informe o motivo do W.O.' });
   }
 
-  for (const placar of [placar_1, placar_2]) {
-    if (!Number.isInteger(placar) || placar < 0) {
-      return res.status(400).json({ erro: 'Informe os dois placares como inteiros não negativos.' });
+  if (placarInformado) {
+    for (const placar of [placarPedido.um, placarPedido.dois]) {
+      if (!Number.isInteger(placar) || placar < 0) {
+        return res.status(400).json({ erro: 'Informe os dois placares como inteiros não negativos.' });
+      }
     }
-  }
 
-  if (placar_1 === placar_2) {
-    return res.status(400).json({ erro: 'Um W.O. não termina empatado.' });
+    if (placarPedido.um === placarPedido.dois) {
+      return res.status(400).json({ erro: 'Um W.O. não termina empatado.' });
+    }
   }
 
   let conexao;
@@ -468,6 +477,13 @@ const declararWO = async (req, res) => {
       await conexao.rollback();
       return res.status(400).json({ erro: 'O vencedor precisa ser uma das duas equipes do jogo.' });
     }
+
+    // Agora dá para montar o padrão: o vencedor leva o placar de vitória
+    const venceuPrimeira = vencedor_equipe_id === jogo.equipe_1_id;
+    const placar_1 = placarInformado ? placarPedido.um
+      : (venceuPrimeira ? REGRAS.wo.placarVencedor : REGRAS.wo.placarPerdedor);
+    const placar_2 = placarInformado ? placarPedido.dois
+      : (venceuPrimeira ? REGRAS.wo.placarPerdedor : REGRAS.wo.placarVencedor);
 
     // O vencedor declarado e o placar informado têm que contar a mesma história
     const vencedorPeloPlacar = placar_1 > placar_2 ? jogo.equipe_1_id : jogo.equipe_2_id;

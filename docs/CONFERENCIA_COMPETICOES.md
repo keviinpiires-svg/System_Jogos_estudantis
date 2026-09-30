@@ -28,7 +28,7 @@ Linhas com ⚠ têm algo para você decidir (veja a seção final).
 | 21 | Handebol Masculino Sub 13 | **A:** CEBN, JOSE DIAS, COVENIADA<br>**B:** CEBC, CEJA, ADELIETA RAMALHO | Classifica-se os primeiros colocados de cada grupo para a Final. | o 1º de cada grupo → final |  |
 | 22 | Handebol Masculino Sub 15 | **A:** CEBC, CEJA, COVENIADA, CEBN | Classificam-se os dois primeiros colocados para a final. | os 2 primeiros vão para a final |  |
 | 23 | Handebol Masculino Sub 17 | **A:** CEBN, COVENIADA, CEJA<br>**B:** CEBC, CETI | Classificam-se os dois primeiros colocados para a Final. | o 1º de cada grupo → final | ⚠ |
-| 24 | Handebol Masculino Aberto | **A:** CETI, CEJA, LUCIA ROCHA | Grupo único a disputa ocorrerá em melhor de dois jogos. | melhor de dois jogos (sem mata-mata) | ⚠ |
+| 24 | Handebol Masculino Aberto | **A:** CETI, CEJA, LUCIA ROCHA | Grupo único a disputa ocorrerá em melhor de dois jogos. | **PROVISÓRIO (30/09/2026):** todos contra todos em turno único; 1º e 2º à final — aplicado por `db/06_ajustes_regras_provisorios.sql` | ✅ |
 | 25 | Handebol Feminino Sub 08 | **A:** JOSE DIAS, ACM | Grupo único a disputa ocorrerá em melhor de dois jogos. | melhor de dois jogos (sem mata-mata) |  |
 | 26 | Handebol Feminino Sub 09 | **A:** FRANCISCO AMORIM, MARIA DA GLORIA, ADELIETA RAMALHO | Classificam-se os dois primeiros colocados direto para a Final. | os 2 primeiros vão para a final |  |
 | 27 | Handebol Feminino Sub 11 | **A:** FRANCISCO AMORIM, CEJA, MARIA DA GLORIA<br>**B:** ADELIETA RAMALHO, JOSE DIAS, MARLENE SANTANA | Classifica-se os primeiros colocados de cada grupo para a Final. | o 1º de cada grupo → final |  |
@@ -63,8 +63,8 @@ Linhas com ⚠ têm algo para você decidir (veja a seção final).
 3. **Futebol Society Sub 15 Masculino** — regulamento não define o tempo do Society Sub 15
 4. **Futebol Society Sub 17 Masculino** — 2 grupos e a frase diz “dois primeiros para a Final”: assumi 1º de cada grupo na final
 5. **Handebol Masculino Sub 17** — 2 grupos e a frase diz “dois primeiros para a Final”: assumi 1º de cada grupo na final
-6. **Handebol Masculino Aberto** — “melhor de dois jogos” com 3 equipes: todos contra todos em ida e volta?
-7. **Baleado Feminino Sub 13** — critério do “segundo melhor” com grupos de tamanhos diferentes (4/3/3)
+6. ~~**Handebol Masculino Aberto**~~ — **decidido em 30/09/2026 (PROVISÓRIO):** todos contra todos em turno único, 1º e 2º à final. Aplicado em `db/06_ajustes_regras_provisorios.sql`.
+7. **Baleado Feminino Sub 13** — critério do “segundo melhor” com grupos de tamanhos diferentes (4/3/3). **Decidido em 30/09/2026 (PROVISÓRIO):** descartar os jogos contra o último colocado dos grupos maiores, para comparar todos pelo mesmo número de partidas. Vale também para a competição 4 (Futsal Masculino Sub 11).
 8. **Vôlei Sub 17 Misto** — frase diz “dois de cada grupo para a Final” (5 equipes nos grupos): assumi SEMIFINAL
 
 ## Tempos de jogo assumidos (do regulamento)
@@ -72,3 +72,16 @@ Linhas com ⚠ têm algo para você decidir (veja a seção final).
 - Futsal e Handebol: Sub 7 a Sub 13 = 2×12 min; Sub 15, Sub 17 e Aberto = 2×15 min (final 2×20 min).
 - Futebol Society: Sub 13 e Sub 17 = 2×20 min; Sub 15 não está no regulamento (fica em branco).
 - Baleado: partida de 15 min (guardado como 15 em `minutos_por_tempo`). Vôlei e Basquete: em branco (vôlei é por sets).
+
+## Decisões provisórias de 30/09/2026
+
+> **Todas provisórias: o chefe ainda vai revisar.** Estão implementadas num arquivo só,
+> `System_jogos/src/config/regrasProvisorias.js`, para poderem ser trocadas sem procurar pelo código.
+
+| # | Assunto | Decisão | Onde vive |
+|---|---|---|---|
+| 1 | "Melhor segundo" com grupos de tamanhos diferentes | Descartar os jogos contra o último colocado dos grupos maiores | `regrasProvisorias.melhorSegundo` — aplicado na fatia 7 (mata-mata), hoje só avisa na tela |
+| 2 | Handebol Masculino Aberto | Todos contra todos em turno único; 1º e 2º à final | `db/06_ajustes_regras_provisorios.sql` (é dado, não código) |
+| 3 | Empate após a prorrogação (handebol e basquete) | Segunda prorrogação e, persistindo, cobranças: 7 metros no handebol, lances livres no basquete | `regrasProvisorias.desempateMataMata` — aplicado em `sumulaController` |
+| 4 | Placar do W.O. | 1×0, editável pelo ADMIN | `regrasProvisorias.wo` — aplicado em `jogoController.declararWO` |
+| 5 | Súmula do baleado | Folha no estilo da do futsal, com coluna de eliminações por atleta no lugar dos gols | `regrasProvisorias.baleado` — aplicado na impressão e no preenchimento |

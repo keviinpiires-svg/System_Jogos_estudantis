@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { desempateDaModalidade } = require('../config/regrasProvisorias');
 
 // ============================================================================
 // SÚMULA: única fonte de verdade do placar.
@@ -132,6 +133,9 @@ const buscarSumulaPorJogo = async (req, res) => {
     res.status(200).json({
       evento,
       jogo,
+      // A regra de desempate viaja junto para a tela não precisar de uma
+      // cópia dela: a fonte continua sendo src/config/regrasProvisorias.js
+      desempate: desempateDaModalidade(jogo.modalidade_slug),
       linhas_sumula: LINHAS_SUMULA,
       equipes: [montarEquipe(jogo.equipe_1_id), montarEquipe(jogo.equipe_2_id)],
       lancada: linhas.some((l) => Number(l.gols) > 0 || Number(l.amarelos) > 0 || l.vermelho)
@@ -164,8 +168,12 @@ const registrarSumula = async (req, res) => {
     await conexao.beginTransaction();
 
     const [[jogo]] = await conexao.query(
-      `SELECT j.id, j.fase, j.status, j.equipe_1_id, j.equipe_2_id
-         FROM jogos j WHERE j.id = ? FOR UPDATE`,
+      `SELECT j.id, j.fase, j.status, j.equipe_1_id, j.equipe_2_id,
+              m.slug AS modalidade_slug, m.nome AS modalidade_nome
+         FROM jogos j
+         INNER JOIN competicoes c ON c.id = j.competicao_id
+         INNER JOIN modalidades m ON m.id = c.modalidade_id
+        WHERE j.id = ? FOR UPDATE`,
       [jogo_id]
     );
 
@@ -301,6 +309,7 @@ const registrarSumula = async (req, res) => {
     const placar_1 = golsPorEquipe.get(jogo.equipe_1_id) ?? 0;
     const placar_2 = golsPorEquipe.get(jogo.equipe_2_id) ?? 0;
 
+    const prorrogacao = booleano(req.body.prorrogacao);
     let status = jogo.status === 'AGENDADO' ? 'EM_ANDAMENTO' : jogo.status;
     let vencedor_equipe_id = null;
     let penaltis_1 = null;
@@ -311,13 +320,30 @@ const registrarSumula = async (req, res) => {
         vencedor_equipe_id = placar_1 > placar_2 ? jogo.equipe_1_id : jogo.equipe_2_id;
       } else if (jogo.fase !== 'GRUPOS') {
         // Empate na fase de grupos é resultado; no mata-mata, não decide nada.
+        // Cada modalidade tem a sua sequência de desempate, e ela mora em
+        // src/config/regrasProvisorias.js — não aqui.
+        const desempate = desempateDaModalidade(jogo.modalidade_slug);
+        const exigeProrrogacao = desempate.sequencia.includes('PRORROGACAO');
+
+        // Em handebol e basquete a prorrogação vem antes das cobranças: só
+        // depois de marcada é que faz sentido pedir o placar da cobrança.
+        if (exigeProrrogacao && !prorrogacao) {
+          await conexao.rollback();
+          return res.status(400).json({
+            erro: `Empate no mata-mata: em ${jogo.modalidade_nome} joga-se prorrogação antes das cobranças. `
+              + 'Marque a prorrogação e lance o resultado dela na súmula.'
+          });
+        }
+
         penaltis_1 = inteiroNaoNegativo(req.body.penaltis_1);
         penaltis_2 = inteiroNaoNegativo(req.body.penaltis_2);
 
         if (penaltis_1 === null || penaltis_2 === null || penaltis_1 === penaltis_2) {
           await conexao.rollback();
           return res.status(400).json({
-            erro: 'Empate no mata-mata: informe os pênaltis, com um vencedor.'
+            erro: exigeProrrogacao
+              ? `Empate mesmo após a prorrogação: informe ${desempate.nomeCobranca}, com um vencedor.`
+              : `Empate no mata-mata: informe ${desempate.nomeCobranca}, com um vencedor.`
           });
         }
 
@@ -330,9 +356,9 @@ const registrarSumula = async (req, res) => {
     await conexao.query(
       `UPDATE jogos
           SET placar_1 = ?, placar_2 = ?, status = ?,
-              vencedor_equipe_id = ?, penaltis_1 = ?, penaltis_2 = ?
+              vencedor_equipe_id = ?, penaltis_1 = ?, penaltis_2 = ?, prorrogacao = ?
         WHERE id = ?`,
-      [placar_1, placar_2, status, vencedor_equipe_id, penaltis_1, penaltis_2, jogo_id]
+      [placar_1, placar_2, status, vencedor_equipe_id, penaltis_1, penaltis_2, prorrogacao, jogo_id]
     );
 
     await conexao.commit();

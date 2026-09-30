@@ -267,6 +267,25 @@ mata-mata fixo (1ºA×2ºB) cobre só um dos formatos.
 12. **Súmula do Baleado:** não há folha oficial entre os modelos recebidos. Criar uma no estilo das outras, e definir o que a linha do atleta registra (eliminados?).
 13. **Suspensão por cartões nas outras modalidades:** o regulamento só escreve a regra para futsal e society. Handebol, basquete, vôlei e baleado usam cartões — vale a mesma regra (2 amarelos = 1 jogo, expulsão = 1 jogo)? Hoje o sistema mostra os cartões dessas modalidades mas não declara ninguém suspenso.
 
+## 12.1 Decisões provisórias (30/09/2026) — o chefe vai revisar
+
+> **Nada aqui é definitivo.** São decisões tomadas para o sistema poder andar, e todas vivem
+> num arquivo só: **`System_jogos/src/config/regrasProvisorias.js`**. Trocar uma regra é editar
+> esse arquivo — nenhum controller guarda cópia dela. Ao confirmar com o chefe, mude
+> `provisorio` para `false` e o aviso some das telas.
+
+| # | Assunto | Decisão provisória | Onde está implementada |
+|---|---|---|---|
+| 1 | "Melhor segundo" com grupos de tamanhos diferentes (pendência 6) | Descartar os jogos contra o **último colocado dos grupos maiores**, para comparar todos pelo mesmo número de partidas | `regrasProvisorias.melhorSegundo`. Hoje só vira aviso na classificação; será **aplicada na fatia 7 — mata-mata configurável**, que é onde a semifinal é gerada |
+| 2 | Handebol Masculino Aberto (pendência 6) | Todos contra todos em **turno único**; 1º e 2º vão à final | `db/06_ajustes_regras_provisorios.sql` — é **dado**, não código: mora na linha da competição |
+| 3 | Empate após a prorrogação no handebol e no basquete | **Segunda prorrogação** e, persistindo, cobranças: **7 metros** no handebol, **lances livres** no basquete | `regrasProvisorias.desempateMataMata`, consumida por `sumulaController` ao finalizar súmula empatada fora da fase de grupos |
+| 4 | Placar de um W.O. | **1×0**, editável pelo ADMIN na hora de declarar | `regrasProvisorias.wo`, consumida por `jogoController.declararWO`; a tela já abre com o placar sugerido |
+| 5 | Súmula do baleado (pendência 12) | Folha no **estilo da do futsal**, com uma coluna de **eliminações por atleta** no lugar dos gols | `regrasProvisorias.baleado`; o placar continua sendo a soma da coluna, que é o que `sumula_atletas.gols` guarda quando `tipo_placar = ELIMINADOS` |
+
+**Limitação conhecida da decisão 3:** o schema tem `jogos.prorrogacao` como booleano, então o sistema
+registra *que houve* prorrogação, mas não distingue a primeira da segunda. Se o chefe quiser esse
+detalhe registrado, vira uma migração (`db/07`) trocando o booleano por um contador.
+
 ## 13. Como trabalhar neste projeto
 
 - **Código é escrito aqui (VS Code)**; **dúvidas de regra/negócio são tiradas com o usuário** (numa conversa à parte). Diante de uma
