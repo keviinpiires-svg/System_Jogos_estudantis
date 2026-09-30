@@ -49,13 +49,31 @@ equipe vence **2 sets** — decidido em dois, o terceiro não se joga. Enquanto 
 parcial** normalmente; a validação só fecha o cerco ao finalizar. O placar do jogo (`jogos.placar_1/2`) são os
 **sets vencidos**, e os pontos de cada set ficam em `jogo_sets`, que a classificação já usa como critério de desempate.
 
+## Baleado — ✅ feito (30/09/2026, fatia 6), folha PROVISÓRIA
+**Não existe folha oficial do baleado** entre os modelos recebidos (pendência 12). Decisão provisória de
+30/09/2026, registrada em `regrasProvisorias.baleado`: **usa o desenho da folha do futsal**, com a coluna do
+atleta contando **eliminações** no lugar dos gols. O placar é a soma da coluna, que é o que `sumula_atletas.gols`
+guarda quando `tipo_placar = ELIMINADOS`; a artilharia rotula "eliminados" e a classificação usa a ordem de
+desempate do baleado (confronto direto → mais vitórias → menos vermelhos → menos amarelos → sorteio).
+
+Por ser a folha do futsal, ela sai com **cartões** (o regulamento usa vermelhos e amarelos como desempate do
+baleado, então isso é útil) e com o rodapé de **faltas acumuladas 1 a 5 e tempo técnico**. Duas observações para
+quando o chefe revisar:
+- **as faltas acumuladas não existem no baleado** — o campo sai impresso e fica em branco. Tirar é apagar
+  `faltasAcumuladas` da folha do baleado em `folhasSumula.js`;
+- a grade tem **11 caixas de eliminação por atleta**, herdadas do papel do futsal. Um atleta que elimine mais de
+  11 aparece com a grade cheia; o número certo continua no placar e no banco.
+
+A tela avisa, fora da impressão, que esta folha é provisória e de que data é a decisão.
+
 ## O que muda no sistema
-| Item | Futsal/Society | Handebol | Basquete | Vôlei |
-|---|---|---|---|---|
-| Linhas de atleta | 14 | 14 | 14 (papel: 12) | 14 (papel: 12) |
-| Estatística do atleta | gols, cartões | gols, cartões | pontos, faltas (0 a 5) | nenhuma |
-| Rodapé da equipe | faltas 1T/2T (até 5), tempo técnico, técnico | igual | faltas 1T/2T (até 7), tempo técnico, técnico | — |
-| Placar | soma dos gols | soma dos gols | soma dos pontos | sets (`jogo_sets`) |
+| Item | Futsal/Society | Handebol | Basquete | Vôlei | Baleado |
+|---|---|---|---|---|---|
+| Linhas de atleta | 14 | 14 | 14 (papel: 12) | 14 (papel: 12) | 14 |
+| Estatística do atleta | gols, cartões | gols, cartões | pontos, faltas (0 a 5) | nenhuma | eliminações, cartões |
+| Rodapé da equipe | faltas 1T/2T (até 5), tempo técnico, técnico | igual | faltas 1T/2T (até 7), tempo técnico, técnico | — | igual ao futsal |
+| Placar | soma dos gols | soma dos gols | soma dos pontos | sets (`jogo_sets`) | soma das eliminações |
+| Título impresso | nome da modalidade | nome da modalidade | SÚMULA DE BASQUETEBOL | SÚMULA DE VOLEIBOL | nome da modalidade |
 
 ## Onde isto vive no código
 
