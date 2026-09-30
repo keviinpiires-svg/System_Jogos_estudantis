@@ -11,7 +11,7 @@ A folha impressa do sistema deve seguir estes modelos.
 
 ## Futsal (também Futebol Society) e Handebol — mesma folha, só muda o título
 - Um bloco por equipe, com **14 linhas** de atleta.
-- Colunas por linha: **Cartões** (A, A, V = 2 amarelos + vermelho), **Nº**, **Atleta**, **Gols** (10 quadradinhos), **Capitão** (marca vertical ao lado).
+- Colunas por linha: **Cartões** (A, A, V = 2 amarelos + vermelho), **Nº**, **Atleta**, **Gols** (11 quadradinhos — contados no PDF), **Capitão** (marca vertical ao lado).
 - Rodapé da equipe: **Faltas acumuladas** 1º tempo (1 a 5) e 2º tempo (1 a 5); **Tempo técnico** 1º T e 2º T; **Técnico** (nome).
 - O handebol usa exatamente a mesma folha do futsal (inclusive "faltas acumuladas 1 a 5").
 
