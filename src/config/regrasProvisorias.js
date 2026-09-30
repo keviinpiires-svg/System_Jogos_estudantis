@@ -102,7 +102,9 @@ const REGRAS = {
     colunaDoAtleta: 'eliminacoes',
     descricao:
       'A folha do baleado segue o desenho da do futsal, com uma coluna de '
-      + 'eliminações por atleta no lugar dos gols.',
+      + 'eliminações por atleta no lugar dos gols — 14 caixas, uma por '
+      + 'adversário possível — e sem as faltas acumuladas do rodapé, que o '
+      + 'baleado não usa.',
     aplicadoEm: 'DetalhesSumula.jsx (impressão) e PreencherSumula.jsx'
   },
 

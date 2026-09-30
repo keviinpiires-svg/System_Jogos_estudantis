@@ -92,6 +92,13 @@ const FOLHAS = {
   baleado: {
     ...folhaDoFutsal,
     rotuloEstatistica: 'Eliminações',
+    // Uma caixa por adversário possível: o elenco do regulamento é 14, então
+    // um atleta que elimine o time inteiro ainda cabe na grade. As colunas
+    // saem mais estreitas que as 11 do futsal — a faixa da grade é a mesma.
+    caixasEstatistica: LINHAS,
+    // O baleado não tem faltas acumuladas: o rodapé fica só com o tempo
+    // técnico e o técnico. Voltar o campo é pôr faltasAcumuladas: 5 aqui.
+    faltasAcumuladas: 0,
     provisoria: REGRAS.baleado.provisorio,
     decididoEm: REGRAS.baleado.decididoEm
   }

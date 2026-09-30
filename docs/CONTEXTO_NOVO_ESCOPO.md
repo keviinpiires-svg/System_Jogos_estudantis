@@ -264,7 +264,7 @@ mata-mata fixo (1ºA×2ºB) cobre só um dos formatos.
 9. **Numeração dos jogos:** por competição (assumido no schema) ou global?
 10. ~~Schema do banco~~ — **resolvido** (ver seção 8).
 11. ~~Limpeza: destino do reset de campeonato, do `finalizar` manual e da suspensão~~ — **resolvido** (ver seção 10).
-12. ~~**Súmula do Baleado**~~ — **resolvido provisoriamente (30/09/2026):** folha no estilo da do futsal, com a linha do atleta contando **eliminações**. O chefe ainda vai revisar (ver 12.1). Fica de fora do papel o que o baleado não tem: as faltas acumuladas do rodapé saem impressas e em branco.
+12. ~~**Súmula do Baleado**~~ — **resolvido provisoriamente (30/09/2026):** folha no estilo da do futsal, com a linha do atleta contando **eliminações**, **14 caixas** na grade (uma por adversário possível) e o rodapé **sem as faltas acumuladas**, que o baleado não usa. O chefe ainda vai revisar (ver 12.1).
 13. **Suspensão por cartões nas outras modalidades:** o regulamento só escreve a regra para futsal e society. Handebol, basquete, vôlei e baleado usam cartões — vale a mesma regra (2 amarelos = 1 jogo, expulsão = 1 jogo)? Hoje o sistema mostra os cartões dessas modalidades mas não declara ninguém suspenso.
 
 ## 12.1 Decisões provisórias (30/09/2026) — o chefe vai revisar

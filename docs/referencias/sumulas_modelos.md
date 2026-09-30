@@ -56,13 +56,14 @@ atleta contando **eliminações** no lugar dos gols. O placar é a soma da colun
 guarda quando `tipo_placar = ELIMINADOS`; a artilharia rotula "eliminados" e a classificação usa a ordem de
 desempate do baleado (confronto direto → mais vitórias → menos vermelhos → menos amarelos → sorteio).
 
-Por ser a folha do futsal, ela sai com **cartões** (o regulamento usa vermelhos e amarelos como desempate do
-baleado, então isso é útil) e com o rodapé de **faltas acumuladas 1 a 5 e tempo técnico**. Duas observações para
-quando o chefe revisar:
-- **as faltas acumuladas não existem no baleado** — o campo sai impresso e fica em branco. Tirar é apagar
-  `faltasAcumuladas` da folha do baleado em `folhasSumula.js`;
-- a grade tem **11 caixas de eliminação por atleta**, herdadas do papel do futsal. Um atleta que elimine mais de
-  11 aparece com a grade cheia; o número certo continua no placar e no banco.
+Ela sai com **cartões**, porque o regulamento usa vermelhos e amarelos como desempate do baleado. Duas diferenças
+em relação ao papel do futsal, decididas com o usuário em 30/09/2026:
+- **sem faltas acumuladas no rodapé** — o baleado não as usa, e o rodapé fica só com o tempo técnico e o técnico.
+  Voltar o campo é pôr `faltasAcumuladas: 5` na folha do baleado em `folhasSumula.js`;
+- a grade tem **14 caixas de eliminação por atleta** (o futsal tem 11), uma por adversário possível, já que o
+  elenco do regulamento é 14. As colunas saem mais estreitas e a faixa da grade continua a mesma, então a folha
+  segue em **uma página** nas duas versões. A largura da caixa é calculada em `FolhaFutsal.jsx` a partir do
+  número de caixas, e não fixada no CSS.
 
 A tela avisa, fora da impressão, que esta folha é provisória e de que data é a decisão.
 
@@ -70,8 +71,9 @@ A tela avisa, fora da impressão, que esta folha é provisória e de que data é
 | Item | Futsal/Society | Handebol | Basquete | Vôlei | Baleado |
 |---|---|---|---|---|---|
 | Linhas de atleta | 14 | 14 | 14 (papel: 12) | 14 (papel: 12) | 14 |
+| Caixas na grade do atleta | 11 | 11 | — (grade é da equipe) | — | 14 |
 | Estatística do atleta | gols, cartões | gols, cartões | pontos, faltas (0 a 5) | nenhuma | eliminações, cartões |
-| Rodapé da equipe | faltas 1T/2T (até 5), tempo técnico, técnico | igual | faltas 1T/2T (até 7), tempo técnico, técnico | — | igual ao futsal |
+| Rodapé da equipe | faltas 1T/2T (até 5), tempo técnico, técnico | igual | faltas 1T/2T (até 7), tempo técnico, técnico | — | tempo técnico e técnico (sem faltas) |
 | Placar | soma dos gols | soma dos gols | soma dos pontos | sets (`jogo_sets`) | soma das eliminações |
 | Título impresso | nome da modalidade | nome da modalidade | SÚMULA DE BASQUETEBOL | SÚMULA DE VOLEIBOL | nome da modalidade |
 
