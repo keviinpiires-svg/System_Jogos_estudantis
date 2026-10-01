@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { agoraNoFusoDoEvento } = require('../config/evento');
 
 // ============================================================================
 // PAINEL GERAL — números do evento inteiro, lidos de jogos, sumula_atletas e
@@ -52,9 +53,12 @@ const obterEstatisticas = async (req, res) => {
            INNER JOIN modalidades m ON m.id = c.modalidade_id
            INNER JOIN categorias cat ON cat.id = c.categoria_id
            LEFT JOIN locais_disputa l ON l.id = j.local_id
-          WHERE j.status = 'AGENDADO' AND j.data_hora IS NOT NULL AND j.data_hora >= NOW()
+          -- "agora" vem do relógio do evento, não do fuso do servidor de banco:
+          -- NOW() num servidor em UTC erraria o próximo jogo por 3 horas.
+          WHERE j.status = 'AGENDADO' AND j.data_hora IS NOT NULL AND j.data_hora >= ?
           ORDER BY j.data_hora ASC
-          LIMIT 1`
+          LIMIT 1`,
+        [agoraNoFusoDoEvento()]
       ),
 
       // Campeão de cada competição: a final encerrada com vencedor definido.

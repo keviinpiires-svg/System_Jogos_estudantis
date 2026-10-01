@@ -18,10 +18,12 @@ const AMARELOS_POR_SUSPENSAO = 2;
 // A 2ª fase começa no mata-mata: é onde os amarelos zeram
 const segundaFase = (fase) => fase === 'SEMIFINAL' || fase === 'FINAL';
 
-// Ordem cronológica dos jogos: a data manda; sem data, o número do jogo
+// Ordem cronológica dos jogos: a data manda; sem data, o número do jogo.
+// data_hora chega do banco como texto ("2026-11-24 10:30:00"), e nesse formato
+// a ordem alfabética já é a ordem do relógio.
 const ordenarJogos = (a, b) => {
-  if (a.data_hora && b.data_hora && a.data_hora.getTime() !== b.data_hora.getTime()) {
-    return a.data_hora - b.data_hora;
+  if (a.data_hora && b.data_hora && a.data_hora !== b.data_hora) {
+    return a.data_hora < b.data_hora ? -1 : 1;
   }
   if (a.data_hora && !b.data_hora) return -1;
   if (!a.data_hora && b.data_hora) return 1;

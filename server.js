@@ -27,6 +27,17 @@ const origensPermitidas = (process.env.CORS_ORIGIN || '')
     .map((origem) => origem.trim())
     .filter(Boolean);
 
+// Em produção a variável é obrigatória. Antes, esquecê-la abria a API para
+// qualquer site — e sem nenhum sinal, porque tudo continuava funcionando.
+// Em desenvolvimento a abertura segue valendo: é o que deixa o Vite conversar
+// com o servidor sem configuração nenhuma.
+if (process.env.NODE_ENV === 'production' && origensPermitidas.length === 0) {
+    throw new Error(
+        'CORS_ORIGIN não definido. Em produção, liste o(s) domínio(s) do frontend '
+        + 'separados por vírgula antes de iniciar o servidor.'
+    );
+}
+
 app.use(cors({
     origin: origensPermitidas.length > 0 ? origensPermitidas : true
 }));
@@ -53,7 +64,6 @@ const atletaRoutes = require('./src/routes/atletaRoutes');
 const artilhariaRoutes = require('./src/routes/artilhariaRoutes');
 const dashboardRoutes = require('./src/routes/dashboardRoutes');
 const authRoutes = require('./src/routes/authRoutes');
-const grupoRoutes = require('./src/routes/grupoRoutes');
 const campeonatoRoutes = require('./src/routes/campeonatoRoutes');
 const usuarioRoutes = require('./src/routes/usuarioRoutes');
 const modalidadeRoutes = require('./src/routes/modalidadeRoutes');
@@ -71,13 +81,12 @@ app.use('/api/matamata', mataMataRoutes);
 app.use('/api/classificacao', classificacaoRoutes);
 app.use('/api/artilharia', artilhariaRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/grupos', grupoRoutes);
 app.use('/api/campeonato', campeonatoRoutes);
 app.use('/api', authRoutes);
 app.use('/api/usuarios', usuarioRoutes);
 
 app.use('/api/escolas', escolaRoutes);
-app.use('/api/jogos', jogoRoutes); // <-- Linha nova
+app.use('/api/jogos', jogoRoutes);
 app.use('/api/atletas', atletaRoutes);
 app.use('/api/locais', localRoutes);
 app.use('/api/etapas-ensino', etapaEnsinoRoutes);

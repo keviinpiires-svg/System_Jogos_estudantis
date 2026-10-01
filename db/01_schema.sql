@@ -420,6 +420,11 @@ CREATE TABLE suspensoes (
 -- Tabela geral
 -- pontuacao_geral: pontos por colocação (1º=10, 2º=8, 3º=6, 4º=4, 5º=2).
 -- colocacoes_finais: resultado final de cada competição (1º ao 5º).
+--   SEM USO desde a fatia 7a: as colocações são CALCULADAS dos jogos pelo
+--   mataMataController, como a classificação, e a tabela geral lê esse
+--   cálculo. A tabela fica de pé para o dia em que a Comissão precisar gravar
+--   uma colocação à mão (um julgamento que mude o resultado, por exemplo);
+--   enquanto isso, nada escreve nela. O reset de campeonato a esvazia.
 --   Competição com uma só equipe inscrita não pontua (regra no código).
 -- ajustes_pontos_geral: punições da Comissão (-5 a -10) com motivo.
 -- ---------------------------------------------------------------------
