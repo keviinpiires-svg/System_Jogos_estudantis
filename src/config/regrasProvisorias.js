@@ -161,6 +161,72 @@ const REGRAS = {
       'Tabela geral por bloco de categoria, somando 10/8/6 por competição encerrada com duas '
       + 'equipes ou mais; punições de 5 a 10 pontos descontam da soma geral da escola.',
     aplicadoEm: 'tabelaGeralController'
+  },
+
+  // --------------------------------------------------------------------
+  // 7. Atletismo (pendência 3) — NADA DISTO ESTÁ IMPLEMENTADO
+  // --------------------------------------------------------------------
+  // O regulamento diz quem corre o quê (Sub 8/9: 50 m; Sub 11 a 17: 100 m e
+  // salto; 1 atleta por escola, categoria, gênero e prova; salto com 2
+  // tentativas, vale a melhor), mas não diz como o resultado é lançado nem
+  // se pontua na tabela geral. Hoje não há nenhuma competição de atletismo
+  // cadastrada — as 50 da tabela de grupos são todas coletivas.
+  //
+  // Padrões escolhidos em 01/10/2026 para a fatia do atletismo poder começar
+  // sem travar à espera do chefe. Mudar aqui é o bastante.
+  atletismo: {
+    provisorio: true,
+    decididoEm: '01/10/2026',
+
+    // Uma competição por categoria × gênero, com as provas DENTRO dela — e não
+    // uma competição por prova, que multiplicaria por três a lista do menu.
+    competicaoPor: 'CATEGORIA_E_GENERO',
+
+    // O ADMIN digita a marca de cada atleta (segundos na corrida, metros no
+    // salto) e o sistema ordena: tempo, menor vence; distância, maior vence.
+    lancamento: 'ADMIN_DIGITA_A_MARCA',
+
+    // As duas tentativas do salto ficam guardadas (o schema já tem as colunas);
+    // a que vale é a melhor.
+    guardaAsDuasTentativas: true,
+
+    // Fora da tabela geral enquanto o chefe não disser como pontua.
+    // Espelha tabelaGeral.incluiAtletismo.
+    pontuaNaTabelaGeral: false,
+
+    descricao:
+      'Atletismo: uma competição por categoria e gênero, com as provas dentro; o ADMIN digita '
+      + 'a marca e o sistema ordena; as duas tentativas do salto ficam guardadas, valendo a '
+      + 'melhor; e o atletismo ainda não pontua na tabela geral.',
+    aplicadoEm: 'ainda não implementado — é a parte que falta da fatia 8'
+  },
+
+  // --------------------------------------------------------------------
+  // 8. Modalidades fora e técnicos (pendências 3 e 14)
+  // --------------------------------------------------------------------
+  modalidadesForaDoSistema: {
+    provisorio: true,
+    decididoEm: '01/10/2026',
+    // O regulamento cita Xadrez, Dama e Dominó; a tabela de grupos não traz
+    // nenhuma competição delas.
+    fora: ['Xadrez', 'Dama', 'Dominó'],
+    descricao:
+      'Xadrez, Dama e Dominó ficam fora do sistema enquanto o chefe não confirmar que entram.',
+    aplicadoEm: 'nada a implementar: não há competição dessas modalidades cadastrada'
+  },
+
+  tecnicos: {
+    provisorio: true,
+    decididoEm: '01/10/2026',
+    // Continua como está: um nome digitado na equipe (equipes.tecnico_nome) e
+    // outro na súmula do jogo (sumula_equipes.tecnico_nome). Sem cadastro, sem
+    // tabela de dirigentes, sem o limite de 10 por escola do regulamento e sem
+    // a checagem de "professor/monitor não pode ser atleta".
+    cadastro: false,
+    descricao:
+      'Técnico segue como nome digitado na equipe e na súmula, sem cadastro próprio. '
+      + 'Dirigentes não entram no sistema por enquanto.',
+    aplicadoEm: 'equipes.tecnico_nome e sumula_equipes.tecnico_nome'
   }
 };
 
