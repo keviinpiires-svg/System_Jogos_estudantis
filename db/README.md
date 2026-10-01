@@ -1,8 +1,15 @@
 # Banco de dados — SGE Jogos Estudantis 2026
 
-**Recomendado: MySQL 8.0.16 ou superior**, a mesma família da produção (Railway). As regras `CHECK` só são aplicadas a partir do MySQL 8.0.16 (no MySQL 5.7 elas são ignoradas em silêncio). MariaDB 10.4+ também roda os scripts (o XAMPP traz 10.4).
+**A produção (Railway) roda MySQL 9.4.0**, e é nela que os scripts foram validados — ver
+`VALIDACAO_MYSQL9.md`. Rodam igualmente em MySQL 8.0.16+ (conferido no 8.0.46: o schema sai idêntico)
+e em MariaDB 10.4+, que é o que o XAMPP traz. Abaixo do MySQL 8.0.16 **não**: as regras `CHECK` são
+ignoradas em silêncio.
 
-Os scripts **não fixam collation**: usam a padrão do servidor (no MySQL 8, `utf8mb4_0900_ai_ci`, igual à produção). Para saber a versão do seu servidor, rode `SELECT VERSION();`.
+Os scripts **não fixam collation**: usam a padrão do servidor. Em MySQL 8 e 9 isso dá
+`utf8mb4_0900_ai_ci`, igual à produção — que é **insensível a acento**, então "JOSÉ DIAS" e
+"JOSE DIAS" contam como o mesmo nome nos índices únicos. O MariaDB do XAMPP usa
+`utf8mb4_general_ci`, que **não** é: um banco de desenvolvimento em MariaDB aceita um par que a
+produção recusa. Para saber a versão do seu servidor, rode `SELECT VERSION();`.
 
 ## Arquivos
 
@@ -13,7 +20,7 @@ Os scripts **não fixam collation**: usam a padrão do servidor (no MySQL 8, `ut
 | `02_carga_base.sql` | Dados fixos: configuração do evento, etapas de ensino, categorias, modalidades, pontuação da tabela geral e provas de atletismo. |
 | `03_importar_grupos.sql` | Gerado da tabela de grupos: 18 escolas (+ grafias alternativas), 50 competições com a regra de classificação, 77 grupos e 240 equipes. Confira antes em `docs/CONFERENCIA_COMPETICOES.md`. |
 | `04_locais.sql` | Locais de disputa (ginásios, quadras e campos). Rode uma vez, depois do 03. |
-| `05_faltas_basquete.sql` | Migração: coluna `faltas` (0 a 5) em `sumula_atletas`, para as faltas individuais do basquete. **Aplicada no `jogos_estudantis_dev` em 29/09/2026**; falta na produção. |
+| `05_faltas_basquete.sql` | Migração: coluna `faltas` (0 a 5) em `sumula_atletas`, para as faltas individuais do basquete. **Aplicada no `jogos_estudantis_dev` em 29/09/2026**; falta na produção. Num banco novo entra na sequência, logo depois do `04` — conferido. |
 | `schema_producao_baseline.sql` | Registro de como a produção estava em 28/09/2026. **Não execute.** |
 
 Escolas, competições, grupos e equipes **não** estão na carga base: vêm de `03_importar_grupos.sql` (a partir de `docs/referencias/tabela_de_grupos.md`).
@@ -75,4 +82,6 @@ ORDER BY numero_jogo ASC;
 
 Este schema foi conferido por script (tabelas, colunas, tipos e alvos das chaves estrangeiras) e **executado com sucesso no banco de desenvolvimento `jogos_estudantis_dev` em 28/09/2026**, com a carga base e a importação dos grupos.
 
-**Ainda não foi aplicado na produção** (Railway), que segue com o schema antigo do `schema_producao_baseline.sql`. A migração da produção só acontece quando o código novo estiver pronto, com backup antes.
+Em **01/10/2026** (fatia 10) a sequência inteira `00`–`06` foi rodada **do zero no motor da produção, MySQL 9.4.0**, com todas as conferências de contagem, as restrições testadas uma a uma e o `npm run fumaca` passando. O relatório está em **`VALIDACAO_MYSQL9.md`**. Foi a primeira vez que o `05` aplicou sobre um `01` recém-criado, e funcionou.
+
+**Ainda não foi aplicado na produção** (Railway), que segue com o schema antigo do `schema_producao_baseline.sql`. A migração acontece na fatia 10, com backup antes, e o banco novo (`jogos_2026`) nasce **ao lado** do antigo em vez de substituí-lo.

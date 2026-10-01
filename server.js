@@ -75,6 +75,7 @@ const inscricaoRoutes = require('./src/routes/inscricaoRoutes');
 const suspensaoRoutes = require('./src/routes/suspensaoRoutes');
 const tabelaGeralRoutes = require('./src/routes/tabelaGeralRoutes');
 const ajusteRoutes = require('./src/routes/ajusteRoutes');
+const saudeRoutes = require('./src/routes/saudeRoutes');
 
 app.use('/api/sumulas', sumulaRoutes);
 app.use('/api/matamata', mataMataRoutes);
@@ -97,6 +98,10 @@ app.use('/api/ajustes-pontos', ajusteRoutes);
 app.use('/api/modalidades', modalidadeRoutes);
 app.use('/api/competicoes', competicaoRoutes);
 app.use('/api/equipes', equipeRoutes);
+
+// Fora de /api de propósito: é infraestrutura (health check do Render e o ping
+// que impede o serviço de dormir), não um recurso da API.
+app.use('/saude', saudeRoutes);
 
 app.get('/', (req, res) => {
     res.json({ mensagem: "API dos Jogos Estudantis rodando com sucesso!" });

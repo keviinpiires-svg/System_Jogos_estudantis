@@ -76,8 +76,39 @@ const exigir = async (metodo, caminho, corpo, oQue) => {
 // ---------------------------------------------------------------------------
 // Trava de segurança: isto não roda em produção
 // ---------------------------------------------------------------------------
+// Descobre em que banco a conexão REALMENTE vai cair, do mesmo jeito que o
+// src/config/db.js decide: a URL única tem prioridade e o DB_NAME é ignorado
+// quando ela existe. A trava antiga olhava só o DB_NAME — então um .env com a
+// DATABASE_URL da produção e um DB_NAME "..._dev" esquecido ao lado passava na
+// conferência, e o teste escrevia e apagava na produção.
+const alvoDaConexao = () => {
+  const url = process.env.DATABASE_URL || process.env.MYSQL_URL;
+
+  if (!url) {
+    return {
+      banco: process.env.DB_NAME || '',
+      host: process.env.DB_HOST || 'localhost',
+      via: 'DB_NAME'
+    };
+  }
+
+  try {
+    const { pathname, hostname } = new URL(url);
+    return {
+      banco: decodeURIComponent(pathname.replace(/^\//, '')),
+      host: hostname,
+      via: 'DATABASE_URL'
+    };
+  } catch {
+    throw new Error(
+      'DATABASE_URL está definida mas não é uma URL válida. Como não dá para saber em que '
+      + 'banco isto cairia, o teste de fumaça não roda.'
+    );
+  }
+};
+
 const conferirQueEhDesenvolvimento = () => {
-  const banco = process.env.DB_NAME || '';
+  const { banco, host, via } = alvoDaConexao();
 
   if (process.env.NODE_ENV === 'production') {
     throw new Error('O teste de fumaça não roda com NODE_ENV=production.');
@@ -85,8 +116,9 @@ const conferirQueEhDesenvolvimento = () => {
 
   if (!/dev/i.test(banco)) {
     throw new Error(
-      `O teste de fumaça escreve no banco e só roda num banco de desenvolvimento. `
-      + `DB_NAME está como "${banco}"; esperava um nome com "dev" (ex.: jogos_estudantis_dev).`
+      'O teste de fumaça escreve e apaga no banco, então só roda num banco de desenvolvimento. '
+      + `A conexão (via ${via}) cairia no banco "${banco}" em ${host}; esperava um nome com `
+      + '"dev" (ex.: jogos_estudantis_dev).'
     );
   }
 
