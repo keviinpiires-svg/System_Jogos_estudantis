@@ -63,6 +63,7 @@ const localRoutes = require('./src/routes/localRoutes');
 const etapaEnsinoRoutes = require('./src/routes/etapaEnsinoRoutes');
 const inscricaoRoutes = require('./src/routes/inscricaoRoutes');
 const suspensaoRoutes = require('./src/routes/suspensaoRoutes');
+const tabelaGeralRoutes = require('./src/routes/tabelaGeralRoutes');
 
 app.use('/api/sumulas', sumulaRoutes);
 app.use('/api/matamata', mataMataRoutes);
@@ -81,6 +82,7 @@ app.use('/api/locais', localRoutes);
 app.use('/api/etapas-ensino', etapaEnsinoRoutes);
 app.use('/api/inscricoes', inscricaoRoutes);
 app.use('/api/suspensoes', suspensaoRoutes);
+app.use('/api/tabela-geral', tabelaGeralRoutes);
 app.use('/api/modalidades', modalidadeRoutes);
 app.use('/api/competicoes', competicaoRoutes);
 app.use('/api/equipes', equipeRoutes);

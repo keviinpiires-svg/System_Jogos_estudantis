@@ -119,6 +119,48 @@ const REGRAS = {
     formato: 'todos contra todos em turno único; 1º e 2º vão à final',
     // Aplicado por script versionado, não em tempo de execução
     aplicadoEm: 'db/06_ajustes_regras_provisorios.sql'
+  },
+
+  // --------------------------------------------------------------------
+  // 6. Tabela geral (10/8/6/4/2) — decisões do usuário de 01/10/2026
+  // --------------------------------------------------------------------
+  // O regulamento dá a pontuação e diz que modalidade com uma só inscrição
+  // não pontua, mas não fecha o resto: como dividir os três blocos, de onde
+  // saem o 4º e o 5º lugar, o que fazer com empate na soma.
+  // A divisão categoria -> bloco mora em src/config/blocosTabelaGeral.js.
+  tabelaGeral: {
+    provisorio: true,
+    decididoEm: '01/10/2026',
+
+    // 4º e 5º lugar seguem sem regra (pendência 5): hoje o sistema só sabe
+    // apontar campeão, vice e 3º, então só 10, 8 e 6 são distribuídos.
+    posicoesQuePontuam: [1, 2, 3],
+
+    // "Modalidade com uma só inscrição não conta pontos nem premia" vale por
+    // COMPETIÇÃO (modalidade × categoria × gênero), não pela modalidade toda.
+    minimoDeEquipes: 2,
+
+    // Masculino e feminino pontuam em separado e somam para a mesma escola
+    generosSomamJuntos: true,
+
+    // Competição só entra na conta quando tem campeão definido
+    soContaEncerrada: true,
+
+    // Empate na soma: mais primeiros lugares, depois segundos, depois terceiros
+    desempate: ['primeiros', 'segundos', 'terceiros'],
+
+    // Punição da Comissão Disciplinar: desconta da soma geral da escola (não
+    // de um bloco), pode haver mais de uma, e cada uma guarda motivo e data.
+    ajuste: { minimo: -10, maximo: -5, naSomaGeral: true },
+
+    // Atletismo fica de fora: não há competição cadastrada nem regra de
+    // lançamento do resultado (pendência 3).
+    incluiAtletismo: false,
+
+    descricao:
+      'Tabela geral por bloco de categoria, somando 10/8/6 por competição encerrada com duas '
+      + 'equipes ou mais; punições de 5 a 10 pontos descontam da soma geral da escola.',
+    aplicadoEm: 'tabelaGeralController'
   }
 };
 
