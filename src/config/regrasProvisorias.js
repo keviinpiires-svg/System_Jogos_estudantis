@@ -31,11 +31,10 @@ const REGRAS = {
       'Com grupos de tamanhos diferentes, os segundos colocados são comparados '
       + 'descartando os jogos contra o último colocado dos grupos maiores, '
       + 'para que todos sejam medidos pelo mesmo número de partidas.',
-    // Consumido em: src/controllers/classificacaoController.js (aviso na tela)
-    // e, quando existir, na geração da semifinal (fatia 7 — mata-mata
-    // configurável). Hoje a regra está registrada mas ainda não há semifinal
-    // automática que a aplique.
-    aplicadoEm: 'fatia 7 — mata-mata configurável (ainda não implementada)'
+    // Consumido em: src/controllers/classificacaoController.js (compararEntreGrupos,
+    // que também alimenta o aviso na tela) e, pela geração da semifinal de três
+    // grupos, em src/config/chavesMataMata.js.
+    aplicadoEm: 'classificacaoController.compararEntreGrupos e a geração da semifinal (fatia 7)'
   },
 
   // --------------------------------------------------------------------

@@ -270,6 +270,41 @@ const buscarSumulaPorJogo = async (req, res) => {
 // Grava a súmula inteira de uma vez. O corpo traz as duas equipes, cada uma
 // com o seu rodapé e as suas linhas de atleta. O placar do jogo é a SOMA dos
 // gols lançados — nunca é digitado.
+// Ida e volta de duas equipes (formato E, sem mata-mata): o campeão é quem
+// soma mais nos dois jogos e, empatada a soma, decide nas cobranças lançadas
+// na súmula do segundo jogo — decisão provisória de 30/09/2026, registrada em
+// src/config/chavesMataMata.js (somaDosDoisJogos).
+//
+// Devolve true só quando ESTE é o último jogo a finalizar e a soma dos dois
+// empata: é quando as cobranças passam a ser obrigatórias. Enquanto houver
+// outro jogo em aberto, o empate é resultado, como em qualquer fase de grupos.
+const somaDosDoisJogosEmpatada = async (conexao, jogo, placar_1, placar_2) => {
+  if (jogo.turno !== 'IDA_E_VOLTA' || jogo.proxima_fase !== 'NENHUMA') return false;
+  if (jogo.fase !== 'GRUPOS') return false;
+
+  const [outros] = await conexao.query(
+    `SELECT id, status, equipe_1_id, equipe_2_id, placar_1, placar_2
+       FROM jogos
+      WHERE competicao_id = ? AND id <> ?`,
+    [jogo.competicao_id, jogo.id]
+  );
+
+  // Ainda há jogo por disputar: dá para desempatar em quadra
+  if (outros.some((outro) => !['FINALIZADO', 'WO'].includes(outro.status))) return false;
+
+  let soma_1 = placar_1;
+  let soma_2 = placar_2;
+
+  for (const outro of outros) {
+    // As equipes trocam de lado no jogo de volta
+    const mesmaOrdem = outro.equipe_1_id === jogo.equipe_1_id;
+    soma_1 += (mesmaOrdem ? outro.placar_1 : outro.placar_2) ?? 0;
+    soma_2 += (mesmaOrdem ? outro.placar_2 : outro.placar_1) ?? 0;
+  }
+
+  return soma_1 === soma_2;
+};
+
 const registrarSumula = async (req, res) => {
   const jogo_id = Number(req.body.jogo_id);
   const equipesEnviadas = Array.isArray(req.body.equipes) ? req.body.equipes : [];
@@ -289,7 +324,8 @@ const registrarSumula = async (req, res) => {
     await conexao.beginTransaction();
 
     const [[jogo]] = await conexao.query(
-      `SELECT j.id, j.fase, j.status, j.equipe_1_id, j.equipe_2_id,
+      `SELECT j.id, j.competicao_id, j.fase, j.status, j.equipe_1_id, j.equipe_2_id,
+              c.turno, c.proxima_fase,
               m.slug AS modalidade_slug, m.nome AS modalidade_nome
          FROM jogos j
          INNER JOIN competicoes c ON c.id = j.competicao_id
@@ -507,9 +543,17 @@ const registrarSumula = async (req, res) => {
     let penaltis_2 = null;
 
     if (finalizar) {
-      if (placar_1 !== placar_2) {
-        vencedor_equipe_id = placar_1 > placar_2 ? jogo.equipe_1_id : jogo.equipe_2_id;
-      } else if (jogo.fase !== 'GRUPOS') {
+      // Ida e volta sem mata-mata: o título sai da soma dos dois jogos, então
+      // o empate no último jogo só decide alguma coisa se a soma também
+      // empatar — e aí este jogo precisa das cobranças.
+      const somaEmpatada = await somaDosDoisJogosEmpatada(conexao, jogo, placar_1, placar_2);
+
+      // Empate que precisa de dono: no mata-mata, o do próprio jogo; no ida e
+      // volta, o da soma dos dois — e aí o placar do jogo não resolve, porque
+      // vencer por 2 depois de perder por 2 deixa o confronto empatado.
+      const precisaDeDono = somaEmpatada || (placar_1 === placar_2 && jogo.fase !== 'GRUPOS');
+
+      if (precisaDeDono) {
         // Empate na fase de grupos é resultado; no mata-mata, não decide nada.
         // Cada modalidade tem a sua sequência de desempate, e ela mora em
         // src/config/regrasProvisorias.js — não aqui.
@@ -518,10 +562,14 @@ const registrarSumula = async (req, res) => {
 
         // Em handebol e basquete a prorrogação vem antes das cobranças: só
         // depois de marcada é que faz sentido pedir o placar da cobrança.
+        const situacao = somaEmpatada
+          ? 'Os dois jogos terminaram com a soma empatada'
+          : 'Empate no mata-mata';
+
         if (exigeProrrogacao && !prorrogacao) {
           await conexao.rollback();
           return res.status(400).json({
-            erro: `Empate no mata-mata: em ${jogo.modalidade_nome} joga-se prorrogação antes das cobranças. `
+            erro: `${situacao}: em ${jogo.modalidade_nome} joga-se prorrogação antes das cobranças. `
               + 'Marque a prorrogação e lance o resultado dela na súmula.'
           });
         }
@@ -534,11 +582,13 @@ const registrarSumula = async (req, res) => {
           return res.status(400).json({
             erro: exigeProrrogacao
               ? `Empate mesmo após a prorrogação: informe ${desempate.nomeCobranca}, com um vencedor.`
-              : `Empate no mata-mata: informe ${desempate.nomeCobranca}, com um vencedor.`
+              : `${situacao}: informe ${desempate.nomeCobranca}, com um vencedor.`
           });
         }
 
         vencedor_equipe_id = penaltis_1 > penaltis_2 ? jogo.equipe_1_id : jogo.equipe_2_id;
+      } else if (placar_1 !== placar_2) {
+        vencedor_equipe_id = placar_1 > placar_2 ? jogo.equipe_1_id : jogo.equipe_2_id;
       }
 
       status = 'FINALIZADO';

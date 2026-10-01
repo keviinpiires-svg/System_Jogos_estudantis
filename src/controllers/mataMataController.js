@@ -383,9 +383,220 @@ const chaveDaCompeticao = async (req, res) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// POST /api/matamata/competicao/:competicao_id/gerar — só ADMIN
+// ---------------------------------------------------------------------------
+// Gera os jogos da próxima fase (semifinal ou final), com os confrontos que a
+// chave manda. O que decide quem pega quem é src/config/chavesMataMata.js;
+// aqui só se grava o resultado dessa decisão.
+const gerarFase = async (req, res) => {
+  const id = Number(req.params.competicao_id);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ erro: 'Identificador de competição inválido.' });
+  }
+
+  let conexao;
+  try {
+    conexao = await db.getConnection();
+    await conexao.beginTransaction();
+
+    // Trava a competição: sem isso, dois cliques no botão gerariam a fase duas
+    // vezes, cada um lendo o mesmo "ainda não existe".
+    const [[existe]] = await conexao.query(
+      'SELECT id FROM competicoes WHERE id = ? FOR UPDATE',
+      [id]
+    );
+
+    if (!existe) {
+      await conexao.rollback();
+      return res.status(404).json({ erro: 'Competição não encontrada.' });
+    }
+
+    const chave = await montarChave(id);
+    const geracao = proximaGeracao(chave);
+
+    if (!geracao.fase) {
+      await conexao.rollback();
+      return res.status(409).json({ erro: geracao.motivo });
+    }
+
+    const previsto = confrontosPrevistos(chave, geracao.fase);
+
+    if (previsto.erro) {
+      await conexao.rollback();
+      return res.status(422).json({ erro: previsto.erro });
+    }
+
+    const [[{ proximo }]] = await conexao.query(
+      'SELECT COALESCE(MAX(numero_jogo), 0) + 1 AS proximo FROM jogos WHERE competicao_id = ?',
+      [id]
+    );
+
+    const criados = [];
+    let numero = proximo;
+
+    for (const confronto of previsto.confrontos) {
+      const [resultado] = await conexao.query(
+        `INSERT INTO jogos (competicao_id, numero_jogo, fase, equipe_1_id, equipe_2_id)
+         VALUES (?, ?, ?, ?, ?)`,
+        [id, numero, geracao.fase, confronto.equipe_1_id, confronto.equipe_2_id]
+      );
+
+      criados.push({
+        jogo_id: resultado.insertId,
+        numero_jogo: numero,
+        fase: geracao.fase,
+        rotulo: confronto.rotulo,
+        equipe_1: confronto.equipe_1,
+        equipe_2: confronto.equipe_2
+      });
+
+      numero += 1;
+    }
+
+    await conexao.commit();
+
+    res.status(201).json({
+      mensagem: geracao.fase === 'SEMIFINAL'
+        ? 'Semifinais geradas. Agende data e local pela tabela de jogos.'
+        : 'Final gerada. Agende data e local pela tabela de jogos.',
+      fase: geracao.fase,
+      jogos: criados,
+      observacao: previsto.observacao || null,
+      // A tela avisa quando o cruzamento usado ainda é provisório
+      regra: previsto.regra || null
+    });
+  } catch (erro) {
+    if (conexao) await conexao.rollback();
+
+    if (erro instanceof ErroDeRegra) {
+      return res.status(erro.status).json({ erro: erro.message });
+    }
+
+    console.error(erro);
+    res.status(500).json({ erro: 'Erro ao gerar a fase do mata-mata.' });
+  } finally {
+    if (conexao) conexao.release();
+  }
+};
+
+// ---------------------------------------------------------------------------
+// DELETE /api/matamata/competicao/:competicao_id/:fase — só ADMIN
+// ---------------------------------------------------------------------------
+// Desfaz uma geração — e só enquanto ela não valeu nada ainda. Qualquer jogo
+// finalizado, por W.O. ou com súmula lançada tranca o desfazer: apagar aí
+// levaria junto o resultado, pelo CASCADE, sem ninguém perceber.
+const desfazerFase = async (req, res) => {
+  const id = Number(req.params.competicao_id);
+  const fase = String(req.params.fase || '').toUpperCase();
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ erro: 'Identificador de competição inválido.' });
+  }
+
+  if (!['SEMIFINAL', 'FINAL'].includes(fase)) {
+    return res.status(400).json({ erro: 'A fase a desfazer é SEMIFINAL ou FINAL.' });
+  }
+
+  let conexao;
+  try {
+    conexao = await db.getConnection();
+    await conexao.beginTransaction();
+
+    const [jogos] = await conexao.query(
+      `SELECT id, numero_jogo, status FROM jogos
+        WHERE competicao_id = ? AND fase = ?
+        FOR UPDATE`,
+      [id, fase]
+    );
+
+    if (jogos.length === 0) {
+      await conexao.rollback();
+      return res.status(404).json({
+        erro: fase === 'SEMIFINAL'
+          ? 'Esta competição não tem semifinais geradas.'
+          : 'Esta competição não tem final gerada.'
+      });
+    }
+
+    const encerrados = jogos.filter((j) => ['FINALIZADO', 'WO'].includes(j.status));
+
+    if (encerrados.length > 0) {
+      await conexao.rollback();
+      return res.status(409).json({
+        erro: `Não dá para desfazer: ${encerrados.length === 1 ? 'o jogo' : 'os jogos'} `
+          + `${encerrados.map((j) => '#' + j.numero_jogo).join(', ')} já `
+          + `${encerrados.length === 1 ? 'tem resultado' : 'têm resultado'}. `
+          + 'Reabra e limpe a súmula antes, se for mesmo para refazer a chave.'
+      });
+    }
+
+    // A final nasce das semifinais: apagar as semifinais deixaria a final órfã
+    if (fase === 'SEMIFINAL') {
+      const [[{ finais }]] = await conexao.query(
+        "SELECT COUNT(*) AS finais FROM jogos WHERE competicao_id = ? AND fase = 'FINAL'",
+        [id]
+      );
+
+      if (finais > 0) {
+        await conexao.rollback();
+        return res.status(409).json({
+          erro: 'A final já foi gerada a partir destas semifinais. Desfaça a final primeiro.'
+        });
+      }
+    }
+
+    const ids = jogos.map((j) => j.id);
+
+    const [[{ lancamentos }]] = await conexao.query(
+      'SELECT COUNT(*) AS lancamentos FROM sumula_atletas WHERE jogo_id IN (?)',
+      [ids]
+    );
+
+    if (lancamentos > 0) {
+      await conexao.rollback();
+      return res.status(409).json({
+        erro: 'Há súmula lançada nestes jogos. Limpe os lançamentos antes de desfazer a chave.'
+      });
+    }
+
+    await conexao.query('DELETE FROM sumula_equipes WHERE jogo_id IN (?)', [ids]);
+    await conexao.query('DELETE FROM jogo_sets WHERE jogo_id IN (?)', [ids]);
+    await conexao.query('DELETE FROM jogos WHERE id IN (?)', [ids]);
+
+    // Mesma renumeração do excluirJogo: a numeração é por competição e não
+    // pode ficar com buracos. Ordem ascendente para não colidir com o índice.
+    const menor = Math.min(...jogos.map((j) => j.numero_jogo));
+    const [renumerados] = await conexao.query(
+      `UPDATE jogos SET numero_jogo = numero_jogo - ?
+        WHERE competicao_id = ? AND numero_jogo > ?
+        ORDER BY numero_jogo ASC`,
+      [jogos.length, id, menor]
+    );
+
+    await conexao.commit();
+
+    res.status(200).json({
+      mensagem: fase === 'SEMIFINAL' ? 'Semifinais desfeitas.' : 'Final desfeita.',
+      fase,
+      jogos_removidos: jogos.length,
+      jogos_renumerados: renumerados.affectedRows
+    });
+  } catch (erro) {
+    if (conexao) await conexao.rollback();
+    console.error(erro);
+    res.status(500).json({ erro: 'Erro ao desfazer a fase do mata-mata.' });
+  } finally {
+    if (conexao) conexao.release();
+  }
+};
+
 module.exports = {
   chaveDaCompeticao,
-  // Usados pela geração (parte 7b)
+  gerarFase,
+  desfazerFase,
+  // Reaproveitados pelos testes e pela tela
   montarChave,
   proximaGeracao,
   confrontosPrevistos,
