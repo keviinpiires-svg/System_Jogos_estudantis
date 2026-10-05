@@ -19,6 +19,7 @@
 require('dotenv').config({ quiet: true });
 const bcrypt = require('bcryptjs');
 const db = require('../src/config/db');
+const { REGRAS } = require('../src/config/regrasProvisorias');
 
 const API = process.env.FUMACA_API || 'http://localhost:3000/api';
 const MARCA = 'FUMACA';
@@ -468,6 +469,170 @@ const rodar = async () => {
     semPunicao.geral.find((e) => e.escola_nome === campeao.escola_nome).pontos === comPontos,
     'desfeita a punição, a soma volta ao que era'
   );
+
+  await testarConflitoDeLocal(competicao, equipes, grupos);
+};
+
+// ---------------------------------------------------------------------------
+// Conflito de local (regrasProvisorias.conflitoDeLocal)
+// ---------------------------------------------------------------------------
+// Roda depois do passeio para os jogos extras não mexerem na classificação e
+// no pódio já conferidos. Usa os locais que já existem (db/04_locais.sql), sem
+// criar nem apagar nenhum, e um dia em que esses locais estão vazios. Os
+// intervalos saem da regra, então o teste acompanha se ela mudar.
+const testarConflitoDeLocal = async (competicao, equipes, grupos) => {
+  secao('-- conflito de local');
+
+  const { intervaloMinutos } = REGRAS.conflitoDeLocal;
+  const metade = Math.floor(intervaloMinutos / 2);
+
+  const [locais] = await db.query('SELECT id, nome FROM locais_disputa ORDER BY id LIMIT 2');
+  if (locais.length < 2) {
+    throw new Error('O teste de conflito precisa de dois locais em locais_disputa (db/04_locais.sql).');
+  }
+  const [L1, L2] = locais;
+
+  // Primeiro dia, a partir de dezembro (depois do evento), sem jogo nenhum
+  // nos dois locais: os jogos de quem usa o sistema não interferem no teste.
+  let dia = null;
+  for (let d = 0; d < 120 && !dia; d++) {
+    const candidato = new Date(Date.UTC(2026, 11, 1 + d)).toISOString().slice(0, 10);
+    const [[{ ocupados }]] = await db.query(
+      `SELECT COUNT(*) AS ocupados FROM jogos
+        WHERE local_id IN (?, ?) AND data_hora >= ? AND data_hora < ? + INTERVAL 1 DAY`,
+      [L1.id, L2.id, candidato, candidato]
+    );
+    if (ocupados === 0) dia = candidato;
+  }
+  if (!dia) throw new Error('Não achei um dia livre nos locais para o teste de conflito.');
+
+  // Minutos a partir das 08:00 do dia livre -> "AAAA-MM-DD HH:MM"
+  const as = (minutos) => {
+    const total = 8 * 60 + minutos;
+    const hh = String(Math.floor(total / 60)).padStart(2, '0');
+    const mm = String(total % 60).padStart(2, '0');
+    return `${dia} ${hh}:${mm}`;
+  };
+
+  const doGrupo = equipes.filter((e) => e.grupo_nome === grupos[0]);
+  const [a, b] = doGrupo;
+
+  const tentar = async (local, quando, competicao_id = competicao.id, e1 = a.id, e2 = b.id) => {
+    const r = await chamar('POST', '/jogos', {
+      competicao_id, equipe_1_id: e1, equipe_2_id: e2, fase: 'GRUPOS',
+      local_id: local.id, data_hora: quando
+    });
+    if (r.corpo.id_jogo) criados.jogos.push(r.corpo.id_jogo);
+    return r;
+  };
+
+  console.log(`  locais ${L1.nome} e ${L2.nome}, dia ${dia}, intervalo ${intervaloMinutos} min`);
+
+  const j1 = await tentar(L1, as(0));
+  conferir(j1.status === 201, 'local e horário livres -> 201', `${j1.status} ${j1.corpo.erro || ''}`);
+
+  const perto = await tentar(L1, as(metade));
+  conferir(
+    perto.status === 409,
+    `mesmo local a ${metade} min -> 409`,
+    `${perto.status} ${perto.corpo.erro || ''}`
+  );
+  conferir(
+    perto.status === 409 && perto.corpo.erro.includes(L1.nome)
+      && perto.corpo.erro.includes(`nº ${j1.corpo.numero_jogo}`),
+    'a recusa diz o local e o número do jogo que ocupa',
+    perto.corpo.erro
+  );
+
+  const j3 = await tentar(L1, as(intervaloMinutos));
+  conferir(j3.status === 201, `mesmo local a ${intervaloMinutos} min -> 201`, `${j3.status} ${j3.corpo.erro || ''}`);
+
+  const j4 = await tentar(L2, as(0));
+  conferir(j4.status === 201, 'mesmo horário em outro local -> 201', `${j4.status} ${j4.corpo.erro || ''}`);
+
+  const wo = await chamar('PUT', `/jogos/${j1.corpo.id_jogo}/wo`, {
+    vencedor_equipe_id: a.id,
+    motivo: `${MARCA} W.O. do teste de conflito`
+  });
+  conferir(wo.status === 200, 'W.O. declarado no primeiro jogo', `${wo.status} ${wo.corpo.erro || ''}`);
+
+  const j5 = await tentar(L1, as(0));
+  conferir(j5.status === 201, 'o W.O. libera o horário: agendar de novo passa', `${j5.status} ${j5.corpo.erro || ''}`);
+
+  const semMudar = await chamar('PUT', `/jogos/${j3.corpo.id_jogo}`, {
+    local_id: L1.id, data_hora: as(intervaloMinutos), arbitro_1: `${MARCA} árbitro`
+  });
+  conferir(
+    semMudar.status === 200,
+    'editar sem mudar a agenda -> 200',
+    `${semMudar.status} ${semMudar.corpo.erro || ''}`
+  );
+
+  // Andar 10 min continua perto do horário antigo do próprio jogo, que não
+  // pode contar como conflito consigo mesmo.
+  const mexeuPouco = await chamar('PUT', `/jogos/${j3.corpo.id_jogo}`, {
+    data_hora: as(intervaloMinutos + 10)
+  });
+  conferir(
+    mexeuPouco.status === 200,
+    'reagendar 10 min ignora o próprio jogo -> 200',
+    `${mexeuPouco.status} ${mexeuPouco.corpo.erro || ''}`
+  );
+
+  // O primeiro jogo do passeio já está FINALIZADO pela súmula
+  const finalizado = criados.jogos[0];
+  const mudarFinalizado = await chamar('PUT', `/jogos/${finalizado}`, { local_id: L2.id, data_hora: as(300) });
+  conferir(
+    mudarFinalizado.status === 409,
+    'mudar data/hora/local de jogo FINALIZADO -> 409',
+    `${mudarFinalizado.status} ${mudarFinalizado.corpo.erro || ''}`
+  );
+  const arbitroFinalizado = await chamar('PUT', `/jogos/${finalizado}`, { arbitro_2: `${MARCA} árbitro` });
+  conferir(
+    arbitroFinalizado.status === 200,
+    'árbitro de jogo FINALIZADO continua editável -> 200',
+    `${arbitroFinalizado.status} ${arbitroFinalizado.corpo.erro || ''}`
+  );
+
+  await exigir('PUT', `/jogos/${j4.corpo.id_jogo}/iniciar`, null, 'iniciar o jogo');
+  const mudarEmAndamento = await chamar('PUT', `/jogos/${j4.corpo.id_jogo}`, { data_hora: as(300) });
+  conferir(
+    mudarEmAndamento.status === 409,
+    'mudar data/hora de jogo EM_ANDAMENTO -> 409',
+    `${mudarEmAndamento.status} ${mudarEmAndamento.corpo.erro || ''}`
+  );
+
+  // ---- corrida -------------------------------------------------------------
+  // Dois agendamentos ao mesmo tempo, no mesmo local e horário. Vêm de
+  // competições DIFERENTES de propósito: na mesma competição eles já fariam
+  // fila na trava da competição (numero_jogo), e o que se quer provar é a
+  // trava do local. Três rodadas, em horários distintos.
+  const [[outra]] = await db.query(
+    `SELECT e1.competicao_id, e1.id AS e1, e2.id AS e2
+       FROM equipes e1
+       INNER JOIN equipes e2 ON e2.competicao_id = e1.competicao_id
+                            AND e2.grupo_id = e1.grupo_id AND e2.id > e1.id
+      WHERE e1.competicao_id NOT IN (?, ?)
+        AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = e1.competicao_id)
+      ORDER BY e1.competicao_id, e1.id
+      LIMIT 1`,
+    [competicao.id, COMPETICAO_PROTEGIDA]
+  );
+  if (!outra) throw new Error('Não achei uma segunda competição sem jogos para o teste de corrida.');
+
+  for (const rodada of [1, 2, 3]) {
+    const quando = as(240 + rodada * 2 * intervaloMinutos);
+    const respostas = await Promise.all([
+      tentar(L2, quando),
+      tentar(L2, quando, outra.competicao_id, outra.e1, outra.e2)
+    ]);
+    const status = respostas.map((r) => r.status).sort();
+    conferir(
+      status[0] === 201 && status[1] === 409,
+      `corrida ${rodada}: dois POST simultâneos no mesmo local e horário -> um 201 e um 409`,
+      `saiu ${status.join(' e ')} ${respostas.map((r) => r.corpo.erro || '').join(' | ')}`
+    );
+  }
 };
 
 // ---------------------------------------------------------------------------

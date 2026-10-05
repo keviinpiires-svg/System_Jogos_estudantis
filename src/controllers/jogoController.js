@@ -8,6 +8,14 @@ const STATUS = ['AGENDADO', 'EM_ANDAMENTO', 'FINALIZADO', 'WO'];
 // resultado: a súmula some junto (CASCADE).
 const ENCERRADOS = ['FINALIZADO', 'WO'];
 
+// Jogo que já começou também não muda de data, hora nem local: a mesa já está
+// na quadra. O valor é o trecho da mensagem de recusa.
+const SITUACAO_SEM_REAGENDAMENTO = {
+  EM_ANDAMENTO: 'já está em andamento',
+  FINALIZADO: 'já foi finalizado',
+  WO: 'teve W.O. declarado'
+};
+
 // Aceita "2026-11-23T14:30" (o que o input datetime-local manda) e
 // "2026-11-23 14:30". O DATETIME do MySQL quer o formato com espaço.
 const normalizarDataHora = (valor) => {
@@ -21,6 +29,80 @@ const normalizarDataHora = (valor) => {
 const textoOuNulo = (valor) => {
   const texto = (valor || '').trim();
   return texto || null;
+};
+
+const GENEROS = { MASCULINO: 'Masculino', FEMININO: 'Feminino', MISTO: 'Misto' };
+
+// "2026-11-24 10:30:00" -> "24/11/2026 às 10:30". A data é hora de parede e
+// chega como texto (dateStrings), então não passa por Date.
+const formatarQuando = (dataHora) => {
+  const [data, hora] = dataHora.split(' ');
+  const [ano, mes, dia] = data.split('-');
+  return `${dia}/${mes}/${ano} às ${hora.slice(0, 5)}`;
+};
+
+// Procura um jogo que ocupe o mesmo local perto demais do horário pedido
+// (regrasProvisorias.conflitoDeLocal). Precisa rodar dentro da transação que
+// vai gravar o jogo: a linha do local é travada primeiro, o que enfileira
+// quem agenda no mesmo local mesmo quando ainda não há jogo nenhum nele, e os
+// jogos do local também ficam travados até o commit.
+//
+// As duas leituras são FOR UPDATE de propósito, e não só pela trava: no
+// REPEATABLE READ uma leitura comum enxerga a foto tirada no começo da
+// transação, e não veria o jogo que outro agendamento acabou de gravar
+// enquanto este esperava a vez no local.
+// Devolve { localInexistente: true }, { conflito: {...} } ou {}.
+const verificarConflitoDeLocal = async (conexao, { local_id, data_hora, ignorarJogoId = null }) => {
+  if (!local_id || !data_hora) return {};
+
+  const [[local]] = await conexao.query(
+    'SELECT id, nome FROM locais_disputa WHERE id = ? FOR UPDATE',
+    [local_id]
+  );
+
+  if (!local) return { localInexistente: true };
+
+  const { intervaloMinutos, statusQueOcupam } = REGRAS.conflitoDeLocal;
+
+  const [conflitos] = await conexao.query(
+    `SELECT id, competicao_id, numero_jogo, data_hora
+       FROM jogos
+      WHERE local_id = ?
+        AND data_hora IS NOT NULL
+        AND status IN (?)
+        AND id <> ?
+        AND ABS(TIMESTAMPDIFF(SECOND, data_hora, ?)) < ?
+      ORDER BY ABS(TIMESTAMPDIFF(SECOND, data_hora, ?)), id
+      FOR UPDATE`,
+    [local_id, statusQueOcupam, ignorarJogoId || 0, data_hora, intervaloMinutos * 60, data_hora]
+  );
+
+  if (conflitos.length === 0) return {};
+
+  const jogo = conflitos[0];
+
+  // Nome da competição só para a mensagem: dado de cadastro, que não muda
+  // durante a transação, então dispensa a trava.
+  const [[nomes]] = await conexao.query(
+    `SELECT m.nome AS modalidade_nome, cat.nome AS categoria_nome, c.genero
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+      WHERE c.id = ?`,
+    [jogo.competicao_id]
+  );
+  const competicao = `${nomes.modalidade_nome} ${nomes.categoria_nome} ${GENEROS[nomes.genero] || nomes.genero}`;
+  jogo.local_nome = local.nome;
+
+  return {
+    conflito: {
+      ...jogo,
+      mensagem:
+        `O local ${jogo.local_nome} já tem o jogo nº ${jogo.numero_jogo} de ${competicao} `
+        + `em ${formatarQuando(jogo.data_hora)}. Jogos no mesmo local precisam de pelo menos `
+        + `${intervaloMinutos} minutos de diferença.`
+    }
+  };
 };
 
 const SELECT_JOGO = `
@@ -150,6 +232,18 @@ const agendarJogo = async (req, res) => {
       }
     }
 
+    const ocupacao = await verificarConflitoDeLocal(conexao, { local_id, data_hora });
+
+    if (ocupacao.localInexistente) {
+      await conexao.rollback();
+      return res.status(400).json({ erro: 'Local de disputa inválido.' });
+    }
+
+    if (ocupacao.conflito) {
+      await conexao.rollback();
+      return res.status(409).json({ erro: ocupacao.conflito.mensagem });
+    }
+
     const [[{ proximo }]] = await conexao.query(
       'SELECT COALESCE(MAX(numero_jogo), 0) + 1 AS proximo FROM jogos WHERE competicao_id = ?',
       [competicao_id]
@@ -270,12 +364,14 @@ const atualizarJogo = async (req, res) => {
 
   const campos = [];
   const valores = [];
+  const agenda = {};
 
   if (req.body.data_hora !== undefined) {
     const data_hora = normalizarDataHora(req.body.data_hora);
     if (data_hora === undefined) {
       return res.status(400).json({ erro: 'Informe a data e a hora no formato AAAA-MM-DD HH:MM.' });
     }
+    agenda.data_hora = data_hora;
     campos.push('data_hora = ?');
     valores.push(data_hora);
   }
@@ -285,6 +381,7 @@ const atualizarJogo = async (req, res) => {
     if (local_id !== null && (!Number.isInteger(local_id) || local_id <= 0)) {
       return res.status(400).json({ erro: 'Local de disputa inválido.' });
     }
+    agenda.local_id = local_id;
     campos.push('local_id = ?');
     valores.push(local_id);
   }
@@ -311,20 +408,68 @@ const atualizarJogo = async (req, res) => {
 
   valores.push(id);
 
+  let conexao;
   try {
-    const [resultado] = await db.query(`UPDATE jogos SET ${campos.join(', ')} WHERE id = ?`, valores);
+    conexao = await db.getConnection();
+    await conexao.beginTransaction();
 
-    if (resultado.affectedRows === 0) {
+    const [[jogo]] = await conexao.query(
+      'SELECT id, status, local_id, data_hora FROM jogos WHERE id = ? FOR UPDATE',
+      [id]
+    );
+
+    if (!jogo) {
+      await conexao.rollback();
       return res.status(404).json({ erro: 'Jogo não encontrado.' });
     }
 
+    // Reenviar o mesmo valor (a tela costuma mandar o formulário inteiro) não
+    // conta como mudança: só o que de fato muda passa pelas travas abaixo.
+    const novoLocal = agenda.local_id !== undefined ? agenda.local_id : jogo.local_id;
+    const novaDataHora = agenda.data_hora !== undefined ? agenda.data_hora : jogo.data_hora;
+    const mudaAgenda = novoLocal !== jogo.local_id || novaDataHora !== jogo.data_hora;
+
+    if (mudaAgenda && SITUACAO_SEM_REAGENDAMENTO[jogo.status]) {
+      await conexao.rollback();
+      return res.status(409).json({
+        erro: `Este jogo ${SITUACAO_SEM_REAGENDAMENTO[jogo.status]}: a data, a hora e o local `
+          + 'não podem mais ser alterados. Árbitros, anotador e observações continuam editáveis.'
+      });
+    }
+
+    if (mudaAgenda) {
+      const ocupacao = await verificarConflitoDeLocal(conexao, {
+        local_id: novoLocal,
+        data_hora: novaDataHora,
+        ignorarJogoId: id
+      });
+
+      if (ocupacao.localInexistente) {
+        await conexao.rollback();
+        return res.status(400).json({ erro: 'Local de disputa inválido.' });
+      }
+
+      if (ocupacao.conflito) {
+        await conexao.rollback();
+        return res.status(409).json({ erro: ocupacao.conflito.mensagem });
+      }
+    }
+
+    await conexao.query(`UPDATE jogos SET ${campos.join(', ')} WHERE id = ?`, valores);
+
+    await conexao.commit();
+
     res.status(200).json({ mensagem: 'Jogo atualizado com sucesso!', id_jogo: id });
   } catch (erro) {
+    if (conexao) await conexao.rollback();
+
     if (erro.code === 'ER_NO_REFERENCED_ROW_2') {
       return res.status(400).json({ erro: 'Local de disputa inválido.' });
     }
-    console.error(erro);
+    console.error('atualizarJogo:', erro);
     res.status(500).json({ erro: 'Erro ao atualizar o jogo.' });
+  } finally {
+    if (conexao) conexao.release();
   }
 };
 
