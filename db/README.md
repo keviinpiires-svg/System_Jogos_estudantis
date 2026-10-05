@@ -1,7 +1,8 @@
 # Banco de dados — SGE Jogos Estudantis 2026
 
-**A produção (Railway) roda MySQL 9.4.0**, e é nela que os scripts foram validados — ver
-`VALIDACAO_MYSQL9.md`. Rodam igualmente em MySQL 8.0.16+ (conferido no 8.0.46: o schema sai idêntico)
+**A produção (Railway) roda MySQL 9.7.2** (conferido em 05/10/2026). Os scripts foram validados numa
+instância local de **MySQL 9.4.0** — ver `VALIDACAO_MYSQL9.md` — e rodaram na produção na virada de
+01/10/2026. Rodam igualmente em MySQL 8.0.16+ (conferido no 8.0.46: o schema sai idêntico)
 e em MariaDB 10.4+, que é o que o XAMPP traz. Abaixo do MySQL 8.0.16 **não**: as regras `CHECK` são
 ignoradas em silêncio.
 
@@ -33,7 +34,7 @@ Escolas, competições, grupos e equipes **não** estão na carga base: vêm de 
 2. Rode, nesta ordem: `00_apagar_tudo.sql` → `01_schema.sql` → `02_carga_base.sql` → `03_importar_grupos.sql`.
 3. Confira: `SHOW TABLES;` deve listar 23 tabelas.
 
-Na produção (Railway), só quando o código novo estiver pronto: **faça backup**, depois rode os mesmos três arquivos. Hoje a produção só tem dados de teste, então pode ser recriada do zero.
+Na produção (Railway), o schema novo já está no banco `jogos_2026` desde 01/10/2026 (ver `docs/MIGRACAO_PRODUCAO.md`). **A Railway não tem backup automático neste plano**: antes de qualquer script lá, faça um `mysqldump` e confira o arquivo.
 
 ## Criar os usuários
 
@@ -82,6 +83,6 @@ ORDER BY numero_jogo ASC;
 
 Este schema foi conferido por script (tabelas, colunas, tipos e alvos das chaves estrangeiras) e **executado com sucesso no banco de desenvolvimento `jogos_estudantis_dev` em 28/09/2026**, com a carga base e a importação dos grupos.
 
-Em **01/10/2026** (fatia 10) a sequência inteira `00`–`06` foi rodada **do zero no motor da produção, MySQL 9.4.0**, com todas as conferências de contagem, as restrições testadas uma a uma e o `npm run fumaca` passando. O relatório está em **`VALIDACAO_MYSQL9.md`**. Foi a primeira vez que o `05` aplicou sobre um `01` recém-criado, e funcionou.
+Em **01/10/2026** (fatia 10) a sequência inteira `00`–`06` foi rodada **do zero em MySQL 9.4.0** (a Railway roda MySQL 9.7.2), com todas as conferências de contagem, as restrições testadas uma a uma e o `npm run fumaca` passando. O relatório está em **`VALIDACAO_MYSQL9.md`**. Foi a primeira vez que o `05` aplicou sobre um `01` recém-criado, e funcionou.
 
-**Ainda não foi aplicado na produção** (Railway), que segue com o schema antigo do `schema_producao_baseline.sql`. A migração acontece na fatia 10, com backup antes, e o banco novo (`jogos_2026`) nasce **ao lado** do antigo em vez de substituí-lo.
+**Aplicado na produção (Railway) em 01/10/2026**, na fatia 10: o banco novo `jogos_2026` nasceu **ao lado** do antigo, que segue parado com o schema do `schema_producao_baseline.sql`. Rodaram os scripts `01`–`06`; o `00` foi pulado porque o banco estava vazio. **Não há backup automático** na Railway neste plano; os dumps são manuais e ficam fora do repositório.

@@ -1,5 +1,9 @@
 # Migração da produção — roteiro de execução
 
+> **Situação: executado em 01/10/2026**, à noite, entre 20:59 e 21:50. A produção roda o sistema
+> novo no banco `jogos_2026`. O que saiu diferente do roteiro está em
+> [Como foi de fato](#como-foi-de-fato), no fim; o roteiro abaixo fica como registro.
+
 **Fatia 10.** Este é um roteiro **para você executar passo a passo**, não um comando automático:
 foi decisão de 01/10/2026. Nenhum script deste repositório encosta na produção sozinho.
 
@@ -28,7 +32,8 @@ ser a única rede.
 
 - [ ] Você tem acesso ao painel da **Railway**, do **Render** e da **Vercel**.
 - [ ] Os scripts `00`–`06` foram validados no motor da produção. ✅ feito em 01/10/2026 — ver
-      `db/VALIDACAO_MYSQL9.md` (MySQL 9.4.0, teste de fumaça com 21 conferências e 0 falhas).
+      `db/VALIDACAO_MYSQL9.md` (MySQL 9.4.0, teste de fumaça com 21 conferências e 0 falhas). A
+      Railway está hoje no **MySQL 9.7.2**.
 - [ ] O código novo está na branch `feat/novo-escopo`, nos dois repositórios, e você decidiu que vai
       ao ar **sem o atletismo** (decisão de 01/10/2026; não há competição de atletismo cadastrada).
 - [ ] Você tem as senhas que quer dar aos 3 administradores e às 4 contas de mesa. Escolha agora,
@@ -63,10 +68,11 @@ e passe `--defaults-extra-file=C:\Users\Kevin\railway.cnf` em todos os comandos.
 
 ## Passo 1 — Backup (antes de qualquer outra coisa)
 
-Duas camadas. Faça as duas.
+**A Railway não tem backup automático neste plano.** Faça o dump manual abaixo e guarde-o fora do
+repositório.
 
-**1.1 — Snapshot pelo painel da Railway.** No serviço MySQL, use o backup/snapshot da própria
-plataforma. É o caminho mais rápido de volta se algo der muito errado.
+**1.1 — (sem efeito neste plano)** O roteiro previa um snapshot pelo painel da Railway, mas a
+Railway não tem backup automático neste plano. A rede é o dump do 1.2.
 
 **1.2 — Dump para a sua máquina:**
 
@@ -213,7 +219,10 @@ O endereço da API está **versionado** em `web-jogos/.env.production`:
 
     VITE_API_URL=https://system-jogos-estudantis.onrender.com
 
-**Se o serviço do Render continuar o mesmo, não há nada a mudar aqui.** Só publique a branch nova.
+**O endereço da API não muda se o serviço do Render continuar o mesmo — mas a Vercel muda.** Ela
+publicava a `main`, onde está o frontend antigo. Em **Settings → Git**, troque o **Branch Tracking
+de produção** para `feat/novo-escopo` e faça um **Redeploy**. (A primeira versão deste roteiro dizia
+que não havia nada a mudar aqui, e estava errada: na virada de 01/10 foi preciso fazer essa troca.)
 
 Dois cuidados:
 
@@ -264,7 +273,7 @@ repositórios e marca o estado anterior a toda esta reescrita.
 valor você anotou no passo 2, e redeploy. O banco antigo nunca foi tocado: não há o que restaurar.
 
 **Nível 4 — Só se o banco antigo tiver sido danificado**, o que este roteiro evita: restaure o dump
-do passo 1.2, ou o snapshot da Railway, e confira as contagens contra o que você registrou no passo 2.
+do passo 1.2 (a Railway não tem backup próprio neste plano) e confira as contagens contra o que você registrou no passo 2.
 
 **O que NÃO fazer na volta atrás:** apagar o `jogos_2026`. Parado ele não atrapalha nada, e se o
 problema for passageiro você reaproveita tudo em vez de rodar os sete scripts de novo.
@@ -289,3 +298,34 @@ enquanto voltar atrás ainda é barato.
   `.env.production` do frontend mudam junto.
 - **Importar atletas** — escolas, competições, grupos e equipes vêm nos scripts. Os **atletas** são
   cadastrados pela tela, por escola, como sempre foi o plano (seção 4, item 11 do contexto).
+
+---
+
+## Como foi de fato
+
+**Executado em 01/10/2026, à noite, entre 20:59 e 21:50.**
+
+- **Banco:** o `jogos_2026` foi criado na Railway, ao lado do `railway` antigo, e recebeu os scripts
+  `01` a `06` em ordem. O antigo segue parado, com as 18 tabelas do schema antigo e a conta de teste
+  `admin@sge.com`.
+- **Publicação:** Render e Vercel publicam a branch `feat/novo-escopo`. A `main` segue com o estado
+  antigo. A tag do estado anterior é `v1-antes-do-novo-escopo`.
+- **Versão do MySQL:** a Railway está hoje no **9.7.2**. A validação de `db/VALIDACAO_MYSQL9.md` foi
+  feita no 9.4.0.
+
+**Desvios do roteiro:**
+
+1. **Vercel.** Ela publicava a `main`, com o frontend antigo. O Branch Tracking de produção foi
+   trocado para `feat/novo-escopo` e foi feito um Redeploy. O roteiro dizia que a Vercel não mudava;
+   o passo 8 já foi corrigido.
+2. **`00_apagar_tudo.sql` pulado**, porque o banco novo estava vazio.
+3. **`06` refeito.** Na primeira vez ele rodou no banco `railway`, o errado, e falhou. Foi refeito
+   no `jogos_2026`.
+4. **Usuários.** Na virada foi criado só **1 ADMIN**. Depois, pela tela `/usuarios`, veio **1 conta
+   PLACAR** (mesa). Ainda faltam os outros administradores e as demais mesas.
+
+**Backup.** A Railway **não tem backup automático** neste plano.
+Existem dumps manuais, todos fora do repositório: do banco antigo, de 01/10 e de 05/10/2026, e do
+`jogos_2026`, de 05/10/2026.
+
+**Prazo da Railway.** O crédito gratuito acaba por volta de **18/10/2026**.

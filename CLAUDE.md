@@ -19,29 +19,38 @@ grupos, modelos de súmula).
 
 ## Estado atual (atualizado em 05/10/2026)
 
-- **Código novo** na branch **`feat/novo-escopo`** (nos dois repositórios). Tag do estado anterior:
+- **A produção JÁ RODA O SISTEMA NOVO desde a noite de 01/10/2026** (virada entre ~20:59 e 21:50).
+  Render publica a branch **`feat/novo-escopo`** (deploy `eaa50b6`, "Fatia 10d"), a Vercel também
+  (Branch Tracking de produção trocado de `main` para `feat/novo-escopo`; a `main` segue com o
+  sistema antigo) e o banco é **`jogos_2026`** na Railway. Tag do estado anterior:
   `v1-antes-do-novo-escopo`.
-- Fatias (numeração oficial na seção 9 do contexto): 1–7 e 9 ✅ feitas;
-  **8 — tabela geral e o que sobra** 🔄 (falta atletismo e, se entrarem, técnicos/dirigentes);
-  **10 — migração da produção** 🔄 (roteiro pronto em `docs/MIGRACAO_PRODUCAO.md`, **falta o usuário executar**).
-- **A produção ainda roda o sistema ANTIGO**: código antigo no Render, frontend antigo na Vercel e
-  **schema antigo** no banco `railway` (registro em `db/schema_producao_baseline.sql`). O código novo
-  **não funciona** com esse banco. A virada cria o banco novo `jogos_2026` **ao lado** do antigo.
-- Ao corrigir um bug "da produção", confirme primeiro se ele é do sistema antigo (que vai ser
-  substituído) ou do código novo.
+- ⚠️ **Push na `feat/novo-escopo` = deploy em produção** (Render e Vercel publicam essa branch;
+  confirmar nos painéis se o auto-deploy está ligado e, na dúvida, assuma que está). Não dê push sem
+  o usuário pedir e sem testar antes no banco de dev.
+- Fatias (numeração oficial na seção 9 do contexto): 1–7, 9 e 10 ✅; **8 — tabela geral e o que
+  sobra** 🔄 (falta atletismo e, se entrarem, técnicos/dirigentes). A fatia 10 foi executada com
+  desvios do roteiro (ver "Histórico") e ainda tem pendências de produção (seção abaixo).
+- **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): conflito de
+  local (intervalo mínimo de 10 min entre inícios), `FormAgendaJogo` e local na chave do mata-mata.
+- O banco antigo **`railway`** (18 tabelas do schema antigo, só dados de teste) continua parado e
+  intacto no mesmo servidor, como âncora de volta atrás. **Não é o banco do sistema no ar.**
 
 ## Infraestrutura
 
 | Peça | Onde | Detalhe |
 |---|---|---|
-| Frontend | **Vercel** | https://sge-frontend-seven.vercel.app |
-| Backend | **Render** (plano free) | https://system-jogos-estudantis.onrender.com — serviço `System_Jogos_estudantis`; start `npm start`; health check **`/saude`** |
-| Banco produção | **Railway**, **MySQL 9.4.0** | banco atual `railway` (schema antigo); novo `jogos_2026` (a criar na fatia 10); collation `utf8mb4_0900_ai_ci` |
+| Frontend | **Vercel** | https://sge-frontend-seven.vercel.app — Branch Tracking de produção = `feat/novo-escopo` |
+| Backend | **Render** (plano free) | https://system-jogos-estudantis.onrender.com — serviço `System_Jogos_estudantis`; publica `feat/novo-escopo`; start `npm start`; health check **`/saude`** (confirmar que ficou salvo no painel) |
+| Banco produção | **Railway**, **MySQL 9.7.2** (era 9.4.0 até a Railway atualizar num "security patch"; conferido com `SELECT VERSION()` em 05/10) | **`jogos_2026`** = banco do sistema no ar (23 tabelas, schema novo); `railway` = banco antigo, parado; collation `utf8mb4_0900_ai_ci` |
 | Banco dev | MariaDB 10.4 (XAMPP), porta 3306 | `jogos_estudantis_dev` |
-| Validação | MySQL 8.0.46 (3307) e 9.4.0 (3308), locais | ver `db/VALIDACAO_MYSQL9.md` |
+| Validação | MySQL 8.0.46 (3307) e 9.4.0 (3308), locais | ver `db/VALIDACAO_MYSQL9.md` (feita em 9.4.0; produção hoje é 9.7.2) |
 
 - Plano free do Render dorme: a 1ª requisição leva ~50s. Mitigação: ping de 5 em 5 min em `/saude`
-  ou plano pago no mês do evento.
+  ou plano pago no mês do evento. **Hoje não há ping configurado.**
+- **A Railway NÃO oferece backup neste plano** (criar backup e PITR só no Pro). Só existe um
+  "Pre-Security-Patch Backup" da própria plataforma. **Backup é por `mysqldump`, por nossa conta.**
+- **Crédito gratuito da Railway acaba por volta de 18/10/2026** (lembrete em 12/10, segundo o chat
+  que fez a virada; confirmar em Usage/Billing). Sem plano pago, o banco pode parar e o sistema cai.
 - TLS com a Railway: `DB_SSL=true` → `ssl: { rejectUnauthorized: false }` (certificado autoassinado).
 - Cliente usado para acessar os bancos: **DBeaver** (conexões `localhost` e `railway`) e o `mysql.exe`
   em `C:\Users\Kevin\mysql8-3307\...` com arquivo de opções **fora do repositório**.
@@ -130,6 +139,9 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - Não faça commit/push sem o usuário pedir. Trabalhe na branch `feat/novo-escopo`.
 - **Não mexa na produção** (Railway/Render/Vercel) sem ordem explícita: nada de script, migração,
   deploy ou comando apontado para lá. Teste sempre no banco de desenvolvimento primeiro.
+- **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
+  script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
+  só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
 - Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é `07`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
@@ -160,20 +172,59 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
    ```
 4. No DBeaver, execute **um comando por vez** (Ctrl+Enter), nunca o script inteiro (Alt+X).
 
-## Histórico de incidentes da produção (sistema antigo)
+## Histórico de produção
 
-**Set–out/2026 — banco `railway` reimportado sem estrutura.** Depois do registro de 28/09
-(`schema_producao_baseline.sql`, que tinha PK, `AUTO_INCREMENT` e defaults), o banco foi reimportado
-e perdeu `PRIMARY KEY`, `AUTO_INCREMENT` e `DEFAULT`. Sintoma: "Falha ao salvar a súmula" — 500 por
-`Field 'criado_em' doesn't have a default value` no `INSERT INTO sumulas`. Corrigido **à mão, pelo
-DBeaver** (exceção à regra de script versionado, porque é o schema antigo que será aposentado):
-PK + `AUTO_INCREMENT` no `id` de todas as tabelas, e
-`DEFAULT CURRENT_TIMESTAMP` em `sumulas.criado_em`, `alunos.criado_em`, `usuarios.criado_em` e
-`equipes.data_cadastro`. Restam sem default, de propósito: `alunos.data_nascimento`,
-`atletas.data_nascimento`, `escolas.nome`, `jogos.data_hora`.
+**01/10/2026, noite — virada para o sistema novo (fatia 10).** Feita pelo usuário no DBeaver, guiada
+por outro chat. Passos: dump do banco antigo (`C:\Users\Kevin\dump-railway-202610012059.sql`, 17.618
+bytes, completo), registro da versão (9.4.0 na época), criação do `jogos_2026`, scripts `01`–`06`
+(o `00` foi pulado porque o banco estava vazio; o `06` falhou na primeira tentativa por ter sido
+rodado no banco errado, `railway`, sem escrever nada, e foi refeito no `jogos_2026`), conferência
+das contagens, **1 usuário ADMIN** (SemedAdmin, id 1) e, no Render, troca de `DB_NAME` para
+`jogos_2026`, novo `JWT_SECRET` e health check `/saude`. Só se testou `/saude` (status ok, banco ok).
+**Desvios do roteiro `docs/MIGRACAO_PRODUCAO.md`:** (1) a Vercel publicava a `main` (frontend
+antigo), então o Branch Tracking de produção foi trocado para `feat/novo-escopo` e feito Redeploy,
+ao contrário do que o roteiro dizia; (2) só 1 ADMIN criado e **nenhuma conta de mesa (PLACAR)**;
+(3) **o `jogos_2026` nunca foi copiado em backup**.
 
-**Lição para a fatia 10:** o banco novo nasce dos scripts `00`–`06` (DDL completo), não de import de
-dados. Backup é `mysqldump` com estrutura + dados, conferido antes de seguir.
+**05/10/2026 — conferência (esta sessão).** `SELECT VERSION()` na produção = **9.7.2**. O
+`jogos_2026` tem as 23 tabelas, a carga base (18 escolas, 16 apelidos, 50 competições, 77 grupos, 240
+equipes, 4 locais, 3 provas) e **dados de uso criados depois da virada**: 15 atletas, 24 inscrições,
+17 jogos, 41 `sumula_atletas`, 32 `sumula_equipes`, 2 usuários. **Ainda não confirmado se são
+testes** (o usuário deve dizer). Dump do banco antigo refeito em `F:\backups\producao_2026-10-05.sql`.
+
+**Set/2026 — incidente do sistema antigo (banco `railway`).** Banco reimportado sem estrutura: perdeu
+`PRIMARY KEY`, `AUTO_INCREMENT` e `DEFAULT`. Sintoma: "Falha ao salvar a súmula", 500 por
+`Field 'criado_em' doesn't have a default value` no `INSERT INTO sumulas`. Corrigido à mão pelo
+DBeaver (PK + `AUTO_INCREMENT` e `DEFAULT CURRENT_TIMESTAMP` em `sumulas.criado_em`,
+`alunos.criado_em`, `usuarios.criado_em`, `equipes.data_cadastro`). Esse schema foi aposentado na
+virada; a lição valeu: o banco novo nasce dos scripts `00`–`06` (DDL completo), nunca de import só
+de dados.
+
+## Pendências de produção (05/10/2026)
+
+1. **Backup do `jogos_2026`:** feito em 05/10, repetir antes do evento e depois de cada dia de
+   jogos. Comando: `mysqldump --single-transaction --routines --triggers --events
+   --set-gtid-purged=OFF --databases jogos_2026 --result-file=...` com `--defaults-extra-file` fora
+   dos repositórios; conferir tamanho, `-- Dump completed` e a contagem de `CREATE TABLE` (23);
+   guardar uma cópia fora do disco `F:`.
+2. **Crédito da Railway acaba ~18/10**: decidir plano pago (o Pro também libera backups).
+3. **Senha do root da Railway foi exposta em print**: ordem segura = criar usuário só da aplicação
+   (permissão apenas em `jogos_2026`), trocar no Render, testar, e só então trocar a senha do root.
+4. **Confirmar no painel do Render** (valores cobertos): se a conexão usa `DATABASE_URL` ou `DB_*`
+   (o `db.js` dá prioridade à `DATABASE_URL`, e trocar só `DB_NAME` não teria efeito), qual usuário do
+   banco ela usa, e se `NODE_ENV=production`, `CORS_ORIGIN`, `JWT_SECRET` novo e `FUSO_EVENTO`
+   estão definidos. Conferir também se o health check `/saude` foi salvo.
+5. Conferir no `jogos_2026`: coluna `sumula_atletas.faltas` (script 05), `competicoes` id 24
+   (script 06: 1 grupo, 2 classificados, 0 melhores segundos, próxima fase FINAL, turno único),
+   `SELECT COUNT(*) FROM configuracao_evento` (esperado 1) e a lista de usuários (sem a coluna `senha`).
+6. **Contas:** já existem **1 ADMIN** (criado na virada) e **1 conta PLACAR** (mesa), criada depois
+   pela tela `/usuarios`. Faltam os ADMIN **Felipe** e **Aelson** e as **demais contas de mesa**.
+   Criar pela tela `/usuarios`.
+7. **Ping em `/saude`** (5 em 5 min) ou plano pago do Render.
+8. O banco antigo `railway` ainda tem a conta de teste `admin@sge.com` (senha padrão antiga): remover o banco
+   (ou a conta) quando a volta atrás deixar de ser necessária.
+9. Atualizar `db/README.md` e `db/VALIDACAO_MYSQL9.md` (versão 9.7.2) e o `docs/MIGRACAO_PRODUCAO.md`
+   (desvio da Vercel e a execução real).
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.

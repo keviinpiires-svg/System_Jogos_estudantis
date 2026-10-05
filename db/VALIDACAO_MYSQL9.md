@@ -1,10 +1,14 @@
 # Validação dos scripts no motor da produção — fatia 10
 
+> **Atualização de 05/10/2026:** a Railway roda hoje **MySQL 9.7.2**, e não o 9.4.0 desta validação.
+> Os scripts `01`–`06` já rodaram na produção na virada de 01/10/2026. A Railway **não tem backup
+> automático** neste plano.
+
 **01/10/2026.** Até aqui tudo havia sido testado no **MariaDB 10.4** do XAMPP, que não é o motor da
 produção. Esta é a conferência no motor certo, antes de escrever o roteiro de migração.
 
 A validação foi feita **duas vezes**: primeiro em MySQL 8.0.46, enquanto a versão da produção ainda
-não era conhecida, e depois em **MySQL 9.4.0**, que é a da produção. **O que vale é o 9.4.0**; o
+não era conhecida, e depois em **MySQL 9.4.0**, tida como a da produção (a Railway roda MySQL 9.7.2). **O que vale é o 9.4.0**; o
 8.0.46 ficou como termo de comparação e rendeu uma conferência a mais (a comparação de schema, abaixo).
 
 ## Como foi montado
@@ -13,7 +17,7 @@ não era conhecida, e depois em **MySQL 9.4.0**, que é a da produção. **O que
 |---|---|---|
 | MariaDB 10.4.32 (XAMPP) | 3306 | o banco de desenvolvimento de sempre, intocado |
 | MySQL 8.0.46 | 3307 | primeira validação, instalada para esta fatia |
-| **MySQL 9.4.0** | **3308** | **o motor da produção — validação que vale** |
+| **MySQL 9.4.0** | **3308** | **tido como o motor da produção — validação que vale** |
 
 Banco `jogos_estudantis_dev9`, criado com `CHARACTER SET utf8mb4` e **sem `COLLATE`**, como manda o
 `README.md`. Nada apontou para a produção em momento algum.
