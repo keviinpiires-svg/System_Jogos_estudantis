@@ -248,7 +248,7 @@ mata-mata fixo (1ºA×2ºB) cobre só um dos formatos.
 - ~~CORS aberto quando `CORS_ORIGIN` está vazio~~ — resolvido na fatia 9c: em produção a variável é **obrigatória** e o servidor não sobe sem ela. Em desenvolvimento a abertura continua, para o Vite conversar com a API sem configuração.
 - ~~Sem rate limit no login~~ — resolvido: `express-rate-limit` em `authRoutes`, com `trust proxy` para o Render enxergar o IP certo.
 - **JWT em `localStorage`** — mantido por decisão de 01/10/2026: trocar por cookie `httpOnly` mexe no deploy e abre o assunto de CSRF, e não cabe no prazo.
-- ~~Admin padrão `admin@sge.com` / `admin123` no SQL versionado~~ — resolvido **de verdade na fatia 10** (01/10/2026).
+- ~~Admin padrão `admin@sge.com`, com a senha padrão, no SQL versionado~~ — resolvido **de verdade na fatia 10** (01/10/2026).
   Esta linha dizia que `criar_usuarios.sql` "não existe mais", e **estava errada**: o arquivo continuava na raiz do backend e
   versionado, com o e-mail, a senha e o hash. Foi apagado. O hash segue no histórico do git — a garantia é outra: a carga base
   **não cria usuário nenhum**, `db/README.md` manda gerar o hash na hora, e essa senha deixa de existir junto com o banco antigo.
