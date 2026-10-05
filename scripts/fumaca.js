@@ -487,8 +487,10 @@ const rodar = async () => {
 const testarConflitoDeLocal = async (competicao, equipes, grupos) => {
   secao('-- conflito de local');
 
+  // Só o horário de INÍCIO conta (a duração das partidas está em aberto):
+  // um minuto a menos que o intervalo conflita, o intervalo exato não.
   const { intervaloMinutos } = REGRAS.conflitoDeLocal;
-  const metade = Math.floor(intervaloMinutos / 2);
+  const quase = intervaloMinutos - 1;
 
   const [locais] = await db.query('SELECT id, nome FROM locais_disputa ORDER BY id LIMIT 2');
   if (locais.length < 2) {
@@ -535,21 +537,22 @@ const testarConflitoDeLocal = async (competicao, equipes, grupos) => {
   const j1 = await tentar(L1, as(0));
   conferir(j1.status === 201, 'local e horário livres -> 201', `${j1.status} ${j1.corpo.erro || ''}`);
 
-  const perto = await tentar(L1, as(metade));
+  const perto = await tentar(L1, as(quase));
   conferir(
     perto.status === 409,
-    `mesmo local a ${metade} min -> 409`,
+    `mesmo local a ${quase} min do início -> 409`,
     `${perto.status} ${perto.corpo.erro || ''}`
   );
   conferir(
     perto.status === 409 && perto.corpo.erro.includes(L1.nome)
-      && perto.corpo.erro.includes(`nº ${j1.corpo.numero_jogo}`),
-    'a recusa diz o local e o número do jogo que ocupa',
+      && perto.corpo.erro.includes(`nº ${j1.corpo.numero_jogo}`)
+      && perto.corpo.erro.includes(`${intervaloMinutos} minutos entre os horários de início`),
+    'a recusa diz o local, o número do jogo que ocupa e o intervalo da regra',
     perto.corpo.erro
   );
 
   const j3 = await tentar(L1, as(intervaloMinutos));
-  conferir(j3.status === 201, `mesmo local a ${intervaloMinutos} min -> 201`, `${j3.status} ${j3.corpo.erro || ''}`);
+  conferir(j3.status === 201, `mesmo local a exatamente ${intervaloMinutos} min -> 201`, `${j3.status} ${j3.corpo.erro || ''}`);
 
   const j4 = await tentar(L2, as(0));
   conferir(j4.status === 201, 'mesmo horário em outro local -> 201', `${j4.status} ${j4.corpo.erro || ''}`);
@@ -572,14 +575,14 @@ const testarConflitoDeLocal = async (competicao, equipes, grupos) => {
     `${semMudar.status} ${semMudar.corpo.erro || ''}`
   );
 
-  // Andar 10 min continua perto do horário antigo do próprio jogo, que não
-  // pode contar como conflito consigo mesmo.
+  // Andar menos que o intervalo continua perto do horário antigo do próprio
+  // jogo, que não pode contar como conflito consigo mesmo.
   const mexeuPouco = await chamar('PUT', `/jogos/${j3.corpo.id_jogo}`, {
-    data_hora: as(intervaloMinutos + 10)
+    data_hora: as(intervaloMinutos + quase)
   });
   conferir(
     mexeuPouco.status === 200,
-    'reagendar 10 min ignora o próprio jogo -> 200',
+    `reagendar ${quase} min ignora o próprio jogo -> 200`,
     `${mexeuPouco.status} ${mexeuPouco.corpo.erro || ''}`
   );
 

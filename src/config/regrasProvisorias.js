@@ -233,20 +233,22 @@ const REGRAS = {
   // 9. Dois jogos no mesmo local — decisão do usuário de 05/10/2026
   // --------------------------------------------------------------------
   // O sistema deixava agendar dois jogos no mesmo local e no mesmo horário.
-  // O regulamento não diz quanto dura um jogo com intervalo e troca de
-  // equipes, e vôlei, basquete e o Society Sub 15 nem têm tempo cadastrado.
-  // Decisão: um intervalo mínimo FIXO entre o início de dois jogos no mesmo
-  // local, valendo entre competições diferentes. Conflitam se
-  // |data_hora_a - data_hora_b| < intervaloMinutos. Jogo sem local ou sem
-  // horário fica fora da conta, e o W.O. libera o local.
+  // A duração das partidas fica EM ABERTO por decisão do chefe: varia muito,
+  // e o vôlei nem tem tempo, é por sets. Então o sistema NÃO estima duração
+  // (nada derivado de competicoes.minutos_por_tempo): compara só os horários
+  // de INÍCIO no mesmo local, valendo entre competições diferentes.
+  // Conflitam se |inicio_a - inicio_b| < intervaloMinutos. Jogo sem local ou
+  // sem horário fica fora da conta, e o W.O. libera o local.
   conflitoDeLocal: {
     provisorio: true,
     decididoEm: '05/10/2026',
-    intervaloMinutos: 60,
+    intervaloMinutos: 10,
     statusQueOcupam: ['AGENDADO', 'EM_ANDAMENTO', 'FINALIZADO'],
-    descricao:
-      'Dois jogos no mesmo local precisam começar com pelo menos 60 minutos de diferença, '
-      + 'mesmo sendo de competições diferentes; jogo com W.O. não ocupa o local.',
+    get descricao() {
+      return `Dois jogos no mesmo local precisam de pelo menos ${this.intervaloMinutos} minutos `
+        + 'entre os horários de início, mesmo sendo de competições diferentes; a duração das '
+        + 'partidas não é estimada, e jogo com W.O. não ocupa o local.';
+    },
     // A trava é só no código, sem índice único: um UNIQUE (local_id, data_hora)
     // não pegaria a sobreposição e impediria o W.O. de liberar o horário.
     aplicadoEm: 'jogoController.agendarJogo e jogoController.atualizarJogo'

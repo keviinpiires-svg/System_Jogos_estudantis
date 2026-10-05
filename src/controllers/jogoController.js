@@ -100,7 +100,7 @@ const verificarConflitoDeLocal = async (conexao, { local_id, data_hora, ignorarJ
       mensagem:
         `O local ${jogo.local_nome} já tem o jogo nº ${jogo.numero_jogo} de ${competicao} `
         + `em ${formatarQuando(jogo.data_hora)}. Jogos no mesmo local precisam de pelo menos `
-        + `${intervaloMinutos} minutos de diferença.`
+        + `${intervaloMinutos} minutos entre os horários de início.`
     }
   };
 };
