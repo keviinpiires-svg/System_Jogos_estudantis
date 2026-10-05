@@ -391,6 +391,10 @@ const rodar = async () => {
   const chaveAntes = await exigir('GET', `/matamata/competicao/${competicao.id}`, null, 'a chave');
   const jogosSemi = chaveAntes.chave.semifinal.jogos;
   conferir(chaveAntes.chave.semifinal.gerada === true, 'a chave mostra a semifinal como gerada');
+  conferir(
+    jogosSemi.every((j) => 'local_id' in j && 'local_nome' in j),
+    'os jogos da chave trazem o local (a definir enquanto não marcado)'
+  );
 
   const vencedores = [];
   for (const jogo of jogosSemi) {
@@ -578,6 +582,20 @@ const testarConflitoDeLocal = async (competicao, equipes, grupos) => {
     'reagendar 10 min ignora o próprio jogo -> 200',
     `${mexeuPouco.status} ${mexeuPouco.corpo.erro || ''}`
   );
+
+  // Limpar a agenda volta o jogo para "a definir". Sem local nem horário não
+  // há o que conferir, então a checagem de conflito não entra.
+  const limpou = await chamar('PUT', `/jogos/${j3.corpo.id_jogo}`, { data_hora: '', local_id: '' });
+  const [[limpo]] = await db.query('SELECT local_id, data_hora FROM jogos WHERE id = ?', [j3.corpo.id_jogo]);
+  conferir(
+    limpou.status === 200 && limpo.local_id === null && limpo.data_hora === null,
+    'limpar data e local de jogo AGENDADO -> 200 e grava NULL',
+    `${limpou.status} ${limpou.corpo.erro || ''} local=${limpo.local_id} data=${limpo.data_hora}`
+  );
+
+  // Só o local, mantendo o horário: também sai da checagem
+  const soLocal = await chamar('PUT', `/jogos/${j5.corpo.id_jogo}`, { local_id: null });
+  conferir(soLocal.status === 200, 'tirar só o local -> 200', `${soLocal.status} ${soLocal.corpo.erro || ''}`);
 
   // O primeiro jogo do passeio já está FINALIZADO pela súmula
   const finalizado = criados.jogos[0];

@@ -42,12 +42,14 @@ const montarChave = async (id) => {
             j.equipe_1_id, j.equipe_2_id, j.placar_1, j.placar_2,
             j.penaltis_1, j.penaltis_2, j.vencedor_equipe_id,
             e1.escola_id AS escola_1_id, esc1.nome AS escola_1_nome,
-            e2.escola_id AS escola_2_id, esc2.nome AS escola_2_nome
+            e2.escola_id AS escola_2_id, esc2.nome AS escola_2_nome,
+            j.local_id, l.nome AS local_nome
        FROM jogos j
        INNER JOIN equipes e1 ON e1.id = j.equipe_1_id
        INNER JOIN escolas esc1 ON esc1.id = e1.escola_id
        INNER JOIN equipes e2 ON e2.id = j.equipe_2_id
        INNER JOIN escolas esc2 ON esc2.id = e2.escola_id
+       LEFT JOIN locais_disputa l ON l.id = j.local_id
       WHERE j.competicao_id = ?
       ORDER BY j.fase, j.numero_jogo`,
     [id]
