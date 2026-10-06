@@ -12,18 +12,25 @@
 // Decisão do usuário (29/09/2026): TODA folha impressa tem 14 linhas por
 // equipe, inclusive basquete e vôlei, cujos papéis trazem 12 — o elenco do
 // regulamento é 14 e a folha precisa comportá-lo.
+//
+// Exceção de 06/10/2026, nas folhas oficiais do HANDEBOL e do BALEADO: a folha
+// em branco tem as 12 linhas do papel, e a preenchida ganha a 13ª e a 14ª só
+// quando a equipe tiver mais de 12 inscritos. Fidelidade ao modelo oficial,
+// sem perder atleta na impressão. `linhas` é o que a folha em branco desenha;
+// `linhasMaximas` é o teto que o backend aceita e a preenchida pode chegar.
 // ============================================================================
 
 const { REGRAS } = require('./regrasProvisorias');
 
 const LINHAS = 14;
+const LINHAS_DO_PAPEL = 12;
 
-// Futsal, Futebol Society e Handebol usam exatamente a mesma folha: muda só o
-// título, que sai do nome da modalidade.
+// Futsal e Futebol Society usam exatamente a mesma folha: muda só o título,
+// que sai do nome da modalidade.
 const folhaDoFutsal = {
   tipo: 'FUTSAL',
   // Sem título próprio: cai no nome da modalidade, que é o que o papel do
-  // futsal, do society e do handebol traz.
+  // futsal e do society traz.
   titulo: null,
   rotuloEstatistica: 'Gols',
   // O papel tem 11 quadradinhos de gol por atleta (contados no PDF)
@@ -34,13 +41,33 @@ const folhaDoFutsal = {
   faltasAcumuladas: 5,
   tempoTecnico: true,
   sets: false,
-  linhas: LINHAS
+  linhas: LINHAS,
+  linhasMaximas: LINHAS
 };
 
 const FOLHAS = {
   futsal: folhaDoFutsal,
   'futebol-society': folhaDoFutsal,
-  handebol: folhaDoFutsal,
+
+  // Handebol: folha oficial própria (docs/referencias/SUMULA HANDEBOL.pdf).
+  // Cartões em duas caixas, "A" e "V" — um amarelo e um vermelho por atleta —,
+  // 10 caixas de gols (contadas no PDF), capitão escrito numa célula só e, no
+  // rodapé, tempo técnico 1º T / 2º T e o técnico. Não tem falta individual
+  // nem falta acumulada.
+  handebol: {
+    tipo: 'HANDEBOL',
+    titulo: 'SÚMULA DE HANDEBOL',
+    rotuloEstatistica: 'Gols',
+    caixasEstatistica: 10,
+    cartoes: true,
+    maxAmarelos: 1,
+    faltasIndividuais: 0,
+    faltasAcumuladas: 0,
+    tempoTecnico: true,
+    sets: false,
+    linhas: LINHAS_DO_PAPEL,
+    linhasMaximas: LINHAS
+  },
 
   // Basquete: folha própria. Não tem cartão; tem faltas individuais de 0 a 5
   // por atleta e faltas acumulativas até 7 por tempo. A grade de PONTOS do
@@ -58,6 +85,7 @@ const FOLHAS = {
     tempoTecnico: true,
     sets: false,
     linhas: LINHAS,
+    linhasMaximas: LINHAS,
     // Grade da pontuação corrida: 8 colunas de 12 números, 2 a 97
     pontuacaoCorrida: { de: 2, colunas: 8, porColuna: 12 }
   },
@@ -77,6 +105,7 @@ const FOLHAS = {
     tempoTecnico: false,
     sets: true,
     linhas: LINHAS,
+    linhasMaximas: LINHAS,
     // Regulamento: melhor de 3, set de 21 pontos, vencendo por 2 de vantagem.
     setsParaVencer: 2,
     maxSets: 3,

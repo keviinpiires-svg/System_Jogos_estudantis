@@ -387,10 +387,20 @@ const registrarSumula = async (req, res) => {
       const equipe_id = Number(equipe.equipe_id);
       const atletas = Array.isArray(equipe.atletas) ? equipe.atletas : [];
 
-      if (atletas.length > folha.linhas) {
+      // O teto é o do elenco (14): no handebol e no baleado o papel tem 12
+      // linhas, e a folha preenchida ganha as que faltarem
+      if (atletas.length > folha.linhasMaximas) {
         await conexao.rollback();
         return res.status(400).json({
-          erro: `A súmula tem ${folha.linhas} linhas por equipe.`
+          erro: `A súmula tem no máximo ${folha.linhasMaximas} linhas por equipe.`
+        });
+      }
+
+      // Tempo técnico só onde o papel tem a caixa (o baleado e o vôlei não têm)
+      if (!folha.tempoTecnico && (booleano(equipe.tempo_tecnico_1t) || booleano(equipe.tempo_tecnico_2t))) {
+        await conexao.rollback();
+        return res.status(400).json({
+          erro: `A folha de ${jogo.modalidade_nome} não tem tempo técnico.`
         });
       }
 
@@ -446,7 +456,9 @@ const registrarSumula = async (req, res) => {
         if (amarelos > folha.maxAmarelos) {
           await conexao.rollback();
           return res.status(400).json({
-            erro: `A súmula tem duas caixas de amarelo: o máximo é ${folha.maxAmarelos}.`
+            erro: folha.maxAmarelos === 1
+              ? `A súmula de ${jogo.modalidade_nome} tem uma caixa de amarelo: o máximo é 1.`
+              : `A súmula tem ${folha.maxAmarelos} caixas de amarelo: o máximo é ${folha.maxAmarelos}.`
           });
         }
 

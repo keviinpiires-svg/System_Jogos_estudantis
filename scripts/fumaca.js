@@ -20,6 +20,7 @@ require('dotenv').config({ quiet: true });
 const bcrypt = require('bcryptjs');
 const db = require('../src/config/db');
 const { REGRAS, desempateDaModalidade } = require('../src/config/regrasProvisorias');
+const { folhaDaModalidade } = require('../src/config/folhasSumula');
 const { compararEntreGrupos } = require('../src/controllers/classificacaoController');
 const { posicionar } = require('../src/controllers/tabelaGeralController');
 const { colocacoesFinais } = require('../src/controllers/mataMataController');
@@ -554,6 +555,33 @@ const rodar = async () => {
   await testarTerceiroSemSemifinal();
   testarQuintoLugar();
   testarDesempatePorModalidade();
+  testarFolhasOficiais();
+};
+
+// ---------------------------------------------------------------------------
+// Folhas oficiais de 2026 (docs/referencias/SUMULA HANDEBOL.pdf e BALEADO.pdf)
+// ---------------------------------------------------------------------------
+const testarFolhasOficiais = () => {
+  secao('-- folhas oficiais de súmula');
+
+  const handebol = folhaDaModalidade('handebol', 'Handebol');
+  conferir(
+    handebol.tipo === 'HANDEBOL' && handebol.titulo === 'SÚMULA DE HANDEBOL' && !handebol.provisoria,
+    'handebol tem folha própria, sem aviso de provisória'
+  );
+  conferir(
+    handebol.caixasEstatistica === 10 && handebol.cartoes && handebol.maxAmarelos === 1
+      && handebol.faltasIndividuais === 0 && handebol.faltasAcumuladas === 0 && handebol.tempoTecnico,
+    'handebol: 10 caixas de gols, um amarelo, sem faltas, com tempo técnico'
+  );
+  conferir(
+    handebol.linhas === 12 && handebol.linhasMaximas === 14,
+    'handebol: 12 linhas no papel, até 14 na folha preenchida'
+  );
+  conferir(
+    folhaDaModalidade('futsal', 'Futsal').linhas === 14,
+    'futsal segue com as 14 linhas da decisão de 29/09'
+  );
 };
 
 // ---------------------------------------------------------------------------
