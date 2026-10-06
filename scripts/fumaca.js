@@ -447,15 +447,37 @@ const rodar = async () => {
   // 5º provisório: com mais de 4 equipes na competição, a melhor campanha
   // entre quem não chegou à semifinal
   const naSemifinal = new Set(jogosSemi.flatMap((j) => [j.equipe_1_id, j.equipe_2_id]));
-  const quinto = podio.find((c) => c.posicao === 5);
+  const quintos = podio.filter((c) => c.posicao === 5);
   if (equipes.length > 4) {
     conferir(
-      quinto && !naSemifinal.has(quinto.equipe_id) && quinto.provisoria === true,
+      quintos.length > 0
+        && quintos.every((q) => !naSemifinal.has(q.equipe_id) && q.provisoria === true),
       `com ${equipes.length} equipes, o 5º é de quem não chegou à semifinal, provisório`,
-      JSON.stringify(quinto)
+      JSON.stringify(quintos)
     );
   } else {
-    conferir(!quinto, `com ${equipes.length} equipes não há 5º`, JSON.stringify(quinto));
+    conferir(quintos.length === 0, `com ${equipes.length} equipes não há 5º`, JSON.stringify(quintos));
+  }
+
+  // O passeio faz todo mundo perder pelo mesmo placar, então com grupos do
+  // mesmo tamanho os últimos de cada grupo empatam em tudo: dividem o 5º.
+  // É exatamente o texto que o card do mata-mata mostra na linha de cada uma.
+  const tamanhos = new Set(grupos.map((g) => equipes.filter((e) => e.grupo_nome === g).length));
+  if (equipes.length > 4 && tamanhos.size === 1 && [...tamanhos][0] === 3) {
+    conferir(
+      quintos.length === 2,
+      'grupos iguais de 3: os dois últimos empatam em tudo e os dois aparecem como 5º',
+      JSON.stringify(quintos)
+    );
+  }
+  if (quintos.length > 1) {
+    const texto = REGRAS_DA_CHAVE.quartoEQuinto.textoDoEmpate;
+    console.log(`  (na tela: ${quintos.map((q) => `"5º ${q.escola_nome} — ${q.como} · regra provisória"`).join(' e ')})`);
+    conferir(
+      quintos.every((q) => q.dividida === true && q.como.startsWith(texto)),
+      `empate em tudo: ${quintos.length} equipes dividem o 5º, com "${texto}"`,
+      JSON.stringify(quintos)
+    );
   }
 
   // ---- tabela geral --------------------------------------------------------
@@ -475,14 +497,14 @@ const rodar = async () => {
     'o 4º soma 4 pontos na tabela geral, marcados como provisórios',
     JSON.stringify(origemDoQuarto)
   );
-  const escolaDoQuinto = podio.find((c) => c.posicao === 5)?.escola_nome;
-  if (escolaDoQuinto) {
+  // Cada escola que divide o 5º soma os 2 pontos inteiros
+  for (const quinto of podio.filter((c) => c.posicao === 5)) {
     const origemDoQuinto = tabela.geral
-      .find((e) => e.escola_nome === escolaDoQuinto)?.origens
+      .find((e) => e.escola_nome === quinto.escola_nome)?.origens
       .find((o) => o.competicao_id === competicao.id && o.posicao === 5);
     conferir(
       origemDoQuinto?.pontos === 2 && origemDoQuinto?.provisoria === true,
-      'o 5º soma 2 pontos na tabela geral, marcados como provisórios',
+      `5º (${quinto.escola_nome}) soma 2 pontos na tabela geral, marcados como provisórios`,
       JSON.stringify(origemDoQuinto)
     );
   }
@@ -607,6 +629,22 @@ const testarQuintoLugar = () => {
   conferir(
     cinco.find((c) => c.posicao === 4)?.equipe_id === 2,
     'e o 4º é quem perdeu a semifinal para o vice'
+  );
+
+  // 6 equipes, e as duas fora da semifinal (5 e 6) empatam em tudo — mesmos
+  // pontos, saldo, vitórias, gols e cartões, de grupos diferentes, sem
+  // confronto direto: dividem o 5º, sem sorteio
+  const seis = colocar([
+    { nome: 'A', equipes: [equipe('A', 1, 1, 6), equipe('A', 2, 2, 3), equipe('A', 3, 5, 0)] },
+    { nome: 'B', equipes: [equipe('B', 1, 3, 6), equipe('B', 2, 4, 3), equipe('B', 3, 6, 0)] }
+  ]);
+  const divididos = seis.filter((c) => c.posicao === 5);
+  conferir(
+    divididos.map((c) => c.equipe_id).sort().join(',') === '5,6'
+      && divididos.every((c) => c.dividida && c.provisoria
+        && c.como.startsWith(REGRAS_DA_CHAVE.quartoEQuinto.textoDoEmpate)),
+    'empate em tudo: as duas candidatas aparecem como 5º, com "5º lugar dividido"',
+    JSON.stringify(divididos)
   );
 
   // 4 equipes: todas jogam a semifinal, e não há 5º

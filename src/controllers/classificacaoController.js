@@ -124,10 +124,13 @@ const ORDEM_DESEMPATE = {
 
 // Ordena um bloco de equipes empatadas aplicando os critérios em ordem.
 // Quem chega ao fim do funil ainda empatado vai para sorteio (regulamento).
+// `ctx.aoEmpatarAteOFim`, se vier, recebe cada bloco que empatou em tudo: é
+// como o 5º lugar descobre quem divide a posição, sem mexer na classificação.
 const desempatar = (bloco, criterios, indice, ctx) => {
   if (bloco.length === 1) return bloco;
 
   if (indice >= criterios.length) {
+    if (ctx.aoEmpatarAteOFim) ctx.aoEmpatarAteOFim(bloco);
     // Antes da primeira rodada a tabela inteira está zerada: isso não é
     // empate a resolver por sorteio, é só competição que ainda não começou.
     if (bloco.some((equipe) => equipe.jogos > 0)) {

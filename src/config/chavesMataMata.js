@@ -88,14 +88,19 @@ const REGRAS_DA_CHAVE = {
   //       de grupos, só quando a COMPETIÇÃO tem mais de
   //       `equipesNaCompeticaoParaQuinto` equipes (correção do usuário,
   //       06/10/2026). Com 4 equipes ou menos, não há 5º.
+  //       Empate em todos os critérios: as empatadas DIVIDEM o 5º e cada uma
+  //       leva os 2 pontos — nada de sorteio aqui (o sorteio do regulamento
+  //       fica para o desempate dentro do grupo).
   quartoEQuinto: {
     provisorio: true,
     decididoEm: '06/10/2026',
     equipesNaCompeticaoParaQuinto: 4,
+    textoDoEmpate: '5º lugar dividido — aguardando confirmação do chefe',
     descricao:
       '4º é o semifinalista que não ficou em 3º (não há jogo de 3º lugar); 5º é a melhor '
       + 'equipe que não chegou à semifinal, pela campanha da fase de grupos, só quando a '
-      + 'competição tem mais de 4 equipes. Regra provisória, aguardando confirmação do chefe.'
+      + 'competição tem mais de 4 equipes; empatadas em tudo dividem o 5º e levam 2 pontos '
+      + 'cada uma. Regra provisória, aguardando confirmação do chefe.'
   }
 };
 

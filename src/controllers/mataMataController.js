@@ -190,17 +190,32 @@ const quartoEQuinto = (chave, semifinais, vice) => {
     const foraDaSemifinal = todasAsEquipes
       .filter((equipe) => !naSemifinal.has(equipe.equipe_id))
       .map((equipe) => ({ ...equipe }));
-    const [quinto] = ordenarPorCampanha(foraDaSemifinal, criterios, { competicao, jogos });
 
-    if (quinto) {
+    // Quem empata em todos os critérios NÃO vai a sorteio aqui (06/10/2026):
+    // divide o 5º lugar, e cada uma leva os pontos. O sorteio do regulamento
+    // continua valendo dentro do grupo, na classificação.
+    const empatesAteOFim = [];
+    const ordenadas = ordenarPorCampanha(foraDaSemifinal, criterios, {
+      competicao,
+      jogos,
+      aoEmpatarAteOFim: (bloco) => empatesAteOFim.push(bloco.map((e) => e.equipe_id))
+    });
+
+    const [lider] = ordenadas;
+    const empatadas = lider && empatesAteOFim.find((ids) => ids.includes(lider.equipe_id));
+    const quintos = empatadas
+      ? ordenadas.filter((equipe) => empatadas.includes(equipe.equipe_id))
+      : ordenadas.slice(0, 1);
+
+    for (const quinto of quintos) {
       colocacoes.push({
         posicao: 5,
         equipe_id: quinto.equipe_id,
         escola_nome: quinto.escola_nome,
-        como: `melhor campanha entre quem não chegou à semifinal (grupo ${quinto.grupo_nome})`
-          // Empate em todos os critérios: a lista sai por ordem alfabética e
-          // a organização ainda precisa sortear
-          + (quinto.sorteio ? ', empatada com outra equipe até o sorteio' : ''),
+        como: quintos.length > 1
+          ? `${regra.textoDoEmpate} (grupo ${quinto.grupo_nome}; empatada em todos os critérios)`
+          : `melhor campanha entre quem não chegou à semifinal (grupo ${quinto.grupo_nome})`,
+        dividida: quintos.length > 1,
         provisoria: regra.provisorio
       });
     }
