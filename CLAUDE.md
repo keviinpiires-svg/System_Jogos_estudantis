@@ -46,8 +46,8 @@ grupos, modelos de súmula).
   empate no mata-mata do baleado (regulamento omisso: a súmula avisa e não finaliza o empate, e não
   há cobrança genérica em modalidade nenhuma), atletismo (plano na fatia 11), xadrez/dama/dominó,
   número de contas de mesa e a súmula do baleado. **Provisório, aguardando o chefe:** 4º lugar
-  (quem perdeu a semifinal para o vice) e 5º lugar (só com mais de 4 equipes no mata-mata, o que
-  nenhuma competição tem), valendo 4 e 2 pontos, com aviso na tabela geral.
+  (quem perdeu a semifinal para o vice) e 5º lugar (a melhor campanha entre quem não chegou à semifinal,
+  só em competição com mais de 4 equipes), valendo 4 e 2 pontos, com aviso na tabela geral.
 - O banco antigo **`railway`** (18 tabelas do schema antigo, só dados de teste) continua parado e
   intacto no mesmo servidor, como âncora de volta atrás. **Não é o banco do sistema no ar.**
 
