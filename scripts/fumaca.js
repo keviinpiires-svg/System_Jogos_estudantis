@@ -22,6 +22,7 @@ const db = require('../src/config/db');
 const { REGRAS } = require('../src/config/regrasProvisorias');
 const { compararEntreGrupos } = require('../src/controllers/classificacaoController');
 const { posicionar } = require('../src/controllers/tabelaGeralController');
+const { colocacoesFinais } = require('../src/controllers/mataMataController');
 const { chaveDaSemifinal, REGRAS_DA_CHAVE } = require('../src/config/chavesMataMata');
 
 const API = process.env.FUMACA_API || 'http://localhost:3000/api';
@@ -481,6 +482,7 @@ const rodar = async () => {
 
   testarRegrasDoChefe();
   testarSemifinalDeTresGrupos();
+  await testarTerceiroSemSemifinal();
 };
 
 // ---------------------------------------------------------------------------
@@ -588,6 +590,46 @@ const testarSemifinalDeTresGrupos = () => {
   );
 };
 
+// ---------------------------------------------------------------------------
+// 3º lugar sem semifinal — decisão de 06/10/2026
+// ---------------------------------------------------------------------------
+// As colocações saem de uma competição de mentira; o banco só é lido, para
+// conferir quantos pontos o 3º lugar vale.
+const testarTerceiroSemSemifinal = async () => {
+  secao('-- 3º lugar sem semifinal');
+
+  const equipe = equipeDeTeste;
+
+  // Dois grupos, 1º de cada à final: o 3º é o melhor 2º pela campanha
+  const final = {
+    id: 1, fase: 'FINAL', status: 'FINALIZADO', vencedor_equipe_id: 1,
+    equipe_1_id: 1, equipe_2_id: 2, escola_1_nome: 'ESCOLA A1', escola_2_nome: 'ESCOLA B1'
+  };
+  const melhorSegundo = equipe('B', 2, 4);
+  const colocacoes = colocacoesFinais({
+    competicao: { proxima_fase: 'FINAL', qtd_grupos: 2 },
+    todosOsJogos: [final],
+    grupos: [
+      { nome: 'A', equipes: [equipe('A', 1, 1), equipe('A', 2, 3)] },
+      { nome: 'B', equipes: [equipe('B', 1, 2), melhorSegundo] }
+    ],
+    comparacoes: { segundos: { ordenadas: [melhorSegundo, equipe('A', 2, 3)] } },
+    faseDeGrupos: { completa: true }
+  });
+  const terceiro = colocacoes.find((c) => c.posicao === 3);
+  conferir(
+    terceiro?.equipe_id === 4 && terceiro.provisoria === false,
+    '3º sem semifinal é o melhor 2º, sem marca de regra provisória',
+    JSON.stringify(terceiro)
+  );
+
+  const [[pontuacao]] = await db.query('SELECT pontos FROM pontuacao_geral WHERE posicao = 3');
+  conferir(
+    pontuacao?.pontos === 6 && REGRAS.tabelaGeral.posicoesQuePontuam.includes(3),
+    'o 3º lugar vale 6 pontos na tabela geral',
+    `pontuacao_geral(3) = ${pontuacao?.pontos}`
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Conflito de local (regrasProvisorias.conflitoDeLocal)

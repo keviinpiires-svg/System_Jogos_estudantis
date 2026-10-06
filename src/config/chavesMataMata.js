@@ -13,9 +13,9 @@
 //   D | 3 grupos x 1 + 1 melhor 2º    -> SEMIFINAL   | 3
 //   E | 1 grupo, ida e volta          -> sem mata-mata | 6 (todas com 2 equipes)
 //
-// Decisões do usuário de 30/09/2026. A de C é o padrão do futebol; as de D e E
-// o chefe confirmou ou trocou em 06/10/2026. Só a revanche na semifinal de D
-// segue pendente (revancheNaSemifinal).
+// Decisões do usuário de 30/09/2026. A de C é o padrão do futebol; as de D e E,
+// e o 3º lugar sem semifinal, o chefe confirmou ou trocou em 06/10/2026. Só a
+// revanche na semifinal de D segue pendente (revancheNaSemifinal).
 // ============================================================================
 
 const DECIDIDO_EM = '30/09/2026';
@@ -67,13 +67,15 @@ const REGRAS_DA_CHAVE = {
 
   // Sem semifinal, o 3º lugar sai da fase classificatória (regulamento). Num
   // grupo único é o 3º da tabela; com dois grupos sobram os dois segundos
-  // colocados, e fica com o melhor deles pelos critérios da modalidade.
+  // colocados, e fica com o melhor deles pela campanha, nos critérios da
+  // modalidade. Confirmado pelo chefe em 06/10/2026: esse 3º vale 6 pontos na
+  // tabela geral, como qualquer 3º lugar.
   terceiroSemSemifinal: {
-    provisorio: true,
-    decididoEm: DECIDIDO_EM,
+    provisorio: false,
+    decididoEm: '06/10/2026',
     descricao:
       'Sem semifinal, o 3º lugar é o 3º do grupo único ou, com dois grupos, o melhor '
-      + 'dos dois segundos colocados pelos critérios de desempate da modalidade.'
+      + 'dos dois segundos colocados pela campanha, e vale 6 pontos na tabela geral.'
   }
 };
 

@@ -162,8 +162,9 @@ const confrontosPrevistos = (chave, fase) => {
 // ---------------------------------------------------------------------------
 // Regulamento: NÃO existe jogo de 3º lugar. Com semifinal, o 3º é quem perdeu
 // a semifinal PARA O CAMPEÃO. Sem semifinal, vale a fase classificatória:
-// o 3º do grupo único ou, com dois grupos, o melhor dos dois segundos
-// (REGRAS_DA_CHAVE.terceiroSemSemifinal, decisão provisória de 30/09/2026).
+// o 3º do grupo único ou, com dois grupos, o melhor dos dois segundos pela
+// campanha (REGRAS_DA_CHAVE.terceiroSemSemifinal, confirmada em 06/10/2026:
+// vale 6 pontos na tabela geral, como qualquer 3º).
 const colocacoesFinais = (chave) => {
   const { competicao, todosOsJogos, grupos, comparacoes, faseDeGrupos } = chave;
   const colocacoes = [];
