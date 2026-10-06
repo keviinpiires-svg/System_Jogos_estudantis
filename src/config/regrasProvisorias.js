@@ -48,14 +48,21 @@ const REGRAS = {
   // prorrogação também empatar.
   // Decisão: segunda prorrogação e, persistindo, cobranças —
   // 7 metros no handebol, lances livres no basquete. Confirmada pelo chefe
-  // em 06/10/2026. O baleado continua sem regra escrita (abaixo).
+  // em 06/10/2026.
+  //
+  // Não há desempate genérico (decisão de 06/10/2026): cada modalidade segue
+  // o regulamento. Onde ele é omisso — hoje o baleado —, a regra fica
+  // PENDENTE: a súmula avisa e não deixa finalizar um empate que precisa de
+  // vencedor, em vez de inventar uma cobrança.
   desempateMataMata: {
     provisorio: false,
     decididoEm: CONFIRMADO_EM,
     // A chave é o slug da modalidade (modalidades.slug)
     porModalidade: {
+      // Regulamento: "tiros livres da marca penal, a saber: 3x1x1"
       futsal: { sequencia: ['PENALTIS'], nomeCobranca: 'pênaltis (3x1x1)' },
       'futebol-society': { sequencia: ['PENALTIS'], nomeCobranca: 'pênaltis (3x1x1)' },
+      // Regulamento: prorrogação; a 2ª prorrogação e as cobranças são do chefe
       handebol: {
         sequencia: ['PRORROGACAO', 'PRORROGACAO', 'PENALTIS'],
         nomeCobranca: 'tiros de 7 metros'
@@ -66,8 +73,16 @@ const REGRAS = {
       },
       // Vôlei não empata: o jogo acaba quando alguém faz 2 sets.
       volei: { sequencia: [], nomeCobranca: null },
-      // Baleado: sem regra escrita para empate no mata-mata [PENDENTE]
-      baleado: { sequencia: ['PENALTIS'], nomeCobranca: 'cobranças de desempate' }
+      // Baleado: o regulamento diz quem vence (quem balear todos ou, acabado o
+      // tempo, quem eliminou mais), mas não o que fazer se as eliminações
+      // empatarem. PENDENTE com a organização.
+      baleado: {
+        sequencia: [],
+        nomeCobranca: null,
+        pendente: true,
+        motivo: 'o regulamento do baleado diz que vence quem balear todos os adversários ou, '
+          + 'acabado o tempo, quem eliminou mais, mas não diz o que fazer se as eliminações empatarem'
+      }
     },
     // Consumido em: src/controllers/sumulaController.js, ao finalizar uma
     // súmula empatada fora da fase de grupos.
@@ -277,11 +292,17 @@ const REGRAS = {
   }
 };
 
-// Atalho usado pelos controllers: o desempate da modalidade, já com um padrão
-// seguro para modalidade que ninguém previu.
+// Atalho usado pelos controllers: o desempate da modalidade. Modalidade que
+// ninguém previu fica PENDENTE, como o baleado — nunca com uma cobrança
+// genérica que o regulamento não escreve.
 const desempateDaModalidade = (slug) =>
   REGRAS.desempateMataMata.porModalidade[slug]
-  || { sequencia: ['PENALTIS'], nomeCobranca: 'cobranças de desempate' };
+  || {
+    sequencia: [],
+    nomeCobranca: null,
+    pendente: true,
+    motivo: 'o regulamento não tem regra de desempate para esta modalidade'
+  };
 
 // Lista para as telas mostrarem "isto ainda é provisório"
 const regrasProvisoriasAtivas = () =>

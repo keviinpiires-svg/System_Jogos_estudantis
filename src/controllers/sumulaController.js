@@ -566,6 +566,18 @@ const registrarSumula = async (req, res) => {
           ? 'Os dois jogos terminaram com a soma empatada'
           : 'Empate no mata-mata';
 
+        // Modalidade em que o regulamento não diz como desempatar: não há
+        // cobrança genérica. A súmula pode ser salva sem finalizar, e o jogo
+        // espera a organização decidir.
+        if (desempate.pendente) {
+          await conexao.rollback();
+          return res.status(409).json({
+            erro: `${situacao} em ${jogo.modalidade_nome}: ${desempate.motivo}. `
+              + 'A regra está pendente com a organização, então o jogo não pode ser finalizado '
+              + 'empatado. Salve a súmula sem finalizar e aguarde a decisão.'
+          });
+        }
+
         if (exigeProrrogacao && !prorrogacao) {
           await conexao.rollback();
           return res.status(400).json({

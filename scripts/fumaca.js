@@ -19,7 +19,7 @@
 require('dotenv').config({ quiet: true });
 const bcrypt = require('bcryptjs');
 const db = require('../src/config/db');
-const { REGRAS } = require('../src/config/regrasProvisorias');
+const { REGRAS, desempateDaModalidade } = require('../src/config/regrasProvisorias');
 const { compararEntreGrupos } = require('../src/controllers/classificacaoController');
 const { posicionar } = require('../src/controllers/tabelaGeralController');
 const { colocacoesFinais } = require('../src/controllers/mataMataController');
@@ -511,6 +511,35 @@ const rodar = async () => {
   testarSemifinalDeTresGrupos();
   await testarTerceiroSemSemifinal();
   testarQuintoLugar();
+  testarDesempatePorModalidade();
+};
+
+// ---------------------------------------------------------------------------
+// Empate no mata-mata — cada modalidade segue o regulamento (06/10/2026)
+// ---------------------------------------------------------------------------
+// Não há cobrança genérica: onde o regulamento é omisso, a regra é pendente.
+const testarDesempatePorModalidade = () => {
+  secao('-- empate no mata-mata, por modalidade');
+
+  const futsal = desempateDaModalidade('futsal');
+  conferir(
+    futsal.sequencia.join(',') === 'PENALTIS' && futsal.nomeCobranca.includes('3x1x1'),
+    'futsal: pênaltis 3x1x1, como no regulamento'
+  );
+  for (const slug of ['handebol', 'basquete']) {
+    conferir(
+      desempateDaModalidade(slug).sequencia[0] === 'PRORROGACAO',
+      `${slug}: prorrogação antes de qualquer cobrança`
+    );
+  }
+  conferir(
+    desempateDaModalidade('baleado').pendente === true && !desempateDaModalidade('baleado').nomeCobranca,
+    'baleado: regulamento omisso, regra pendente e sem cobrança'
+  );
+  conferir(
+    desempateDaModalidade('modalidade-que-nao-existe').pendente === true,
+    'modalidade sem regra cai em pendente, nunca em pênalti genérico'
+  );
 };
 
 // ---------------------------------------------------------------------------
