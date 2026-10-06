@@ -444,10 +444,19 @@ const rodar = async () => {
     '4º é quem perdeu a semifinal para o vice, marcado como provisório',
     JSON.stringify(quarto)
   );
-  conferir(
-    !podio.some((c) => c.posicao === 5),
-    'com 4 equipes no mata-mata não há 5º'
-  );
+  // 5º provisório: com mais de 4 equipes na competição, a melhor campanha
+  // entre quem não chegou à semifinal
+  const naSemifinal = new Set(jogosSemi.flatMap((j) => [j.equipe_1_id, j.equipe_2_id]));
+  const quinto = podio.find((c) => c.posicao === 5);
+  if (equipes.length > 4) {
+    conferir(
+      quinto && !naSemifinal.has(quinto.equipe_id) && quinto.provisoria === true,
+      `com ${equipes.length} equipes, o 5º é de quem não chegou à semifinal, provisório`,
+      JSON.stringify(quinto)
+    );
+  } else {
+    conferir(!quinto, `com ${equipes.length} equipes não há 5º`, JSON.stringify(quinto));
+  }
 
   // ---- tabela geral --------------------------------------------------------
   secao('-- tabela geral');
@@ -466,6 +475,17 @@ const rodar = async () => {
     'o 4º soma 4 pontos na tabela geral, marcados como provisórios',
     JSON.stringify(origemDoQuarto)
   );
+  const escolaDoQuinto = podio.find((c) => c.posicao === 5)?.escola_nome;
+  if (escolaDoQuinto) {
+    const origemDoQuinto = tabela.geral
+      .find((e) => e.escola_nome === escolaDoQuinto)?.origens
+      .find((o) => o.competicao_id === competicao.id && o.posicao === 5);
+    conferir(
+      origemDoQuinto?.pontos === 2 && origemDoQuinto?.provisoria === true,
+      'o 5º soma 2 pontos na tabela geral, marcados como provisórios',
+      JSON.stringify(origemDoQuinto)
+    );
+  }
   conferir(
     tabela.regras.posicoes_provisorias?.posicoes?.join(',') === '4,5',
     'a tabela geral avisa que 4º e 5º são provisórios'
@@ -545,43 +565,56 @@ const testarDesempatePorModalidade = () => {
 // ---------------------------------------------------------------------------
 // 5º lugar provisório — só lógica
 // ---------------------------------------------------------------------------
-// Nenhuma das 50 competições põe mais de 4 equipes no mata-mata, então o 5º
-// nunca sai de verdade. Para o caminho não ficar sem prova, uma competição de
-// mentira com três semifinais (6 equipes no mata-mata) faz ele aparecer.
+// O passeio já confere o 5º numa competição real. Aqui, duas de mentira,
+// com desempate decidido pelos pontos: uma de 5 equipes (há 5º) e uma de 4
+// (não há).
 const testarQuintoLugar = () => {
   secao('-- 5º lugar (provisório)');
 
   const equipe = (grupo, posicao, equipe_id, pontos) => ({
     ...equipeDeTeste(grupo, posicao, equipe_id), pontos, saldo: 0, vitorias: 0, marcados: 0,
-    vermelhos: 0, amarelos: 0, jogos: 3
+    vermelhos: 0, amarelos: 0, jogos: 2
   });
   const jogo = (id, fase, um, dois) => ({
     id, fase, status: 'FINALIZADO', vencedor_equipe_id: um,
     equipe_1_id: um, equipe_2_id: dois, escola_1_nome: `E${um}`, escola_2_nome: `E${dois}`
   });
-  // Equipes 1 a 6 jogam o mata-mata; 7 e 8 ficaram nos grupos (8 fez mais pontos)
-  const grupos = [
-    { nome: 'A', equipes: [1, 2, 3, 7].map((id, i) => equipe('A', i + 1, id, 9 - i * 3)) },
-    { nome: 'B', equipes: [4, 5, 6, 8].map((id, i) => equipe('B', i + 1, id, i === 3 ? 4 : 9 - i * 3)) }
+  // Semifinais 1×4 e 3×2, final 1×3: campeão 1, vice 3, 3º 4, 4º 2
+  const mataMata = [
+    jogo(1, 'SEMIFINAL', 1, 4), jogo(2, 'SEMIFINAL', 3, 2), jogo(3, 'FINAL', 1, 3)
   ];
-  const colocacoes = colocacoesFinais({
+  const colocar = (grupos) => colocacoesFinais({
     competicao: { proxima_fase: 'SEMIFINAL', qtd_grupos: 2, tipo_placar: 'GOLS' },
-    todosOsJogos: [
-      jogo(1, 'SEMIFINAL', 1, 2), jogo(2, 'SEMIFINAL', 4, 5), jogo(3, 'SEMIFINAL', 3, 6),
-      jogo(4, 'FINAL', 1, 4)
-    ],
+    todosOsJogos: mataMata,
     grupos,
     criterios: ['saldo', 'vitorias', 'marcados', 'menos_vermelhos', 'menos_amarelos'],
     jogos: [],
     comparacoes: {},
     faseDeGrupos: { completa: true }
   });
-  const quinto = colocacoes.find((c) => c.posicao === 5);
+
+  // 5 equipes: grupo A com 3 (a 5 ficou de fora), grupo B com 2
+  const cinco = colocar([
+    { nome: 'A', equipes: [equipe('A', 1, 1, 6), equipe('A', 2, 2, 3), equipe('A', 3, 5, 1)] },
+    { nome: 'B', equipes: [equipe('B', 1, 3, 3), equipe('B', 2, 4, 0)] }
+  ]);
+  const quinto = cinco.find((c) => c.posicao === 5);
   conferir(
-    quinto?.equipe_id === 8 && quinto?.provisoria === true,
-    'com mais de 4 equipes no mata-mata, o 5º é o melhor eliminado nos grupos',
+    quinto?.equipe_id === 5 && quinto?.provisoria === true,
+    'competição de 5 equipes: o 5º é quem não chegou à semifinal',
     JSON.stringify(quinto)
   );
+  conferir(
+    cinco.find((c) => c.posicao === 4)?.equipe_id === 2,
+    'e o 4º é quem perdeu a semifinal para o vice'
+  );
+
+  // 4 equipes: todas jogam a semifinal, e não há 5º
+  const quatro = colocar([
+    { nome: 'A', equipes: [equipe('A', 1, 1, 3), equipe('A', 2, 2, 0)] },
+    { nome: 'B', equipes: [equipe('B', 1, 3, 3), equipe('B', 2, 4, 0)] }
+  ]);
+  conferir(!quatro.some((c) => c.posicao === 5), 'competição de 4 equipes: não há 5º');
 };
 
 // ---------------------------------------------------------------------------

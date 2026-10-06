@@ -162,8 +162,9 @@ const confrontosPrevistos = (chave, fase) => {
 // 4º e 5º lugar — PROVISÓRIO (REGRAS_DA_CHAVE.quartoEQuinto, 06/10/2026)
 // ---------------------------------------------------------------------------
 // Só existem com semifinal. Não há jogo de 3º lugar (regulamento), então o 4º
-// é sempre o semifinalista que perdeu para o vice. O 5º só sai quando o
-// mata-mata tem mais equipes do que o limite da regra.
+// é sempre o semifinalista que perdeu para o vice. O 5º é a melhor equipe que
+// não chegou à semifinal, e só sai quando a competição tem mais equipes do que
+// o limite da regra.
 const quartoEQuinto = (chave, semifinais, vice) => {
   const { competicao, grupos, criterios, jogos } = chave;
   const regra = REGRAS_DA_CHAVE.quartoEQuinto;
@@ -181,24 +182,25 @@ const quartoEQuinto = (chave, semifinais, vice) => {
     });
   }
 
-  const noMataMata = new Set(
-    jogosDaFase(chave.todosOsJogos, 'SEMIFINAL')
-      .concat(jogosDaFase(chave.todosOsJogos, 'FINAL'))
-      .flatMap((j) => [j.equipe_1_id, j.equipe_2_id])
-  );
+  const todasAsEquipes = grupos.flatMap((grupo) => grupo.equipes);
 
-  if (noMataMata.size > regra.equipesNoMataMataParaQuinto) {
-    const eliminadas = grupos
-      .flatMap((grupo) => grupo.equipes)
-      .filter((equipe) => !noMataMata.has(equipe.equipe_id));
-    const [quinto] = ordenarPorCampanha(eliminadas, criterios, { competicao, jogos });
+  if (todasAsEquipes.length > regra.equipesNaCompeticaoParaQuinto) {
+    const naSemifinal = new Set(semifinais.flatMap((j) => [j.equipe_1_id, j.equipe_2_id]));
+    // Cópias: o desempate marca `sorteio` nas linhas, e estas são as da classificação
+    const foraDaSemifinal = todasAsEquipes
+      .filter((equipe) => !naSemifinal.has(equipe.equipe_id))
+      .map((equipe) => ({ ...equipe }));
+    const [quinto] = ordenarPorCampanha(foraDaSemifinal, criterios, { competicao, jogos });
 
     if (quinto) {
       colocacoes.push({
         posicao: 5,
         equipe_id: quinto.equipe_id,
         escola_nome: quinto.escola_nome,
-        como: `melhor eliminado na fase de grupos (grupo ${quinto.grupo_nome}), pela campanha`,
+        como: `melhor campanha entre quem não chegou à semifinal (grupo ${quinto.grupo_nome})`
+          // Empate em todos os critérios: a lista sai por ordem alfabética e
+          // a organização ainda precisa sortear
+          + (quinto.sorteio ? ', empatada com outra equipe até o sorteio' : ''),
         provisoria: regra.provisorio
       });
     }

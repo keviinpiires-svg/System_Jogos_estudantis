@@ -84,17 +84,18 @@ const REGRAS_DA_CHAVE = {
   //       que NÃO há jogo de 3º lugar (e o schema não tem essa fase), então
   //       hoje vale sempre o outro caminho: o semifinalista que não foi 3º,
   //       isto é, quem perdeu a semifinal para o vice. Sem semifinal, não há 4º.
-  //   5º: o melhor eliminado na fase de grupos, pela campanha, só quando o
-  //       mata-mata tem MAIS de `equipesNoMataMataParaQuinto` equipes. Com as
-  //       50 competições de hoje (no máximo 4 equipes no mata-mata), nunca há 5º.
+  //   5º: a melhor equipe que não chegou à semifinal, pela campanha da fase
+  //       de grupos, só quando a COMPETIÇÃO tem mais de
+  //       `equipesNaCompeticaoParaQuinto` equipes (correção do usuário,
+  //       06/10/2026). Com 4 equipes ou menos, não há 5º.
   quartoEQuinto: {
     provisorio: true,
     decididoEm: '06/10/2026',
-    equipesNoMataMataParaQuinto: 4,
+    equipesNaCompeticaoParaQuinto: 4,
     descricao:
-      '4º é o semifinalista que não ficou em 3º (não há jogo de 3º lugar); 5º é o melhor '
-      + 'eliminado na fase de grupos pela campanha, só quando mais de 4 equipes jogam o '
-      + 'mata-mata. Regra provisória, aguardando confirmação do chefe.'
+      '4º é o semifinalista que não ficou em 3º (não há jogo de 3º lugar); 5º é a melhor '
+      + 'equipe que não chegou à semifinal, pela campanha da fase de grupos, só quando a '
+      + 'competição tem mais de 4 equipes. Regra provisória, aguardando confirmação do chefe.'
   }
 };
 
