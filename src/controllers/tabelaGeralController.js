@@ -2,6 +2,7 @@ const db = require('../config/db');
 const { montarChave, colocacoesFinais } = require('./mataMataController');
 const { ErroDeRegra } = require('./classificacaoController');
 const { REGRAS } = require('../config/regrasProvisorias');
+const { REGRAS_DA_CHAVE } = require('../config/chavesMataMata');
 
 // ============================================================================
 // TABELA GERAL — a soma das colocações de cada competição, por escola.
@@ -123,7 +124,7 @@ const tabelaGeral = async (req, res) => {
       const premiadas = [];
 
       for (const colocacao of colocacoes) {
-        // 4º e 5º continuam sem regra: hoje só 1º, 2º e 3º pontuam
+        // Posição fora da pontuação não entra (hoje pontuam do 1º ao 5º)
         if (!REGRA.posicoesQuePontuam.includes(colocacao.posicao)) continue;
 
         const equipe = equipesDaCompeticao.get(colocacao.equipe_id);
@@ -136,7 +137,9 @@ const tabelaGeral = async (req, res) => {
           categoria_nome: competicao.categoria_nome,
           genero: competicao.genero,
           posicao: colocacao.posicao,
-          pontos
+          pontos,
+          // 4º e 5º saem de uma regra provisória: a tela marca esses pontos
+          provisoria: Boolean(colocacao.provisoria)
         };
 
         const linha = somar(geral, equipe.escola_id, equipe.escola_nome);
@@ -198,10 +201,16 @@ const tabelaGeral = async (req, res) => {
         decidido_em: REGRA.decididoEm,
         // Mesma soma, mesma posição (1, 1, 3): sem critério de desempate
         empate_na_soma: REGRA.empateNaSoma,
-        // Lembrete de que 4º e 5º não entram: a regra não existe (pendência 5)
+        // Posições da pontuação que não entram na conta (hoje, nenhuma)
         posicoes_sem_regra: [...pontuacao.keys()]
           .filter((posicao) => !REGRA.posicoesQuePontuam.includes(posicao))
-          .sort((a, b) => a - b)
+          .sort((a, b) => a - b),
+        // 4º e 5º entram, mas pela regra provisória (pendência 5): a tela avisa
+        posicoes_provisorias: {
+          posicoes: REGRA.posicoesProvisorias,
+          descricao: REGRAS_DA_CHAVE.quartoEQuinto.descricao,
+          decidido_em: REGRAS_DA_CHAVE.quartoEQuinto.decididoEm
+        }
       }
     });
   } catch (erro) {

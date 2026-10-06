@@ -518,6 +518,8 @@ module.exports = {
   montarClassificacao,
   compararEntreGrupos,
   avisoJogosDiferentes,
+  // O 5º lugar provisório ordena os eliminados da fase de grupos
+  ordenarPorCampanha,
   vencedorDoJogo,
   ErroDeRegra,
   CRITERIOS

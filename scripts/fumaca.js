@@ -436,6 +436,19 @@ const rodar = async () => {
     podio[2]?.como
   );
 
+  // 4º provisório: quem perdeu a semifinal para o vice (não há jogo de 3º)
+  const semiDoVice = jogosSemi.find((j) => j.equipe_1_id === jogoFinal.equipe_2_id);
+  const quarto = podio.find((c) => c.posicao === 4);
+  conferir(
+    quarto?.equipe_id === semiDoVice?.equipe_2_id && quarto?.provisoria === true,
+    '4º é quem perdeu a semifinal para o vice, marcado como provisório',
+    JSON.stringify(quarto)
+  );
+  conferir(
+    !podio.some((c) => c.posicao === 5),
+    'com 4 equipes no mata-mata não há 5º'
+  );
+
   // ---- tabela geral --------------------------------------------------------
   secao('-- tabela geral');
   const tabela = await exigir('GET', '/tabela-geral', null, 'a tabela geral');
@@ -443,6 +456,20 @@ const rodar = async () => {
   const naGeral = tabela.geral.find((e) => e.escola_nome === campeao.escola_nome);
   conferir(Boolean(naGeral), 'a escola campeã entrou na soma geral');
   conferir(naGeral?.primeiros >= 1, 'com um primeiro lugar contado');
+
+  const escolaDoQuarto = podio.find((c) => c.posicao === 4)?.escola_nome;
+  const origemDoQuarto = tabela.geral
+    .find((e) => e.escola_nome === escolaDoQuarto)?.origens
+    .find((o) => o.competicao_id === competicao.id && o.posicao === 4);
+  conferir(
+    origemDoQuarto?.pontos === 4 && origemDoQuarto?.provisoria === true,
+    'o 4º soma 4 pontos na tabela geral, marcados como provisórios',
+    JSON.stringify(origemDoQuarto)
+  );
+  conferir(
+    tabela.regras.posicoes_provisorias?.posicoes?.join(',') === '4,5',
+    'a tabela geral avisa que 4º e 5º são provisórios'
+  );
 
   // colocacoes traz a equipe; a escola vem da lista que o teste já montou
   const escolaDoCampeao = equipes.find((e) => e.id === campeao.equipe_id)?.escola_id;
@@ -483,6 +510,49 @@ const rodar = async () => {
   testarRegrasDoChefe();
   testarSemifinalDeTresGrupos();
   await testarTerceiroSemSemifinal();
+  testarQuintoLugar();
+};
+
+// ---------------------------------------------------------------------------
+// 5º lugar provisório — só lógica
+// ---------------------------------------------------------------------------
+// Nenhuma das 50 competições põe mais de 4 equipes no mata-mata, então o 5º
+// nunca sai de verdade. Para o caminho não ficar sem prova, uma competição de
+// mentira com três semifinais (6 equipes no mata-mata) faz ele aparecer.
+const testarQuintoLugar = () => {
+  secao('-- 5º lugar (provisório)');
+
+  const equipe = (grupo, posicao, equipe_id, pontos) => ({
+    ...equipeDeTeste(grupo, posicao, equipe_id), pontos, saldo: 0, vitorias: 0, marcados: 0,
+    vermelhos: 0, amarelos: 0, jogos: 3
+  });
+  const jogo = (id, fase, um, dois) => ({
+    id, fase, status: 'FINALIZADO', vencedor_equipe_id: um,
+    equipe_1_id: um, equipe_2_id: dois, escola_1_nome: `E${um}`, escola_2_nome: `E${dois}`
+  });
+  // Equipes 1 a 6 jogam o mata-mata; 7 e 8 ficaram nos grupos (8 fez mais pontos)
+  const grupos = [
+    { nome: 'A', equipes: [1, 2, 3, 7].map((id, i) => equipe('A', i + 1, id, 9 - i * 3)) },
+    { nome: 'B', equipes: [4, 5, 6, 8].map((id, i) => equipe('B', i + 1, id, i === 3 ? 4 : 9 - i * 3)) }
+  ];
+  const colocacoes = colocacoesFinais({
+    competicao: { proxima_fase: 'SEMIFINAL', qtd_grupos: 2, tipo_placar: 'GOLS' },
+    todosOsJogos: [
+      jogo(1, 'SEMIFINAL', 1, 2), jogo(2, 'SEMIFINAL', 4, 5), jogo(3, 'SEMIFINAL', 3, 6),
+      jogo(4, 'FINAL', 1, 4)
+    ],
+    grupos,
+    criterios: ['saldo', 'vitorias', 'marcados', 'menos_vermelhos', 'menos_amarelos'],
+    jogos: [],
+    comparacoes: {},
+    faseDeGrupos: { completa: true }
+  });
+  const quinto = colocacoes.find((c) => c.posicao === 5);
+  conferir(
+    quinto?.equipe_id === 8 && quinto?.provisoria === true,
+    'com mais de 4 equipes no mata-mata, o 5º é o melhor eliminado nos grupos',
+    JSON.stringify(quinto)
+  );
 };
 
 // ---------------------------------------------------------------------------

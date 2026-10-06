@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const {
-  montarClassificacao, compararEntreGrupos, avisoJogosDiferentes, vencedorDoJogo, ErroDeRegra
+  montarClassificacao, compararEntreGrupos, avisoJogosDiferentes, ordenarPorCampanha,
+  vencedorDoJogo, ErroDeRegra
 } = require('./classificacaoController');
 const {
   REGRAS_DA_CHAVE, avisoDeRevanche, chaveDaSemifinal, chaveDaFinal, temMataMata
@@ -158,6 +159,55 @@ const confrontosPrevistos = (chave, fase) => {
 };
 
 // ---------------------------------------------------------------------------
+// 4º e 5º lugar — PROVISÓRIO (REGRAS_DA_CHAVE.quartoEQuinto, 06/10/2026)
+// ---------------------------------------------------------------------------
+// Só existem com semifinal. Não há jogo de 3º lugar (regulamento), então o 4º
+// é sempre o semifinalista que perdeu para o vice. O 5º só sai quando o
+// mata-mata tem mais equipes do que o limite da regra.
+const quartoEQuinto = (chave, semifinais, vice) => {
+  const { competicao, grupos, criterios, jogos } = chave;
+  const regra = REGRAS_DA_CHAVE.quartoEQuinto;
+  const colocacoes = [];
+
+  const doVice = semifinais.find((j) => decidido(j) && j.vencedor_equipe_id === vice);
+  if (doVice) {
+    const quarto = vice === doVice.equipe_1_id ? doVice.equipe_2_id : doVice.equipe_1_id;
+    colocacoes.push({
+      posicao: 4,
+      equipe_id: quarto,
+      escola_nome: quarto === doVice.equipe_1_id ? doVice.escola_1_nome : doVice.escola_2_nome,
+      como: 'perdeu a semifinal para o vice (não há jogo de 3º lugar)',
+      provisoria: regra.provisorio
+    });
+  }
+
+  const noMataMata = new Set(
+    jogosDaFase(chave.todosOsJogos, 'SEMIFINAL')
+      .concat(jogosDaFase(chave.todosOsJogos, 'FINAL'))
+      .flatMap((j) => [j.equipe_1_id, j.equipe_2_id])
+  );
+
+  if (noMataMata.size > regra.equipesNoMataMataParaQuinto) {
+    const eliminadas = grupos
+      .flatMap((grupo) => grupo.equipes)
+      .filter((equipe) => !noMataMata.has(equipe.equipe_id));
+    const [quinto] = ordenarPorCampanha(eliminadas, criterios, { competicao, jogos });
+
+    if (quinto) {
+      colocacoes.push({
+        posicao: 5,
+        equipe_id: quinto.equipe_id,
+        escola_nome: quinto.escola_nome,
+        como: `melhor eliminado na fase de grupos (grupo ${quinto.grupo_nome}), pela campanha`,
+        provisoria: regra.provisorio
+      });
+    }
+  }
+
+  return colocacoes;
+};
+
+// ---------------------------------------------------------------------------
 // Colocações finais — calculadas, nunca gravadas
 // ---------------------------------------------------------------------------
 // Regulamento: NÃO existe jogo de 3º lugar. Com semifinal, o 3º é quem perdeu
@@ -258,6 +308,7 @@ const colocacoesFinais = (chave) => {
       });
     }
 
+    colocacoes.push(...quartoEQuinto(chave, semifinais, vice));
     return colocacoes;
   }
 

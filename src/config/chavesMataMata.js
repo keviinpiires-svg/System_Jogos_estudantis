@@ -76,6 +76,25 @@ const REGRAS_DA_CHAVE = {
     descricao:
       'Sem semifinal, o 3º lugar é o 3º do grupo único ou, com dois grupos, o melhor '
       + 'dos dois segundos colocados pela campanha, e vale 6 pontos na tabela geral.'
+  },
+
+  // 4º e 5º lugar (4 e 2 pontos na tabela geral) — PROVISÓRIO, aguardando o
+  // chefe confirmar (06/10/2026).
+  //   4º: o perdedor da disputa de 3º lugar, quando houver. O regulamento diz
+  //       que NÃO há jogo de 3º lugar (e o schema não tem essa fase), então
+  //       hoje vale sempre o outro caminho: o semifinalista que não foi 3º,
+  //       isto é, quem perdeu a semifinal para o vice. Sem semifinal, não há 4º.
+  //   5º: o melhor eliminado na fase de grupos, pela campanha, só quando o
+  //       mata-mata tem MAIS de `equipesNoMataMataParaQuinto` equipes. Com as
+  //       50 competições de hoje (no máximo 4 equipes no mata-mata), nunca há 5º.
+  quartoEQuinto: {
+    provisorio: true,
+    decididoEm: '06/10/2026',
+    equipesNoMataMataParaQuinto: 4,
+    descricao:
+      '4º é o semifinalista que não ficou em 3º (não há jogo de 3º lugar); 5º é o melhor '
+      + 'eliminado na fase de grupos pela campanha, só quando mais de 4 equipes jogam o '
+      + 'mata-mata. Regra provisória, aguardando confirmação do chefe.'
   }
 };
 

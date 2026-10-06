@@ -134,16 +134,18 @@ const REGRAS = {
   // não pontua, mas não fecha o resto. Em 06/10/2026 o chefe tirou a divisão
   // em três blocos (fica só a soma geral) e decidiu o empate na soma.
   //
-  // O `provisorio` do objeto continua true porque o 4º e o 5º lugar e o
-  // atletismo seguem pendentes. O que o chefe confirmou está marcado como
-  // DEFINITIVO abaixo.
+  // O `provisorio` do objeto continua true porque o 4º e o 5º lugar são
+  // provisórios e o atletismo segue pendente. O que o chefe confirmou está
+  // marcado como DEFINITIVO abaixo.
   tabelaGeral: {
     provisorio: true,
     decididoEm: '01/10/2026',
 
-    // PENDENTE — 4º e 5º lugar seguem sem regra (pendência 5): hoje o sistema
-    // só sabe apontar campeão, vice e 3º, então só 10, 8 e 6 são distribuídos.
-    posicoesQuePontuam: [1, 2, 3],
+    // 4º e 5º lugar pontuam (4 e 2) desde 06/10/2026, mas de forma PROVISÓRIA:
+    // quem é o 4º e o 5º vem de chavesMataMata.quartoEQuinto, que aguarda a
+    // confirmação do chefe (pendência 5). A tela avisa.
+    posicoesQuePontuam: [1, 2, 3, 4, 5],
+    posicoesProvisorias: [4, 5],
 
     // DEFINITIVO (06/10/2026) — "modalidade com uma só inscrição não conta
     // pontos nem premia" vale por COMPETIÇÃO (modalidade × categoria × gênero).
@@ -177,9 +179,9 @@ const REGRAS = {
     incluiAtletismo: false,
 
     descricao:
-      'Tabela geral só com a soma geral, somando 10/8/6 por competição encerrada com duas '
-      + 'equipes ou mais; empate na soma divide a posição; punições de 5 a 10 pontos '
-      + 'descontam da soma geral da escola. 4º e 5º lugar seguem sem regra.',
+      'Tabela geral só com a soma geral, somando 10/8/6/4/2 por competição encerrada com '
+      + 'duas equipes ou mais; empate na soma divide a posição; punições de 5 a 10 pontos '
+      + 'descontam da soma geral da escola. 4º e 5º lugar são provisórios.',
     aplicadoEm: 'tabelaGeralController'
   },
 
