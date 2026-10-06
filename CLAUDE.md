@@ -28,7 +28,8 @@ grupos, modelos de súmula).
   confirmar nos painéis se o auto-deploy está ligado e, na dúvida, assuma que está). Não dê push sem
   o usuário pedir e sem testar antes no banco de dev.
 - Fatias (numeração oficial na seção 9 do contexto): 1–7, 9 e 10 ✅; **8 — tabela geral e o que
-  sobra** 🔄 (falta atletismo e, se entrarem, técnicos/dirigentes). A fatia 10 foi executada com
+  sobra** 🔄 (falta técnicos/dirigentes, se entrarem); **11 — atletismo** 📝 só planejada (padrões
+  provisórios e dúvidas em aberto no contexto, nada implementado). A fatia 10 foi executada com
   desvios do roteiro (ver "Histórico") e ainda tem pendências de produção (seção abaixo).
 - **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): a resposta
   do chefe de 06/10/2026 às regras provisórias (abaixo). O conflito de local, o `FormAgendaJogo` e o
@@ -38,8 +39,11 @@ grupos, modelos de súmula).
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
   e a punição de 5 a 10 pontos. A tabela geral perdeu os três blocos (só soma geral) e o empate na
   soma divide a posição (1, 1, 3). O "melhor segundo" não descarta mais jogos: usa os critérios
-  normais, com aviso quando os jogos diferem. **Seguem PENDENTES, sem implementar:** 4º e 5º lugar,
-  semifinal com 3 grupos, 3º lugar sem semifinal, atletismo (cálculo e entrada das marcas),
+  normais, com aviso quando os jogos diferem. Numa segunda resposta, no mesmo dia: a **semifinal
+  com 3 grupos** tem confrontos fixos (1ºA × melhor 2º, 1ºB × 1ºC) e o **3º lugar sem semifinal**
+  (melhor 2º pela campanha) vale 6 pontos, ambos definitivos. **Seguem PENDENTES, sem
+  implementar:** a revanche da fase de grupos na semifinal (a chave sai, com aviso na tela), quem é
+  o 4º e o 5º lugar (valores já decididos: 4 e 2 pontos), atletismo (plano na fatia 11),
   xadrez/dama/dominó, número de contas de mesa e a súmula do baleado.
 - O banco antigo **`railway`** (18 tabelas do schema antigo, só dados de teste) continua parado e
   intacto no mesmo servidor, como âncora de volta atrás. **Não é o banco do sistema no ar.**
