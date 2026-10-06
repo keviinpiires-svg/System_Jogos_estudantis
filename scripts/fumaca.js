@@ -22,6 +22,7 @@ const db = require('../src/config/db');
 const { REGRAS } = require('../src/config/regrasProvisorias');
 const { compararEntreGrupos } = require('../src/controllers/classificacaoController');
 const { posicionar } = require('../src/controllers/tabelaGeralController');
+const { chaveDaSemifinal, REGRAS_DA_CHAVE } = require('../src/config/chavesMataMata');
 
 const API = process.env.FUMACA_API || 'http://localhost:3000/api';
 const MARCA = 'FUMACA';
@@ -479,6 +480,7 @@ const rodar = async () => {
   await testarConflitoDeLocal(competicao, equipes, grupos);
 
   testarRegrasDoChefe();
+  testarSemifinalDeTresGrupos();
 };
 
 // ---------------------------------------------------------------------------
@@ -534,6 +536,58 @@ const testarRegrasDoChefe = () => {
     'números de jogos diferentes ligam o aviso da tela'
   );
 };
+
+// Equipe de mentira para as conferências de chave e colocação
+const equipeDeTeste = (grupo, posicao, equipe_id) => ({
+  equipe_id, escola_nome: `ESCOLA ${grupo}${posicao}`, grupo_id: grupo.charCodeAt(0),
+  grupo_nome: grupo, posicao
+});
+
+// ---------------------------------------------------------------------------
+// Semifinal com 3 grupos — decisão de 06/10/2026
+// ---------------------------------------------------------------------------
+// Só lógica, como a seção anterior: a função que monta a chave recebe uma
+// competição de mentira.
+const testarSemifinalDeTresGrupos = () => {
+  secao('-- semifinal com 3 grupos');
+
+  const equipe = equipeDeTeste;
+  const formatoD = { qtd_grupos: 3, classificados_por_grupo: 1, melhores_segundos: 1 };
+  // Fora de ordem de propósito: "A", "B" e "C" saem do nome do grupo
+  const classificadosPorGrupo = ['C', 'A', 'B'].map((g, i) => ({
+    grupo_id: g.charCodeAt(0), grupo_nome: g, equipes: [equipe(g, 1, 10 + i)]
+  }));
+  const primeiroDe = (g) => classificadosPorGrupo.find((x) => x.grupo_nome === g).equipes[0].equipe_id;
+  const par = (c) => `${c.equipe_1_id}x${c.equipe_2_id}`;
+
+  // Melhor 2º do grupo B: 1ºA × 2ºB e 1ºB × 1ºC, sem aviso
+  const semRevanche = chaveDaSemifinal(formatoD, {
+    classificadosPorGrupo, melhoresSegundos: [equipe('B', 2, 21)]
+  });
+  conferir(
+    par(semRevanche.confrontos[0]) === `${primeiroDe('A')}x21`
+      && par(semRevanche.confrontos[1]) === `${primeiroDe('B')}x${primeiroDe('C')}`,
+    '3 grupos: 1ºA × melhor 2º e 1ºB × 1ºC',
+    semRevanche.confrontos.map(par).join(' / ')
+  );
+  conferir(!semRevanche.observacao, 'sem revanche, sem aviso', semRevanche.observacao);
+
+  // Melhor 2º do grupo A: a chave sai mesmo assim, com o aviso da regra pendente
+  const comRevanche = chaveDaSemifinal(formatoD, {
+    classificadosPorGrupo, melhoresSegundos: [equipe('A', 2, 22)]
+  });
+  conferir(
+    !comRevanche.erro && par(comRevanche.confrontos[0]) === `${primeiroDe('A')}x22`,
+    'revanche (1ºA × 2ºA) não bloqueia a semifinal',
+    comRevanche.erro || comRevanche.confrontos.map(par).join(' / ')
+  );
+  conferir(
+    (comRevanche.observacao || '').startsWith(REGRAS_DA_CHAVE.revancheNaSemifinal.descricao),
+    'revanche gera o aviso "regra pendente de confirmação com a organização"',
+    comRevanche.observacao
+  );
+};
+
 
 // ---------------------------------------------------------------------------
 // Conflito de local (regrasProvisorias.conflitoDeLocal)

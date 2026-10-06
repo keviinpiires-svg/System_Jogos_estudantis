@@ -14,8 +14,8 @@
 //   E | 1 grupo, ida e volta          -> sem mata-mata | 6 (todas com 2 equipes)
 //
 // Decisões do usuário de 30/09/2026. A de C é o padrão do futebol; as de D e E
-// o regulamento não fecha, então são PROVISÓRIAS, como as de
-// src/config/regrasProvisorias.js — o chefe ainda vai revisar.
+// o chefe confirmou ou trocou em 06/10/2026. Só a revanche na semifinal de D
+// segue pendente (revancheNaSemifinal).
 // ============================================================================
 
 const DECIDIDO_EM = '30/09/2026';
@@ -30,17 +30,26 @@ const REGRAS_DA_CHAVE = {
   },
 
   // Formato D — quatro classificados: os três primeiros colocados mais o
-  // melhor segundo. Os primeiros são ordenados entre si (mesma comparação do
-  // melhor segundo) e o melhor deles pega o melhor segundo. Se os dois forem
-  // do mesmo grupo, troca-se o par: ninguém reencontra companheiro de grupo
-  // na semifinal.
+  // melhor segundo. Decisão do chefe de 06/10/2026: confrontos FIXOS,
+  // 1ºA × melhor 2º e 1ºB × 1ºC. O melhor 2º sai da campanha, pelos critérios
+  // da modalidade (regrasProvisorias.melhorSegundo). Se ele for do grupo A,
+  // a semifinal repete um jogo da fase de grupos: a chave é gerada assim
+  // mesmo, com o aviso de `revancheNaSemifinal`.
   cruzamentoTresGruposComMelhorSegundo: {
-    provisorio: true,
-    decididoEm: DECIDIDO_EM,
+    provisorio: false,
+    decididoEm: '06/10/2026',
     descricao:
-      'O melhor primeiro colocado enfrenta o melhor segundo e os outros dois primeiros '
-      + 'se enfrentam. Se o melhor segundo for do grupo do melhor primeiro, os pares são '
-      + 'trocados para não repetir um confronto da fase de grupos.'
+      '1ºA × melhor 2º colocado e 1ºB × 1ºC. O melhor 2º é escolhido pela campanha, '
+      + 'pelos critérios de desempate da modalidade.'
+  },
+
+  // A revanche da fase de grupos na semifinal (1ºA contra um 2º do grupo A)
+  // não é bloqueada, mas a organização ainda não confirmou que pode: fica o
+  // aviso na tela do mata-mata até ela responder.
+  revancheNaSemifinal: {
+    provisorio: true,
+    decididoEm: '06/10/2026',
+    descricao: 'Revanche de fase de grupos: regra pendente de confirmação com a organização'
   },
 
   // Formato E — duas equipes em ida e volta, sem mata-mata. O campeão é quem
@@ -80,6 +89,11 @@ const confronto = (nome, equipe_1, equipe_2) => ({
   equipe_2: { equipe_id: equipe_2.equipe_id, escola_nome: equipe_2.escola_nome, origem: rotulo(equipe_2) }
 });
 
+// Texto do aviso de revanche: o da regra pendente e quem se reencontra
+const avisoDeRevanche = (equipe_1, equipe_2) =>
+  `${REGRAS_DA_CHAVE.revancheNaSemifinal.descricao}. ${equipe_1.escola_nome} e `
+  + `${equipe_2.escola_nome} são do grupo ${equipe_1.grupo_nome} e já se enfrentaram na fase de grupos.`;
+
 // ---------------------------------------------------------------------------
 // Semifinais
 // ---------------------------------------------------------------------------
@@ -87,9 +101,8 @@ const confronto = (nome, equipe_1, equipe_2) => ({
 //   grupos                -> classificação ordenada, com posicao em cada linha
 //   classificadosPorGrupo -> [{ grupo_nome, equipes: [...] }] já cortado
 //   melhoresSegundos      -> os melhores segundos, em ordem
-//   primeirosOrdenados    -> os primeiros colocados ordenados entre si
 const chaveDaSemifinal = (competicao, contexto) => {
-  const { classificadosPorGrupo, melhoresSegundos, primeirosOrdenados } = contexto;
+  const { classificadosPorGrupo, melhoresSegundos } = contexto;
 
   // Formato C: dois grupos, dois classificados de cada
   if (competicao.qtd_grupos === 2 && competicao.classificados_por_grupo === 2) {
@@ -108,35 +121,34 @@ const chaveDaSemifinal = (competicao, contexto) => {
     };
   }
 
-  // Formato D: três grupos, o primeiro de cada mais o melhor segundo
+  // Formato D: três grupos, o primeiro de cada mais o melhor segundo.
+  // Confrontos fixos (06/10/2026): 1ºA × melhor 2º e 1ºB × 1ºC.
   if (competicao.qtd_grupos === 3
     && competicao.classificados_por_grupo === 1
     && competicao.melhores_segundos === 1) {
-    if (primeirosOrdenados.length < 3 || melhoresSegundos.length < 1) {
+    // Pelo nome do grupo, para "A", "B" e "C" não dependerem da ordem da consulta
+    const [a, b, c] = [...classificadosPorGrupo]
+      .sort((x, y) => String(x.grupo_nome).localeCompare(String(y.grupo_nome), 'pt-BR'));
+    const primeiroA = a?.equipes[0];
+    const primeiroB = b?.equipes[0];
+    const primeiroC = c?.equipes[0];
+    const segundo = melhoresSegundos[0];
+
+    if (!primeiroA || !primeiroB || !primeiroC || !segundo) {
       return { erro: 'A semifinal precisa dos três primeiros colocados e do melhor segundo.' };
     }
 
-    const [melhor, segundoMelhor, terceiroMelhor] = primeirosOrdenados;
-    const segundo = melhoresSegundos[0];
-    const mesmoGrupo = segundo.grupo_id === melhor.grupo_id;
+    const revanche = segundo.grupo_id === primeiroA.grupo_id;
 
     return {
       regra: REGRAS_DA_CHAVE.cruzamentoTresGruposComMelhorSegundo,
-      // O melhor primeiro pega o melhor segundo — a não ser que sejam do mesmo
-      // grupo, e aí o par é trocado com o pior dos primeiros.
-      confrontos: mesmoGrupo
-        ? [
-          confronto('Semifinal 1', melhor, terceiroMelhor),
-          confronto('Semifinal 2', segundoMelhor, segundo)
-        ]
-        : [
-          confronto('Semifinal 1', melhor, segundo),
-          confronto('Semifinal 2', segundoMelhor, terceiroMelhor)
-        ],
-      observacao: mesmoGrupo
-        ? `O melhor segundo (${segundo.escola_nome}) é do grupo ${segundo.grupo_nome}, `
-          + 'o mesmo do melhor primeiro colocado: os pares foram trocados para não repetir '
-          + 'um confronto da fase de grupos.'
+      confrontos: [
+        confronto('Semifinal 1', primeiroA, segundo),
+        confronto('Semifinal 2', primeiroB, primeiroC)
+      ],
+      // A revanche não é bloqueada: a chave sai e a tela avisa
+      observacao: revanche
+        ? avisoDeRevanche(primeiroA, segundo)
         : null
     };
   }
@@ -207,6 +219,7 @@ const temMataMata = (competicao) => competicao.proxima_fase !== 'NENHUMA';
 
 module.exports = {
   REGRAS_DA_CHAVE,
+  avisoDeRevanche,
   chaveDaSemifinal,
   chaveDaFinal,
   temMataMata,

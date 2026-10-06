@@ -3,7 +3,7 @@ const {
   montarClassificacao, compararEntreGrupos, avisoJogosDiferentes, vencedorDoJogo, ErroDeRegra
 } = require('./classificacaoController');
 const {
-  REGRAS_DA_CHAVE, chaveDaSemifinal, chaveDaFinal, temMataMata
+  REGRAS_DA_CHAVE, avisoDeRevanche, chaveDaSemifinal, chaveDaFinal, temMataMata
 } = require('../config/chavesMataMata');
 
 // ============================================================================
@@ -73,8 +73,7 @@ const montarChave = async (id) => {
   const contexto = {
     grupos,
     classificadosPorGrupo: classificadosPorGrupo(grupos, competicao.classificados_por_grupo),
-    melhoresSegundos: segundos ? segundos.ordenadas.slice(0, competicao.melhores_segundos) : [],
-    primeirosOrdenados: primeiros ? primeiros.ordenadas : []
+    melhoresSegundos: segundos ? segundos.ordenadas.slice(0, competicao.melhores_segundos) : []
   };
 
   return {
@@ -310,10 +309,33 @@ const chaveDaCompeticao = async (req, res) => {
     const semifinais = jogosDaFase(todosOsJogos, 'SEMIFINAL');
     const finais = jogosDaFase(todosOsJogos, 'FINAL');
 
+    // Grupo de cada equipe, para achar revanche numa semifinal já gerada
+    const grupoDaEquipe = new Map();
+    for (const grupo of chave.grupos) {
+      for (const equipe of grupo.equipes) grupoDaEquipe.set(equipe.equipe_id, equipe);
+    }
+
+    // Semifinal gerada com duas equipes do mesmo grupo: o aviso continua na
+    // tela depois da geração, e não só na chave prevista
+    const revancheNosJogos = (jogos) => {
+      for (const jogo of jogos) {
+        const um = grupoDaEquipe.get(jogo.equipe_1_id);
+        const dois = grupoDaEquipe.get(jogo.equipe_2_id);
+        if (um && dois && um.grupo_id === dois.grupo_id) return avisoDeRevanche(um, dois);
+      }
+      return null;
+    };
+
     // O previsto de cada fase, para a tela mostrar a chave antes de gerar
     const previsto = (fase, existentes) => {
       if (!temMataMata(competicao)) return null;
-      if (existentes.length > 0) return { gerada: true, jogos: existentes };
+      if (existentes.length > 0) {
+        return {
+          gerada: true,
+          jogos: existentes,
+          observacao: fase === 'SEMIFINAL' ? revancheNosJogos(existentes) : null
+        };
+      }
       if (!faseDeGrupos.completa) return { gerada: false, jogos: [], pendente: true };
 
       const resultado = confrontosPrevistos(chave, fase);
