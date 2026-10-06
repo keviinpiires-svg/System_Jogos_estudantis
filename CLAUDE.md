@@ -42,9 +42,12 @@ grupos, modelos de súmula).
   normais, com aviso quando os jogos diferem. Numa segunda resposta, no mesmo dia: a **semifinal
   com 3 grupos** tem confrontos fixos (1ºA × melhor 2º, 1ºB × 1ºC) e o **3º lugar sem semifinal**
   (melhor 2º pela campanha) vale 6 pontos, ambos definitivos. **Seguem PENDENTES, sem
-  implementar:** a revanche da fase de grupos na semifinal (a chave sai, com aviso na tela), quem é
-  o 4º e o 5º lugar (valores já decididos: 4 e 2 pontos), atletismo (plano na fatia 11),
-  xadrez/dama/dominó, número de contas de mesa e a súmula do baleado.
+  implementar:** a revanche da fase de grupos na semifinal (a chave sai, com aviso na tela), o
+  empate no mata-mata do baleado (regulamento omisso: a súmula avisa e não finaliza o empate, e não
+  há cobrança genérica em modalidade nenhuma), atletismo (plano na fatia 11), xadrez/dama/dominó,
+  número de contas de mesa e a súmula do baleado. **Provisório, aguardando o chefe:** 4º lugar
+  (quem perdeu a semifinal para o vice) e 5º lugar (só com mais de 4 equipes no mata-mata, o que
+  nenhuma competição tem), valendo 4 e 2 pontos, com aviso na tabela geral.
 - O banco antigo **`railway`** (18 tabelas do schema antigo, só dados de teste) continua parado e
   intacto no mesmo servidor, como âncora de volta atrás. **Não é o banco do sistema no ar.**
 
