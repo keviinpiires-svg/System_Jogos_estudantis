@@ -110,21 +110,18 @@ const REGRAS = {
   // --------------------------------------------------------------------
   // 4. Súmula do baleado
   // --------------------------------------------------------------------
-  // Não veio folha oficial do baleado entre os modelos.
-  // Decisão: usar a folha do futsal, trocando a coluna de gols por
-  // ELIMINAÇÕES por atleta. O placar do jogo é a soma das eliminações,
-  // que é o que sumula_atletas.gols guarda quando tipo_placar = ELIMINADOS.
+  // A decisão provisória de 30/09/2026 (folha do futsal com eliminações por
+  // atleta) acabou em 06/10/2026: chegou a folha oficial
+  // (docs/referencias/SUMULA BALEADO.pdf), com um contador de BALEADOS por
+  // equipe. O desenho dela está em src/config/folhasSumula.js.
   baleado: {
-    provisorio: true,
-    decididoEm: DECIDIDO_EM,
-    folhaBaseadaEm: 'futsal',
-    colunaDoAtleta: 'eliminacoes',
+    provisorio: false,
+    decididoEm: CONFIRMADO_EM,
+    folhaOficial: 'docs/referencias/SUMULA BALEADO.pdf',
     descricao:
-      'A folha do baleado segue o desenho da do futsal, com uma coluna de '
-      + 'eliminações por atleta no lugar dos gols — 14 caixas, uma por '
-      + 'adversário possível — e sem as faltas acumuladas do rodapé, que o '
-      + 'baleado não usa.',
-    aplicadoEm: 'DetalhesSumula.jsx (impressão) e PreencherSumula.jsx'
+      'O baleado tem folha oficial: Nº, atletas, capitão e um contador de baleados por '
+      + 'equipe, de 1 a 10. O placar de uma equipe é o número de baleadas da adversária.',
+    aplicadoEm: 'folhasSumula.baleado e sumula_equipes.baleados'
   },
 
   // --------------------------------------------------------------------

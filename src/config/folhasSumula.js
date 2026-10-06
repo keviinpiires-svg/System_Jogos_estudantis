@@ -20,8 +20,6 @@
 // `linhasMaximas` é o teto que o backend aceita e a preenchida pode chegar.
 // ============================================================================
 
-const { REGRAS } = require('./regrasProvisorias');
-
 const LINHAS = 14;
 const LINHAS_DO_PAPEL = 12;
 
@@ -115,21 +113,28 @@ const FOLHAS = {
     gradeDoSet: { ate: 20, porLinha: 5 }
   },
 
-  // Baleado: não veio folha oficial. Decisão provisória de 30/09/2026 —
-  // usa o desenho do futsal com uma coluna de eliminações no lugar dos gols.
-  // A regra vive em regrasProvisorias.baleado; aqui só a consumimos.
+  // Baleado: folha oficial própria (docs/referencias/SUMULA BALEADO.pdf), que
+  // substitui a provisória de 30/09/2026. Nº | ATLETAS | BALEADOS | CAPITÃO:,
+  // e no rodapé só o técnico. Não tem cartões, faltas nem tempo técnico.
+  // BALEADOS é um contador DA EQUIPE, não por atleta: as caixas de 1 a 10
+  // marcam as atletas daquela equipe que foram baleadas (06/10/2026), e o
+  // placar de uma equipe é o número de baleadas da adversária. Fica em
+  // sumula_equipes.baleados (db/07_baleados_por_equipe.sql).
   baleado: {
-    ...folhaDoFutsal,
-    rotuloEstatistica: 'Eliminações',
-    // Uma caixa por adversário possível: o elenco do regulamento é 14, então
-    // um atleta que elimine o time inteiro ainda cabe na grade. As colunas
-    // saem mais estreitas que as 11 do futsal — a faixa da grade é a mesma.
-    caixasEstatistica: LINHAS,
-    // O baleado não tem faltas acumuladas: o rodapé fica só com o tempo
-    // técnico e o técnico. Voltar o campo é pôr faltasAcumuladas: 5 aqui.
+    tipo: 'BALEADO',
+    titulo: 'SÚMULA DE BALEADO',
+    // Sem lançamento por atleta: o placar sai do contador da equipe
+    rotuloEstatistica: null,
+    caixasEstatistica: 0,
+    baleadosPorEquipe: 10,
+    cartoes: false,
+    maxAmarelos: 0,
+    faltasIndividuais: 0,
     faltasAcumuladas: 0,
-    provisoria: REGRAS.baleado.provisorio,
-    decididoEm: REGRAS.baleado.decididoEm
+    tempoTecnico: false,
+    sets: false,
+    linhas: LINHAS_DO_PAPEL,
+    linhasMaximas: LINHAS
   }
 };
 

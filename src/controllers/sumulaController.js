@@ -197,7 +197,8 @@ const buscarSumulaPorJogo = async (req, res) => {
 
     const [rodapes] = await db.query(
       `SELECT se.equipe_id, se.tecnico_nome,
-              se.faltas_1t, se.faltas_2t, se.tempo_tecnico_1t, se.tempo_tecnico_2t
+              se.faltas_1t, se.faltas_2t, se.tempo_tecnico_1t, se.tempo_tecnico_2t,
+              se.baleados
          FROM sumula_equipes se
         WHERE se.jogo_id = ?`,
       [jogo_id]
@@ -226,6 +227,8 @@ const buscarSumulaPorJogo = async (req, res) => {
         faltas_2t: rodape?.faltas_2t ?? 0,
         tempo_tecnico_1t: Boolean(rodape?.tempo_tecnico_1t),
         tempo_tecnico_2t: Boolean(rodape?.tempo_tecnico_2t),
+        // Baleado: atletas DESTA equipe que foram baleadas (db/07)
+        baleados: Number(rodape?.baleados ?? 0),
         gols: atletas.reduce((total, atleta) => total + Number(atleta.gols), 0),
         atletas: atletas.map((atleta) => ({
           atleta_id: atleta.atleta_id,
@@ -260,6 +263,7 @@ const buscarSumulaPorJogo = async (req, res) => {
       equipes: [montarEquipe(jogo.equipe_1_id), montarEquipe(jogo.equipe_2_id)],
       lancada: linhas.some((l) => Number(l.gols) > 0 || Number(l.amarelos) > 0
         || Number(l.faltas) > 0 || l.vermelho)
+        || rodapes.some((r) => Number(r.baleados) > 0)
     });
   } catch (erro) {
     console.error(erro);
@@ -396,6 +400,18 @@ const registrarSumula = async (req, res) => {
         });
       }
 
+      // Baleado: o contador de baleadas é da equipe, de 0 a 10 (caixas do
+      // papel). Nas outras folhas o campo não existe.
+      const baleados = inteiroNaoNegativo(equipe.baleados ?? 0);
+      if (baleados === null || baleados > (folha.baleadosPorEquipe || 0)) {
+        await conexao.rollback();
+        return res.status(400).json({
+          erro: folha.baleadosPorEquipe
+            ? `Os baleados de cada equipe vão de 0 a ${folha.baleadosPorEquipe}.`
+            : `A folha de ${jogo.modalidade_nome} não tem contador de baleados.`
+        });
+      }
+
       // Tempo técnico só onde o papel tem a caixa (o baleado e o vôlei não têm)
       if (!folha.tempoTecnico && (booleano(equipe.tempo_tecnico_1t) || booleano(equipe.tempo_tecnico_2t))) {
         await conexao.rollback();
@@ -469,6 +485,13 @@ const registrarSumula = async (req, res) => {
           });
         }
 
+        if (folha.baleadosPorEquipe && gols > 0) {
+          await conexao.rollback();
+          return res.status(400).json({
+            erro: `Em ${jogo.modalidade_nome} não se lança por atleta: o placar sai do contador de baleados da equipe.`
+          });
+        }
+
         if (faltas > folha.faltasIndividuais) {
           await conexao.rollback();
           return res.status(400).json({
@@ -514,13 +537,15 @@ const registrarSumula = async (req, res) => {
 
       await conexao.query(
         `INSERT INTO sumula_equipes
-           (jogo_id, equipe_id, tecnico_nome, faltas_1t, faltas_2t, tempo_tecnico_1t, tempo_tecnico_2t)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (jogo_id, equipe_id, tecnico_nome, faltas_1t, faltas_2t, tempo_tecnico_1t, tempo_tecnico_2t,
+            baleados)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           jogo_id, equipe_id, textoOuNulo(equipe.tecnico_nome),
           inteiroNaoNegativo(equipe.faltas_1t) ?? 0,
           inteiroNaoNegativo(equipe.faltas_2t) ?? 0,
-          booleano(equipe.tempo_tecnico_1t), booleano(equipe.tempo_tecnico_2t)
+          booleano(equipe.tempo_tecnico_1t), booleano(equipe.tempo_tecnico_2t),
+          inteiroNaoNegativo(equipe.baleados ?? 0) ?? 0
         ]
       );
 
@@ -543,10 +568,22 @@ const registrarSumula = async (req, res) => {
       }
     }
 
-    // No vôlei o placar do jogo são os sets vencidos; nas outras modalidades,
-    // a soma da coluna do atleta (gols, pontos ou eliminações).
-    const placar_1 = apuracao ? apuracao.vencidos.um : (golsPorEquipe.get(jogo.equipe_1_id) ?? 0);
-    const placar_2 = apuracao ? apuracao.vencidos.dois : (golsPorEquipe.get(jogo.equipe_2_id) ?? 0);
+    // No vôlei o placar do jogo são os sets vencidos; no baleado, as baleadas
+    // da ADVERSÁRIA (cada bloco conta as atletas da própria equipe que foram
+    // baleadas); nas outras, a soma da coluna do atleta (gols ou pontos).
+    const baleadosDe = (equipe_id) => inteiroNaoNegativo(
+      equipesEnviadas.find((e) => Number(e.equipe_id) === equipe_id)?.baleados ?? 0
+    ) ?? 0;
+
+    let placar_1 = golsPorEquipe.get(jogo.equipe_1_id) ?? 0;
+    let placar_2 = golsPorEquipe.get(jogo.equipe_2_id) ?? 0;
+    if (apuracao) {
+      placar_1 = apuracao.vencidos.um;
+      placar_2 = apuracao.vencidos.dois;
+    } else if (folha.baleadosPorEquipe) {
+      placar_1 = baleadosDe(jogo.equipe_2_id);
+      placar_2 = baleadosDe(jogo.equipe_1_id);
+    }
 
     const prorrogacao = booleano(req.body.prorrogacao);
     let status = jogo.status === 'AGENDADO' ? 'EM_ANDAMENTO' : jogo.status;
