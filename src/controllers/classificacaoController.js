@@ -229,8 +229,8 @@ const carregarDados = async (id) => {
     [id]
   );
 
-  // Por JOGO, e não só por equipe: é o que permite recontar a campanha
-  // descartando jogos, como a regra do "melhor segundo" exige.
+  // Por JOGO, e não só por equipe: somarCampanha só conta os cartões dos
+  // jogos que recebeu na lista.
   const [cartoes] = await db.query(
     `SELECT j.id AS jogo_id, s.equipe_id,
             COALESCE(SUM(s.amarelos), 0)        AS amarelos,
@@ -257,8 +257,7 @@ const carregarDados = async (id) => {
   return { competicao, criterios, equipes, jogos, cartoes, sets };
 };
 
-// Soma a campanha de cada equipe a partir de UMA lista de jogos. Chamar com a
-// lista filtrada é o que permite descartar jogos na comparação entre grupos.
+// Soma a campanha de cada equipe a partir de UMA lista de jogos.
 const somarCampanha = (equipes, jogos, competicao, cartoes, sets) => {
   const tabela = new Map();
 
@@ -386,8 +385,7 @@ const montarGrupos = (tabela, jogos, competicao, criterios) => {
 };
 
 // A classificação inteira de uma competição. O mata-mata usa esta função:
-// devolve também os dados crus, porque a comparação entre grupos precisa
-// recontar a campanha com outra lista de jogos.
+// devolve também os dados crus, que a comparação entre grupos aproveita.
 const montarClassificacao = async (id) => {
   const dados = await carregarDados(id);
   const tabela = somarCampanha(
@@ -401,74 +399,67 @@ const montarClassificacao = async (id) => {
 // Comparação entre grupos: o "melhor segundo" e a ordem dos primeiros
 // ---------------------------------------------------------------------------
 
-// Regra PROVISÓRIA de 30/09/2026 (regrasProvisorias.melhorSegundo): com grupos
-// de tamanhos diferentes, descarta os jogos contra os últimos colocados dos
-// grupos maiores, para todas as candidatas serem medidas pelo mesmo número de
-// partidas. Serve para escolher o melhor segundo e para ordenar os primeiros
-// colocados entre si, que é o que a chave da semifinal pede.
+// Decisão do chefe de 06/10/2026 (regrasProvisorias.melhorSegundo): as
+// candidatas de grupos diferentes são comparadas pelos critérios normais da
+// modalidade, com TODOS os jogos — nenhum é descartado, mesmo com grupos de
+// tamanhos diferentes. Serve para escolher o melhor segundo e para ordenar os
+// primeiros colocados entre si, que é o que a chave da semifinal pede.
+//
+// Quando as candidatas jogaram números de jogos diferentes, `jogos_diferentes`
+// liga o aviso da tela; a conta não muda.
+// A equipe de cada grupo naquela posição
+const candidatasDaPosicao = (posicao, grupos) => grupos
+  .map((grupo) => grupo.equipes[posicao - 1])
+  .filter(Boolean)
+  .map((equipe) => ({ ...equipe, posicao_no_grupo: equipe.posicao }));
+
+// Quantos jogos cada candidata fez, e se esse número varia entre elas
+const jogosDasCandidatas = (candidatas) => ({
+  jogos_diferentes: new Set(candidatas.map((e) => e.jogos)).size > 1,
+  jogos_por_equipe: candidatas.map((e) => ({
+    equipe_id: e.equipe_id,
+    escola_nome: e.escola_nome,
+    grupo_nome: e.grupo_nome,
+    jogos: e.jogos
+  }))
+});
+
 const compararEntreGrupos = (posicao, dados) => {
-  const { competicao, criterios, equipes, jogos, cartoes, sets, grupos } = dados;
-
-  const menorGrupo = Math.min(...grupos.map((g) => g.equipes.length));
-  const descartadas = new Set();
-
-  for (const grupo of grupos) {
-    // Um grupo com uma equipe a mais tem um último colocado a descartar
-    const excedente = grupo.equipes.length - menorGrupo;
-    for (let i = 0; i < excedente; i += 1) {
-      descartadas.add(grupo.equipes[grupo.equipes.length - 1 - i].equipe_id);
-    }
-  }
-
-  const jogosValidos = descartadas.size === 0
-    ? jogos
-    : jogos.filter((j) => !descartadas.has(j.equipe_1_id) && !descartadas.has(j.equipe_2_id));
-
-  // Recontagem da campanha sem os jogos descartados. Linhas novas, para não
-  // sujar as da tabela com os critérios usados aqui.
-  const recontada = somarCampanha(equipes, jogosValidos, competicao, cartoes, sets);
-
-  const candidatas = grupos
-    .map((grupo) => grupo.equipes[posicao - 1])
-    .filter(Boolean)
-    .map((equipe) => ({
-      ...recontada.get(equipe.equipe_id),
-      posicao_no_grupo: equipe.posicao
-    }));
-
-  const ordenadas = ordenarPorCampanha(candidatas, criterios, { competicao, jogos: jogosValidos });
+  const { competicao, criterios, jogos, grupos } = dados;
+  const candidatas = candidatasDaPosicao(posicao, grupos);
 
   return {
     posicao,
-    ordenadas,
-    // Para a tela poder explicar o que aconteceu
-    descartadas: [...descartadas],
-    jogos_descartados: jogos.length - jogosValidos.length,
-    provisoria: REGRAS.melhorSegundo.provisorio,
-    decididoEm: REGRAS.melhorSegundo.decididoEm
+    ordenadas: ordenarPorCampanha(candidatas, criterios, { competicao, jogos }),
+    ...jogosDasCandidatas(candidatas)
   };
 };
+
+// Texto do aviso de jogos diferentes, o mesmo na classificação e no mata-mata
+const avisoJogosDiferentes = (jogosPorEquipe) =>
+  'As equipes comparadas têm números de jogos diferentes ('
+  + `${jogosPorEquipe.map((e) => `${e.escola_nome}, grupo ${e.grupo_nome}: ${e.jogos}`).join('; ')}). `
+  + 'A comparação usa os critérios normais da modalidade com todos os jogos, sem descartar nenhum '
+  + `(decisão de ${REGRAS.melhorSegundo.decididoEm}).`;
 
 // ---------------------------------------------------------------------------
 // Avisos e rota
 // ---------------------------------------------------------------------------
 
-// Regras que o regulamento não fecha e que mudariam esta tabela. Desde
-// 30/09/2026 elas têm decisão PROVISÓRIA (src/config/regrasProvisorias.js);
-// o aviso continua na tela para lembrar que o chefe ainda vai revisar.
+// Avisos que a tela mostra junto da tabela: o "melhor segundo" comparado com
+// números de jogos diferentes e as regras que o regulamento não fecha.
 const avisosDeRegra = (competicao, grupos) => {
   const avisos = [];
-  const tamanhos = [...new Set(grupos.map((g) => g.equipes.length))];
 
-  if (competicao.melhores_segundos > 0 && tamanhos.length > 1) {
-    avisos.push({
-      titulo: 'Critério do "melhor segundo" — decisão provisória',
-      texto:
-        `Os grupos têm tamanhos diferentes (${grupos.map((g) => `${g.nome}: ${g.equipes.length}`).join(', ')}). ` +
-        `Decisão de ${REGRAS.melhorSegundo.decididoEm}, ainda a confirmar: ${REGRAS.melhorSegundo.descricao} ` +
-        'A tabela abaixo é a classificação dentro de cada grupo; a comparação entre os segundos acontece ' +
-        'na geração da semifinal.'
-    });
+  if (competicao.melhores_segundos > 0 && grupos.length > 1) {
+    const segundos = jogosDasCandidatas(candidatasDaPosicao(2, grupos));
+
+    if (segundos.jogos_diferentes) {
+      avisos.push({
+        titulo: '"Melhor segundo" com números de jogos diferentes',
+        texto: avisoJogosDiferentes(segundos.jogos_por_equipe)
+      });
+    }
   }
 
   if (competicao.turno === 'IDA_E_VOLTA' && competicao.total_equipes > 2) {
@@ -526,6 +517,7 @@ module.exports = {
   // Usados pelo mata-mata (fatia 7)
   montarClassificacao,
   compararEntreGrupos,
+  avisoJogosDiferentes,
   vencedorDoJogo,
   ErroDeRegra,
   CRITERIOS

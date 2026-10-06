@@ -47,9 +47,10 @@ const REGRAS_DA_CHAVE = {
   // soma mais nos dois jogos; empatada a soma, decide nas cobranças lançadas
   // na súmula do segundo jogo (pênaltis, 7 metros ou eliminações, conforme a
   // modalidade — a sequência vem de regrasProvisorias.desempateMataMata).
+  // Confirmada pelo chefe em 06/10/2026.
   somaDosDoisJogos: {
-    provisorio: true,
-    decididoEm: DECIDIDO_EM,
+    provisorio: false,
+    decididoEm: '06/10/2026',
     descricao:
       'Com duas equipes em ida e volta, o campeão é quem soma mais nos dois jogos. '
       + 'Se a soma empatar, decide nas cobranças lançadas na súmula do segundo jogo.'

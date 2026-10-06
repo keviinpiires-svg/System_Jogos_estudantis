@@ -34,8 +34,8 @@ const listarAjustes = async (req, res) => {
         minimo: MINIMO,
         maximo: MAXIMO,
         na_soma_geral: REGRAS.tabelaGeral.ajuste.naSomaGeral,
-        provisoria: REGRAS.tabelaGeral.provisorio,
-        decidido_em: REGRAS.tabelaGeral.decididoEm
+        provisoria: REGRAS.tabelaGeral.ajuste.provisorio,
+        decidido_em: REGRAS.tabelaGeral.ajuste.decididoEm
       }
     });
   } catch (erro) {

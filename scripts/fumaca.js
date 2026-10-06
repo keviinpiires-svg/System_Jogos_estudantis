@@ -20,6 +20,8 @@ require('dotenv').config({ quiet: true });
 const bcrypt = require('bcryptjs');
 const db = require('../src/config/db');
 const { REGRAS } = require('../src/config/regrasProvisorias');
+const { compararEntreGrupos } = require('../src/controllers/classificacaoController');
+const { posicionar } = require('../src/controllers/tabelaGeralController');
 
 const API = process.env.FUMACA_API || 'http://localhost:3000/api';
 const MARCA = 'FUMACA';
@@ -475,6 +477,62 @@ const rodar = async () => {
   );
 
   await testarConflitoDeLocal(competicao, equipes, grupos);
+
+  testarRegrasDoChefe();
+};
+
+// ---------------------------------------------------------------------------
+// Regras confirmadas pelo chefe em 06/10/2026 — só lógica, sem banco
+// ---------------------------------------------------------------------------
+// Um campeonato de verdade levaria muitas competições para produzir um empate
+// na soma geral ou um "melhor segundo" de grupos de tamanhos diferentes. Os
+// dois casos são conferidos direto nas funções que decidem.
+const testarRegrasDoChefe = () => {
+  secao('-- regras de 06/10/2026');
+
+  // Mesma soma, mesma posição, com numeração de competição (1, 1, 3)
+  const soma = posicionar([
+    { escola_nome: 'BETA', pontos: 10 },
+    { escola_nome: 'ALFA', pontos: 10 },
+    { escola_nome: 'GAMA', pontos: 6 },
+    { escola_nome: 'DELTA', pontos: 6 },
+    { escola_nome: 'EPSILON', pontos: 2 }
+  ]);
+  const posicoes = soma.map((e) => e.posicao).join(', ');
+  conferir(
+    posicoes === '1, 1, 3, 3, 5',
+    'empate na soma geral divide a posição (1, 1, 3, 3, 5)',
+    `saiu ${posicoes}`
+  );
+
+  // "Melhor segundo" sem descartar jogos: o segundo do grupo de 4 jogou 3
+  // vezes e fez 6 pontos; o do grupo de 3 jogou 2 e fez 4. Pela regra
+  // recusada, os jogos contra o último do grupo maior seriam descartados;
+  // pela de 06/10, vale a campanha inteira e o de 6 pontos fica à frente.
+  const segundoDe = (grupo, equipe_id, jogos, pontos) => ({
+    equipe_id, escola_nome: `ESCOLA ${equipe_id}`, grupo_nome: grupo, posicao: 2,
+    jogos, pontos, saldo: 0, vitorias: 0, marcados: 0, vermelhos: 0, amarelos: 0
+  });
+  const primeiroDe = (grupo, equipe_id) => ({ ...segundoDe(grupo, equipe_id, 3, 9), posicao: 1 });
+
+  const comparacao = compararEntreGrupos(2, {
+    competicao: { tipo_placar: 'GOLS' },
+    criterios: ['saldo', 'vitorias', 'marcados', 'menos_vermelhos', 'menos_amarelos'],
+    jogos: [],
+    grupos: [
+      { nome: 'A', equipes: [primeiroDe('A', 1), segundoDe('A', 2, 3, 6), {}, {}] },
+      { nome: 'B', equipes: [primeiroDe('B', 3), segundoDe('B', 4, 2, 4), {}] }
+    ]
+  });
+  conferir(
+    comparacao.ordenadas[0]?.equipe_id === 2 && comparacao.ordenadas[0]?.pontos === 6,
+    'melhor segundo comparado com todos os jogos, sem descartar nenhum',
+    `primeiro da comparação: equipe ${comparacao.ordenadas[0]?.equipe_id}, ${comparacao.ordenadas[0]?.pontos} pts`
+  );
+  conferir(
+    comparacao.jogos_diferentes === true,
+    'números de jogos diferentes ligam o aviso da tela'
+  );
 };
 
 // ---------------------------------------------------------------------------

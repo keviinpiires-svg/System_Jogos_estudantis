@@ -2,7 +2,6 @@ const db = require('../config/db');
 const { montarChave, colocacoesFinais } = require('./mataMataController');
 const { ErroDeRegra } = require('./classificacaoController');
 const { REGRAS } = require('../config/regrasProvisorias');
-const { BLOCOS, blocoDaCategoria, blocosNaOrdem } = require('../config/blocosTabelaGeral');
 
 // ============================================================================
 // TABELA GERAL — a soma das colocações de cada competição, por escola.
@@ -12,10 +11,12 @@ const { BLOCOS, blocoDaCategoria, blocosNaOrdem } = require('../config/blocosTab
 // `colocacoes_finais` do schema segue sem uso — ela só faz sentido se um dia
 // o chefe quiser congelar o resultado de uma competição encerrada.
 //
-// As decisões que o regulamento não fecha estão em config, não aqui:
-//   - quais categorias formam cada bloco -> src/config/blocosTabelaGeral.js
-//   - o resto (posições que pontuam, mínimo de equipes, desempate, punição)
-//     -> src/config/regrasProvisorias.js, chave `tabelaGeral`.
+// Desde 06/10/2026 há só a soma geral: a divisão em três blocos (anos
+// iniciais, anos finais e ensino médio) saiu por decisão do chefe.
+//
+// As decisões que o regulamento não fecha (posições que pontuam, mínimo de
+// equipes, empate na soma, punição) estão em src/config/regrasProvisorias.js,
+// chave `tabelaGeral`, e não aqui.
 // ============================================================================
 
 const REGRA = REGRAS.tabelaGeral;
@@ -47,28 +48,21 @@ const somar = (mapa, escola_id, escola_nome) => {
   return mapa.get(escola_id);
 };
 
-// Mais pontos; empatando, mais primeiros, depois segundos, depois terceiros;
-// e, no fim, ordem alfabética para a lista não dançar a cada carregamento.
+// Mais pontos primeiro. Não há critério de desempate (decisão de 06/10/2026):
+// a ordem alfabética entre empatadas só serve para a lista não dançar a cada
+// carregamento, e não muda a posição de ninguém.
 const ordenar = (linhas) => [...linhas].sort((a, b) =>
   b.pontos - a.pontos
-  || b.primeiros - a.primeiros
-  || b.segundos - a.segundos
-  || b.terceiros - a.terceiros
   || a.escola_nome.localeCompare(b.escola_nome, 'pt-BR'));
 
+// Mesma soma, mesma posição, em qualquer colocação — com numeração de
+// competição: 1, 1, 3. Empatadas em 1º são todas campeãs gerais.
 const posicionar = (linhas) => {
   const ordenadas = ordenar(linhas);
 
-  // Empate de verdade divide a mesma posição
   ordenadas.forEach((linha, indice) => {
     const anterior = ordenadas[indice - 1];
-    const empatou = anterior
-      && anterior.pontos === linha.pontos
-      && anterior.primeiros === linha.primeiros
-      && anterior.segundos === linha.segundos
-      && anterior.terceiros === linha.terceiros;
-
-    linha.posicao = empatou ? anterior.posicao : indice + 1;
+    linha.posicao = anterior && anterior.pontos === linha.pontos ? anterior.posicao : indice + 1;
   });
 
   return ordenadas;
@@ -92,8 +86,7 @@ const tabelaGeral = async (req, res) => {
         ORDER BY m.nome, cat.idade_maxima IS NULL, cat.idade_maxima, c.genero`
     );
 
-    // escola -> linha, por bloco; e a soma de todos os blocos
-    const porBloco = new Map();
+    // escola -> linha da soma geral
     const geral = new Map();
 
     const encerradas = [];
@@ -118,10 +111,6 @@ const tabelaGeral = async (req, res) => {
         semPontuar.push({ ...competicao, motivo: 'ainda não tem campeão definido' });
         continue;
       }
-
-      const bloco = blocoDaCategoria(competicao.categoria_nome);
-      if (!porBloco.has(bloco.etapa)) porBloco.set(bloco.etapa, { ...bloco, escolas: new Map() });
-      const doBloco = porBloco.get(bloco.etapa).escolas;
 
       // Escola de cada equipe colocada
       const equipesDaCompeticao = new Map();
@@ -150,14 +139,13 @@ const tabelaGeral = async (req, res) => {
           pontos
         };
 
-        for (const alvo of [somar(doBloco, equipe.escola_id, equipe.escola_nome),
-          somar(geral, equipe.escola_id, equipe.escola_nome)]) {
-          alvo.pontos += pontos;
-          alvo.origens.push(origem);
-          if (colocacao.posicao === 1) alvo.primeiros += 1;
-          if (colocacao.posicao === 2) alvo.segundos += 1;
-          if (colocacao.posicao === 3) alvo.terceiros += 1;
-        }
+        const linha = somar(geral, equipe.escola_id, equipe.escola_nome);
+        linha.pontos += pontos;
+        linha.origens.push(origem);
+        // Só informativo: as medalhas não desempatam a soma
+        if (colocacao.posicao === 1) linha.primeiros += 1;
+        if (colocacao.posicao === 2) linha.segundos += 1;
+        if (colocacao.posicao === 3) linha.terceiros += 1;
 
         premiadas.push({ posicao: colocacao.posicao, escola_nome: equipe.escola_nome, pontos });
       }
@@ -167,12 +155,11 @@ const tabelaGeral = async (req, res) => {
         modalidade_nome: competicao.modalidade_nome,
         categoria_nome: competicao.categoria_nome,
         genero: competicao.genero,
-        bloco: bloco.etapa,
         premiadas
       });
     }
 
-    // Punições da Comissão: descontam da soma geral, não de um bloco
+    // Punições da Comissão: descontam da soma geral da escola
     const [ajustes] = await db.query(
       `SELECT a.id, a.escola_id, a.pontos, a.motivo, a.criado_em,
               esc.nome AS escola_nome, u.nome AS usuario_nome
@@ -188,16 +175,7 @@ const tabelaGeral = async (req, res) => {
       linha.ajustes = (linha.ajustes || 0) + ajuste.pontos;
     }
 
-    const blocos = blocosNaOrdem()
-      .filter((bloco) => porBloco.has(bloco.etapa))
-      .map((bloco) => ({
-        etapa: bloco.etapa,
-        ordem: bloco.ordem,
-        escolas: posicionar([...porBloco.get(bloco.etapa).escolas.values()])
-      }));
-
     res.status(200).json({
-      blocos,
       geral: posicionar([...geral.values()]),
       ajustes,
       competicoes: {
@@ -218,12 +196,8 @@ const tabelaGeral = async (req, res) => {
         posicoes_que_pontuam: REGRA.posicoesQuePontuam,
         provisoria: REGRA.provisorio,
         decidido_em: REGRA.decididoEm,
-        blocos: {
-          provisoria: BLOCOS.provisorio,
-          decidido_em: BLOCOS.decididoEm,
-          descricao: BLOCOS.descricao,
-          por_bloco: BLOCOS.porBloco
-        },
+        // Mesma soma, mesma posição (1, 1, 3): sem critério de desempate
+        empate_na_soma: REGRA.empateNaSoma,
         // Lembrete de que 4º e 5º não entram: a regra não existe (pendência 5)
         posicoes_sem_regra: [...pontuacao.keys()]
           .filter((posicao) => !REGRA.posicoesQuePontuam.includes(posicao))
@@ -239,4 +213,5 @@ const tabelaGeral = async (req, res) => {
   }
 };
 
-module.exports = { tabelaGeral };
+// posicionar sai também para o teste de fumaça conferir o empate (1, 1, 3)
+module.exports = { tabelaGeral, posicionar };

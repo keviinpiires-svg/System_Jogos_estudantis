@@ -30,8 +30,17 @@ grupos, modelos de súmula).
 - Fatias (numeração oficial na seção 9 do contexto): 1–7, 9 e 10 ✅; **8 — tabela geral e o que
   sobra** 🔄 (falta atletismo e, se entrarem, técnicos/dirigentes). A fatia 10 foi executada com
   desvios do roteiro (ver "Histórico") e ainda tem pendências de produção (seção abaixo).
-- **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): conflito de
-  local (intervalo mínimo de 10 min entre inícios), `FormAgendaJogo` e local na chave do mata-mata.
+- **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): a resposta
+  do chefe de 06/10/2026 às regras provisórias (abaixo). O conflito de local, o `FormAgendaJogo` e o
+  local na chave do mata-mata já foram publicados em 05/10/2026.
+- **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
+  Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
+  1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
+  e a punição de 5 a 10 pontos. A tabela geral perdeu os três blocos (só soma geral) e o empate na
+  soma divide a posição (1, 1, 3). O "melhor segundo" não descarta mais jogos: usa os critérios
+  normais, com aviso quando os jogos diferem. **Seguem PENDENTES, sem implementar:** 4º e 5º lugar,
+  semifinal com 3 grupos, 3º lugar sem semifinal, atletismo (cálculo e entrada das marcas),
+  xadrez/dama/dominó, número de contas de mesa e a súmula do baleado.
 - O banco antigo **`railway`** (18 tabelas do schema antigo, só dados de teste) continua parado e
   intacto no mesmo servidor, como âncora de volta atrás. **Não é o banco do sistema no ar.**
 
@@ -67,7 +76,6 @@ src/config/evento.js      fuso do evento (FUSO_EVENTO, padrão America/Bahia) e 
 src/config/regrasProvisorias.js   decisões provisórias de regra (seção 12.1 do contexto)
 src/config/chavesMataMata.js      cruzamentos do mata-mata por formato
 src/config/folhasSumula.js        desenho da súmula por modalidade (validação + tela)
-src/config/blocosTabelaGeral.js   categoria → bloco da tabela geral
 src/controllers/*         um controller por recurso
 src/routes/*              um arquivo de rotas por recurso
 src/middlewares/authMiddleware.js verificarToken + exigirPerfil(...perfis)

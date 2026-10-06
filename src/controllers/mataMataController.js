@@ -1,6 +1,6 @@
 const db = require('../config/db');
 const {
-  montarClassificacao, compararEntreGrupos, vencedorDoJogo, ErroDeRegra
+  montarClassificacao, compararEntreGrupos, avisoJogosDiferentes, vencedorDoJogo, ErroDeRegra
 } = require('./classificacaoController');
 const {
   REGRAS_DA_CHAVE, chaveDaSemifinal, chaveDaFinal, temMataMata
@@ -354,13 +354,18 @@ const chaveDaCompeticao = async (req, res) => {
         saldo: e.saldo,
         jogos: e.jogos
       })),
-      // Como a comparação entre grupos foi feita — a regra é provisória
+      // Como a comparação entre grupos foi feita: critérios normais da
+      // modalidade, com todos os jogos (decisão de 06/10/2026). Os segundos só
+      // são comparados quando isso decide alguma coisa — o melhor segundo, ou
+      // o 3º lugar sem semifinal —, e só então o aviso de jogos diferentes vale.
       comparacao_entre_grupos: comparacoes.segundos
         ? {
-          jogos_descartados: comparacoes.segundos.jogos_descartados,
-          equipes_descartadas: comparacoes.segundos.descartadas,
-          provisoria: comparacoes.segundos.provisoria,
-          decidido_em: comparacoes.segundos.decididoEm,
+          jogos_por_equipe: comparacoes.segundos.jogos_por_equipe,
+          aviso_jogos_diferentes:
+            comparacoes.segundos.jogos_diferentes
+            && (competicao.melhores_segundos > 0 || competicao.proxima_fase === 'FINAL')
+              ? avisoJogosDiferentes(comparacoes.segundos.jogos_por_equipe)
+              : null,
           ordem_dos_primeiros: (comparacoes.primeiros?.ordenadas || []).map((e) => ({
             equipe_id: e.equipe_id, escola_nome: e.escola_nome, grupo_nome: e.grupo_nome
           })),

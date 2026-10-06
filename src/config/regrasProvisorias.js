@@ -15,26 +15,29 @@
 
 const DECIDIDO_EM = '30/09/2026';
 
+// Respostas do chefe às regras provisórias. O que ele confirmou ou trocou
+// passou a `provisorio: false` com esta data; o resto segue provisório.
+const CONFIRMADO_EM = '06/10/2026';
+
 const REGRAS = {
   // --------------------------------------------------------------------
   // 1. "Melhor segundo" quando os grupos têm tamanhos diferentes
   // --------------------------------------------------------------------
-  // Um segundo colocado de um grupo de 4 jogou mais partidas que o de um
-  // grupo de 3, então somar pontos brutos favorece quem jogou mais.
-  // Decisão: comparar só os jogos que todos teriam em comum — ou seja,
-  // DESCARTAR os jogos contra o último colocado dos grupos maiores.
+  // A decisão de 30/09 descartava os jogos contra o último colocado dos grupos
+  // maiores. O chefe RECUSOU o descarte em 06/10/2026: os segundos são
+  // comparados pelos critérios normais da modalidade, com todos os jogos.
+  // Quando as equipes comparadas têm números de jogos diferentes, a tela
+  // avisa, mas a conta não muda.
   melhorSegundo: {
-    provisorio: true,
-    decididoEm: DECIDIDO_EM,
-    criterio: 'DESCARTAR_JOGOS_CONTRA_ULTIMO',
+    provisorio: false,
+    decididoEm: CONFIRMADO_EM,
+    criterio: 'CRITERIOS_DA_MODALIDADE',
     descricao:
-      'Com grupos de tamanhos diferentes, os segundos colocados são comparados '
-      + 'descartando os jogos contra o último colocado dos grupos maiores, '
-      + 'para que todos sejam medidos pelo mesmo número de partidas.',
-    // Consumido em: src/controllers/classificacaoController.js (compararEntreGrupos,
-    // que também alimenta o aviso na tela) e, pela geração da semifinal de três
-    // grupos, em src/config/chavesMataMata.js.
-    aplicadoEm: 'classificacaoController.compararEntreGrupos e a geração da semifinal (fatia 7)'
+      'Os segundos colocados de grupos diferentes são comparados pelos critérios '
+      + 'normais da modalidade, com todos os jogos, sem descartar nenhum.',
+    // Consumido em: src/controllers/classificacaoController.js
+    // (compararEntreGrupos e o aviso de jogos diferentes).
+    aplicadoEm: 'classificacaoController.compararEntreGrupos'
   },
 
   // --------------------------------------------------------------------
@@ -44,10 +47,11 @@ const REGRAS = {
   // "prorrogação" para basquete e handebol — sem dizer o que fazer se a
   // prorrogação também empatar.
   // Decisão: segunda prorrogação e, persistindo, cobranças —
-  // 7 metros no handebol, lances livres no basquete.
+  // 7 metros no handebol, lances livres no basquete. Confirmada pelo chefe
+  // em 06/10/2026. O baleado continua sem regra escrita (abaixo).
   desempateMataMata: {
-    provisorio: true,
-    decididoEm: DECIDIDO_EM,
+    provisorio: false,
+    decididoEm: CONFIRMADO_EM,
     // A chave é o slug da modalidade (modalidades.slug)
     porModalidade: {
       futsal: { sequencia: ['PENALTIS'], nomeCobranca: 'pênaltis (3x1x1)' },
@@ -74,14 +78,15 @@ const REGRAS = {
   // 3. Placar de um W.O.
   // --------------------------------------------------------------------
   // O regulamento diz que o time ausente perde, mas não diz por quanto.
-  // Decisão: 1x0, e o administrador pode editar na hora de declarar.
+  // Decisão confirmada pelo chefe em 06/10/2026: 1x0, declarado só pela
+  // Comissão Organizadora (no sistema, o perfil ADMIN).
   wo: {
-    provisorio: true,
-    decididoEm: DECIDIDO_EM,
+    provisorio: false,
+    decididoEm: CONFIRMADO_EM,
     placarVencedor: 1,
     placarPerdedor: 0,
     editavel: true,
-    descricao: 'W.O. vale 1x0 por padrão; o ADMIN pode informar outro placar.',
+    descricao: 'W.O. vale 1x0 e é declarado só pela Comissão Organizadora (ADMIN).',
     // Consumido em: src/controllers/jogoController.js (declararWO) e na tela
     // TabelaJogos.jsx, que já abre o painel com o placar sugerido.
     aplicadoEm: 'jogoController.declararWO'
@@ -112,32 +117,36 @@ const REGRAS = {
   // --------------------------------------------------------------------
   // A tabela de grupos trazia "melhor de dois jogos" com TRÊS equipes, o que
   // não fecha. Decisão: todos contra todos em turno único; 1º e 2º à final.
+  // Confirmada pelo chefe em 06/10/2026.
   // Isto é DADO, não código: mora na linha da competição.
   handebolMasculinoAberto: {
-    provisorio: true,
-    decididoEm: DECIDIDO_EM,
+    provisorio: false,
+    decididoEm: CONFIRMADO_EM,
     formato: 'todos contra todos em turno único; 1º e 2º vão à final',
     // Aplicado por script versionado, não em tempo de execução
     aplicadoEm: 'db/06_ajustes_regras_provisorios.sql'
   },
 
   // --------------------------------------------------------------------
-  // 6. Tabela geral (10/8/6/4/2) — decisões do usuário de 01/10/2026
+  // 6. Tabela geral (10/8/6/4/2) — decisões de 01/10 e 06/10/2026
   // --------------------------------------------------------------------
   // O regulamento dá a pontuação e diz que modalidade com uma só inscrição
-  // não pontua, mas não fecha o resto: como dividir os três blocos, de onde
-  // saem o 4º e o 5º lugar, o que fazer com empate na soma.
-  // A divisão categoria -> bloco mora em src/config/blocosTabelaGeral.js.
+  // não pontua, mas não fecha o resto. Em 06/10/2026 o chefe tirou a divisão
+  // em três blocos (fica só a soma geral) e decidiu o empate na soma.
+  //
+  // O `provisorio` do objeto continua true porque o 4º e o 5º lugar e o
+  // atletismo seguem pendentes. O que o chefe confirmou está marcado como
+  // DEFINITIVO abaixo.
   tabelaGeral: {
     provisorio: true,
     decididoEm: '01/10/2026',
 
-    // 4º e 5º lugar seguem sem regra (pendência 5): hoje o sistema só sabe
-    // apontar campeão, vice e 3º, então só 10, 8 e 6 são distribuídos.
+    // PENDENTE — 4º e 5º lugar seguem sem regra (pendência 5): hoje o sistema
+    // só sabe apontar campeão, vice e 3º, então só 10, 8 e 6 são distribuídos.
     posicoesQuePontuam: [1, 2, 3],
 
-    // "Modalidade com uma só inscrição não conta pontos nem premia" vale por
-    // COMPETIÇÃO (modalidade × categoria × gênero), não pela modalidade toda.
+    // DEFINITIVO (06/10/2026) — "modalidade com uma só inscrição não conta
+    // pontos nem premia" vale por COMPETIÇÃO (modalidade × categoria × gênero).
     minimoDeEquipes: 2,
 
     // Masculino e feminino pontuam em separado e somam para a mesma escola
@@ -146,20 +155,31 @@ const REGRAS = {
     // Competição só entra na conta quando tem campeão definido
     soContaEncerrada: true,
 
-    // Empate na soma: mais primeiros lugares, depois segundos, depois terceiros
-    desempate: ['primeiros', 'segundos', 'terceiros'],
+    // DEFINITIVO (06/10/2026) — empate na soma: as escolas com a mesma soma
+    // ficam NA MESMA POSIÇÃO, em qualquer colocação, com numeração de
+    // competição (1, 1, 3). Empatadas em 1º são todas campeãs gerais. Não há
+    // critério de desempate (o "mais 1ºs, depois 2ºs, depois 3ºs" saiu).
+    empateNaSoma: 'MESMA_POSICAO',
 
-    // Punição da Comissão Disciplinar: desconta da soma geral da escola (não
-    // de um bloco), pode haver mais de uma, e cada uma guarda motivo e data.
-    ajuste: { minimo: -10, maximo: -5, naSomaGeral: true },
+    // DEFINITIVO (06/10/2026) — punição da Comissão Disciplinar: de 5 a 10
+    // pontos, desconta da soma geral da escola, pode haver mais de uma, e
+    // cada uma guarda motivo e data.
+    ajuste: {
+      minimo: -10,
+      maximo: -5,
+      naSomaGeral: true,
+      provisorio: false,
+      decididoEm: CONFIRMADO_EM
+    },
 
     // Atletismo fica de fora: não há competição cadastrada nem regra de
     // lançamento do resultado (pendência 3).
     incluiAtletismo: false,
 
     descricao:
-      'Tabela geral por bloco de categoria, somando 10/8/6 por competição encerrada com duas '
-      + 'equipes ou mais; punições de 5 a 10 pontos descontam da soma geral da escola.',
+      'Tabela geral só com a soma geral, somando 10/8/6 por competição encerrada com duas '
+      + 'equipes ou mais; empate na soma divide a posição; punições de 5 a 10 pontos '
+      + 'descontam da soma geral da escola. 4º e 5º lugar seguem sem regra.',
     aplicadoEm: 'tabelaGeralController'
   },
 
@@ -271,4 +291,4 @@ const regrasProvisoriasAtivas = () =>
       descricao: regra.descricao || regra.formato || regra.criterio
     }));
 
-module.exports = { REGRAS, desempateDaModalidade, regrasProvisoriasAtivas, DECIDIDO_EM };
+module.exports = { REGRAS, desempateDaModalidade, regrasProvisoriasAtivas, DECIDIDO_EM, CONFIRMADO_EM };
