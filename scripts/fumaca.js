@@ -782,8 +782,8 @@ const testarSemifinalDeTresGrupos = () => {
     comRevanche.erro || comRevanche.confrontos.map(par).join(' / ')
   );
   conferir(
-    (comRevanche.observacao || '').startsWith(REGRAS_DA_CHAVE.revancheNaSemifinal.descricao),
-    'revanche gera o aviso "regra pendente de confirmação com a organização"',
+    !comRevanche.observacao && REGRAS_DA_CHAVE.revancheNaSemifinal.provisorio === false,
+    'revanche aceita sem aviso (confirmado pelo chefe em 07/10)',
     comRevanche.observacao
   );
 };

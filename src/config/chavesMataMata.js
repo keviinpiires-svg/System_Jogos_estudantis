@@ -14,8 +14,8 @@
 //   E | 1 grupo, ida e volta          -> sem mata-mata | 6 (todas com 2 equipes)
 //
 // Decisões do usuário de 30/09/2026. A de C é o padrão do futebol; as de D e E,
-// e o 3º lugar sem semifinal, o chefe confirmou ou trocou em 06/10/2026. Só a
-// revanche na semifinal de D segue pendente (revancheNaSemifinal).
+// e o 3º lugar sem semifinal, o chefe confirmou ou trocou em 06/10/2026; a
+// revanche na semifinal de D, em 07/10/2026 (revancheNaSemifinal).
 // ============================================================================
 
 const DECIDIDO_EM = '30/09/2026';
@@ -33,8 +33,8 @@ const REGRAS_DA_CHAVE = {
   // melhor segundo. Decisão do chefe de 06/10/2026: confrontos FIXOS,
   // 1ºA × melhor 2º e 1ºB × 1ºC. O melhor 2º sai da campanha, pelos critérios
   // da modalidade (regrasProvisorias.melhorSegundo). Se ele for do grupo A,
-  // a semifinal repete um jogo da fase de grupos: a chave é gerada assim
-  // mesmo, com o aviso de `revancheNaSemifinal`.
+  // a semifinal repete um jogo da fase de grupos — e funciona assim mesmo
+  // (`revancheNaSemifinal`).
   cruzamentoTresGruposComMelhorSegundo: {
     provisorio: false,
     decididoEm: '06/10/2026',
@@ -44,12 +44,12 @@ const REGRAS_DA_CHAVE = {
   },
 
   // A revanche da fase de grupos na semifinal (1ºA contra um 2º do grupo A)
-  // não é bloqueada, mas a organização ainda não confirmou que pode: fica o
-  // aviso na tela do mata-mata até ela responder.
+  // é aceita: o chefe confirmou em 07/10/2026 que funciona assim mesmo, então
+  // a chave sai sem aviso nenhum.
   revancheNaSemifinal: {
-    provisorio: true,
-    decididoEm: '06/10/2026',
-    descricao: 'Revanche de fase de grupos: regra pendente de confirmação com a organização'
+    provisorio: false,
+    decididoEm: '07/10/2026',
+    descricao: 'A revanche da fase de grupos na semifinal é aceita, sem aviso.'
   },
 
   // Formato E — duas equipes em ida e volta, sem mata-mata. O campeão é quem
@@ -117,11 +117,6 @@ const confronto = (nome, equipe_1, equipe_2) => ({
   equipe_2: { equipe_id: equipe_2.equipe_id, escola_nome: equipe_2.escola_nome, origem: rotulo(equipe_2) }
 });
 
-// Texto do aviso de revanche: o da regra pendente e quem se reencontra
-const avisoDeRevanche = (equipe_1, equipe_2) =>
-  `${REGRAS_DA_CHAVE.revancheNaSemifinal.descricao}. ${equipe_1.escola_nome} e `
-  + `${equipe_2.escola_nome} são do grupo ${equipe_1.grupo_nome} e já se enfrentaram na fase de grupos.`;
-
 // ---------------------------------------------------------------------------
 // Semifinais
 // ---------------------------------------------------------------------------
@@ -166,18 +161,14 @@ const chaveDaSemifinal = (competicao, contexto) => {
       return { erro: 'A semifinal precisa dos três primeiros colocados e do melhor segundo.' };
     }
 
-    const revanche = segundo.grupo_id === primeiroA.grupo_id;
-
+    // Se o melhor 2º for do grupo A, é revanche da fase de grupos: aceita
+    // (07/10/2026), sem aviso
     return {
       regra: REGRAS_DA_CHAVE.cruzamentoTresGruposComMelhorSegundo,
       confrontos: [
         confronto('Semifinal 1', primeiroA, segundo),
         confronto('Semifinal 2', primeiroB, primeiroC)
-      ],
-      // A revanche não é bloqueada: a chave sai e a tela avisa
-      observacao: revanche
-        ? avisoDeRevanche(primeiroA, segundo)
-        : null
+      ]
     };
   }
 
@@ -247,7 +238,6 @@ const temMataMata = (competicao) => competicao.proxima_fase !== 'NENHUMA';
 
 module.exports = {
   REGRAS_DA_CHAVE,
-  avisoDeRevanche,
   chaveDaSemifinal,
   chaveDaFinal,
   temMataMata,
