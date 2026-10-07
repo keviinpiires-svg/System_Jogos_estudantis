@@ -240,10 +240,9 @@ de dados.
    (ou a conta) quando a volta atrás deixar de ser necessária.
 9. Atualizar `db/README.md` e `db/VALIDACAO_MYSQL9.md` (versão 9.7.2) e o `docs/MIGRACAO_PRODUCAO.md`
    (desvio da Vercel e a execução real).
-10. **Rodar o `db/07_baleados_por_equipe.sql` no `jogos_2026` ANTES do push do backend** que lê a
-    coluna `sumula_equipes.baleados` (folha oficial do baleado, 06/10/2026). Sem a coluna, a leitura de
-    qualquer súmula falha. Fazer dump antes. A sintaxe é a do `05`, mas o `07` ainda não foi validado
-    num MySQL (só no MariaDB do desenvolvimento).
+10. ✅ **`db/07_baleados_por_equipe.sql` feito em 06/10/2026:** validado no MySQL 9.4.0 (instância local
+    da porta 3308, em banco descartável) e aplicado na produção (`jogos_2026`), com dump antes. A coluna
+    `sumula_equipes.baleados` já existe lá, então o backend que a lê pode ir ao ar.
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.
