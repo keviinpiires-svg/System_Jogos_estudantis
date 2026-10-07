@@ -125,7 +125,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `jogo_sets`, `suspensoes`, `pontuacao_geral`, `colocacoes_finais`, `ajustes_pontos_geral`,
   `provas_atletismo`, `resultados_atletismo`. 33 chaves estrangeiras, 16 `CHECK`.
 - Ordem dos scripts: `00_apagar_tudo` → `01_schema` → `02_carga_base` → `03_importar_grupos` →
-  `04_locais` → `05_faltas_basquete` → `06_ajustes_regras_provisorios`.
+  `04_locais` → `05_faltas_basquete` → `06_ajustes_regras_provisorios` → `07_baleados_por_equipe`.
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
 - Scripts **sem `COLLATE`**: usam a padrão do servidor. Produção (`utf8mb4_0900_ai_ci`) é
@@ -157,7 +157,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é `07`),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é `08`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
@@ -240,6 +240,10 @@ de dados.
    (ou a conta) quando a volta atrás deixar de ser necessária.
 9. Atualizar `db/README.md` e `db/VALIDACAO_MYSQL9.md` (versão 9.7.2) e o `docs/MIGRACAO_PRODUCAO.md`
    (desvio da Vercel e a execução real).
+10. **Rodar o `db/07_baleados_por_equipe.sql` no `jogos_2026` ANTES do push do backend** que lê a
+    coluna `sumula_equipes.baleados` (folha oficial do baleado, 06/10/2026). Sem a coluna, a leitura de
+    qualquer súmula falha. Fazer dump antes. A sintaxe é a do `05`, mas o `07` ainda não foi validado
+    num MySQL (só no MariaDB do desenvolvimento).
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.

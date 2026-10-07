@@ -21,7 +21,9 @@ produção recusa. Para saber a versão do seu servidor, rode `SELECT VERSION();
 | `02_carga_base.sql` | Dados fixos: configuração do evento, etapas de ensino, categorias, modalidades, pontuação da tabela geral e provas de atletismo. |
 | `03_importar_grupos.sql` | Gerado da tabela de grupos: 18 escolas (+ grafias alternativas), 50 competições com a regra de classificação, 77 grupos e 240 equipes. Confira antes em `docs/CONFERENCIA_COMPETICOES.md`. |
 | `04_locais.sql` | Locais de disputa (ginásios, quadras e campos). Rode uma vez, depois do 03. |
-| `05_faltas_basquete.sql` | Migração: coluna `faltas` (0 a 5) em `sumula_atletas`, para as faltas individuais do basquete. **Aplicada no `jogos_estudantis_dev` em 29/09/2026**; falta na produção. Num banco novo entra na sequência, logo depois do `04` — conferido. |
+| `05_faltas_basquete.sql` | Migração: coluna `faltas` (0 a 5) em `sumula_atletas`, para as faltas individuais do basquete. Aplicada no `jogos_estudantis_dev` em 29/09/2026 e na produção (`jogos_2026`) na virada de 01/10/2026. Num banco novo entra na sequência, logo depois do `04` — conferido. |
+| `06_ajustes_regras_provisorios.sql` | Ajusta a linha do Handebol Masculino Aberto (turno único, 1º e 2º à final). Aplicado no desenvolvimento e na produção (virada de 01/10/2026). |
+| `07_baleados_por_equipe.sql` | Migração: coluna `baleados` (0 a 10, com `CHECK`) em `sumula_equipes`, para o contador de baleadas por equipe da súmula oficial do baleado. **Aplicada no `jogos_estudantis_dev` em 06/10/2026; falta na produção.** ⚠️ Precisa rodar no `jogos_2026` **antes** do deploy do backend que lê a coluna: sem ela, a leitura de qualquer súmula falha. Num banco novo entra depois do `06`. |
 | `schema_producao_baseline.sql` | Registro de como a produção estava em 28/09/2026. **Não execute.** |
 
 Escolas, competições, grupos e equipes **não** estão na carga base: vêm de `03_importar_grupos.sql` (a partir de `docs/referencias/tabela_de_grupos.md`).
