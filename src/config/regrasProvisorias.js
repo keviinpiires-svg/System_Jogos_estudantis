@@ -169,11 +169,18 @@ const REGRAS = {
     // Competição só entra na conta quando tem campeão definido
     soContaEncerrada: true,
 
-    // DEFINITIVO (06/10/2026) — empate na soma: as escolas com a mesma soma
-    // ficam NA MESMA POSIÇÃO, em qualquer colocação, com numeração de
-    // competição (1, 1, 3). Empatadas em 1º são todas campeãs gerais. Não há
-    // critério de desempate (o "mais 1ºs, depois 2ºs, depois 3ºs" saiu).
-    empateNaSoma: 'MESMA_POSICAO',
+    // Empate na soma (chefe, 07/10/2026): desempata quem tem mais 1º lugares,
+    // depois mais 2º e mais 3º — DEFINITIVO. Se ainda empatar, as escolas
+    // dividem a posição, com numeração de competição (1, 1, 3) — essa última
+    // parte é EXTENSÃO PROVISÓRIA nossa (o chefe não falou do empate em tudo).
+    desempate: {
+      criterios: ['primeiros', 'segundos', 'terceiros'],
+      decididoEm: '07/10/2026',
+      seEmpatarEmTudo: 'DIVIDE_A_POSICAO',
+      seEmpatarEmTudoProvisorio: true,
+      descricao: 'Mesma soma: desempata quem tem mais 1º lugares, depois mais 2º e mais 3º. '
+        + 'Se ainda empatar, as escolas dividem a posição (regra provisória).'
+    },
 
     // DEFINITIVO (06/10/2026) — punição da Comissão Disciplinar: de 5 a 10
     // pontos, desconta da soma geral da escola, pode haver mais de uma, e

@@ -49,21 +49,25 @@ const somar = (mapa, escola_id, escola_nome) => {
   return mapa.get(escola_id);
 };
 
-// Mais pontos primeiro. Não há critério de desempate (decisão de 06/10/2026):
-// a ordem alfabética entre empatadas só serve para a lista não dançar a cada
-// carregamento, e não muda a posição de ninguém.
+// Mais pontos; empatando, mais 1º lugares, depois 2º e 3º (chefe, 07/10/2026).
+// A ordem alfabética entre empatadas em tudo só serve para a lista não dançar a
+// cada carregamento, e não muda a posição de ninguém.
 const ordenar = (linhas) => [...linhas].sort((a, b) =>
   b.pontos - a.pontos
+  || REGRA.desempate.criterios.reduce((r, c) => r || (b[c] || 0) - (a[c] || 0), 0)
   || a.escola_nome.localeCompare(b.escola_nome, 'pt-BR'));
 
-// Mesma soma, mesma posição, em qualquer colocação — com numeração de
-// competição: 1, 1, 3. Empatadas em 1º são todas campeãs gerais.
+const empatadasEmTudo = (a, b) => a.pontos === b.pontos
+  && REGRA.desempate.criterios.every((c) => (a[c] || 0) === (b[c] || 0));
+
+// Mesma soma: desempata por mais 1ºs, 2ºs e 3ºs (REGRA.desempate). Empatadas
+// em tudo dividem a posição, com numeração de competição: 1, 1, 3.
 const posicionar = (linhas) => {
   const ordenadas = ordenar(linhas);
 
   ordenadas.forEach((linha, indice) => {
     const anterior = ordenadas[indice - 1];
-    linha.posicao = anterior && anterior.pontos === linha.pontos ? anterior.posicao : indice + 1;
+    linha.posicao = anterior && empatadasEmTudo(anterior, linha) ? anterior.posicao : indice + 1;
   });
 
   return ordenadas;
@@ -145,7 +149,7 @@ const tabelaGeral = async (req, res) => {
         const linha = somar(geral, equipe.escola_id, equipe.escola_nome);
         linha.pontos += pontos;
         linha.origens.push(origem);
-        // Só informativo: as medalhas não desempatam a soma
+        // As medalhas desempatam a soma (REGRA.desempate)
         if (colocacao.posicao === 1) linha.primeiros += 1;
         if (colocacao.posicao === 2) linha.segundos += 1;
         if (colocacao.posicao === 3) linha.terceiros += 1;
@@ -200,7 +204,8 @@ const tabelaGeral = async (req, res) => {
         provisoria: REGRA.provisorio,
         decidido_em: REGRA.decididoEm,
         // Mesma soma, mesma posição (1, 1, 3): sem critério de desempate
-        empate_na_soma: REGRA.empateNaSoma,
+        // Como a mesma soma se desempata: a tela mostra o critério
+        desempate: REGRA.desempate,
         // Posições da pontuação que não entram na conta (hoje, nenhuma)
         posicoes_sem_regra: [...pontuacao.keys()]
           .filter((posicao) => !REGRA.posicoesQuePontuam.includes(posicao))

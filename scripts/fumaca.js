@@ -692,18 +692,20 @@ const testarQuintoLugar = () => {
 const testarRegrasDoChefe = () => {
   secao('-- regras de 06/10/2026');
 
-  // Mesma soma, mesma posição, com numeração de competição (1, 1, 3)
+  // Mesma soma (07/10/2026): desempata quem tem mais 1ºs, depois 2ºs e 3ºs.
+  // BETA e ALFA somam 10, mas ALFA tem um 1º lugar e BETA não; GAMA e DELTA
+  // empatam em tudo e dividem a posição (numeração de competição).
   const soma = posicionar([
-    { escola_nome: 'BETA', pontos: 10 },
-    { escola_nome: 'ALFA', pontos: 10 },
-    { escola_nome: 'GAMA', pontos: 6 },
-    { escola_nome: 'DELTA', pontos: 6 },
-    { escola_nome: 'EPSILON', pontos: 2 }
+    { escola_nome: 'BETA', pontos: 10, primeiros: 0, segundos: 1, terceiros: 0 },
+    { escola_nome: 'ALFA', pontos: 10, primeiros: 1, segundos: 0, terceiros: 0 },
+    { escola_nome: 'GAMA', pontos: 6, primeiros: 0, segundos: 0, terceiros: 1 },
+    { escola_nome: 'DELTA', pontos: 6, primeiros: 0, segundos: 0, terceiros: 1 },
+    { escola_nome: 'EPSILON', pontos: 2, primeiros: 0, segundos: 0, terceiros: 0 }
   ]);
-  const posicoes = soma.map((e) => e.posicao).join(', ');
+  const posicoes = soma.map((e) => `${e.escola_nome} ${e.posicao}`).join(', ');
   conferir(
-    posicoes === '1, 1, 3, 3, 5',
-    'empate na soma geral divide a posição (1, 1, 3, 3, 5)',
+    posicoes === 'ALFA 1, BETA 2, DELTA 3, GAMA 3, EPSILON 5',
+    'mesma soma: mais 1ºs desempata; empate em tudo divide a posição',
     `saiu ${posicoes}`
   );
 
