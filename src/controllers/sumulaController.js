@@ -149,7 +149,7 @@ const buscarSumulaPorJogo = async (req, res) => {
   try {
     const [[jogo]] = await db.query(
       `SELECT j.id, j.competicao_id, j.numero_jogo, j.fase, j.rodada, j.data_hora,
-              j.status, j.placar_1, j.placar_2, j.penaltis_1, j.penaltis_2,
+              j.status, j.placar_1, j.placar_2, j.penaltis_1, j.penaltis_2, j.baleou_primeiro_equipe_id,
               j.arbitro_1, j.arbitro_2, j.anotador, j.observacoes,
               j.equipe_1_id, j.equipe_2_id, j.vencedor_equipe_id,
               g.nome AS grupo_nome, l.nome AS local_nome,
@@ -590,6 +590,8 @@ const registrarSumula = async (req, res) => {
     let vencedor_equipe_id = null;
     let penaltis_1 = null;
     let penaltis_2 = null;
+    // Final do baleado empatada: a equipe que baleou primeiro no acréscimo
+    let baleouPrimeiro = null;
 
     if (finalizar) {
       // Ida e volta sem mata-mata: o título sai da soma dos dois jogos, então
@@ -615,10 +617,25 @@ const registrarSumula = async (req, res) => {
           ? 'Os dois jogos terminaram com a soma empatada'
           : 'Empate no mata-mata';
 
-        // Modalidade em que o regulamento não diz como desempatar: não há
-        // cobrança genérica. A súmula pode ser salva sem finalizar, e o jogo
-        // espera a organização decidir.
-        if (desempate.pendente) {
+        // Final do baleado (07/10/2026): acréscimo de 4 minutos, vence quem
+        // balear primeiro. A mesa informa quem foi; o placar fica empatado.
+        // Fora dela, modalidade em que o regulamento não diz como desempatar
+        // não tem cobrança genérica: a súmula pode ser salva sem finalizar, e
+        // o jogo espera a organização decidir.
+        if (desempate.pendente && desempate.final && jogo.fase === 'FINAL' && !somaEmpatada) {
+          const primeiro = Number(req.body.baleou_primeiro_equipe_id);
+
+          if (![jogo.equipe_1_id, jogo.equipe_2_id].includes(primeiro)) {
+            await conexao.rollback();
+            return res.status(400).json({
+              erro: `Empate na final de ${jogo.modalidade_nome}: houve acréscimo de `
+                + `${desempate.final.minutosDeAcrescimo} minutos. Informe a equipe que baleou primeiro nele.`
+            });
+          }
+
+          baleouPrimeiro = primeiro;
+          vencedor_equipe_id = primeiro;
+        } else if (desempate.pendente) {
           await conexao.rollback();
           return res.status(409).json({
             erro: `${situacao} em ${jogo.modalidade_nome}: ${desempate.motivo}. `
@@ -627,27 +644,31 @@ const registrarSumula = async (req, res) => {
           });
         }
 
-        if (exigeProrrogacao && !prorrogacao) {
-          await conexao.rollback();
-          return res.status(400).json({
-            erro: `${situacao}: em ${jogo.modalidade_nome} joga-se prorrogação antes das cobranças. `
-              + 'Marque a prorrogação e lance o resultado dela na súmula.'
-          });
+        // Prorrogação e cobranças: só para quem ainda não tem vencedor (a final
+        // do baleado já saiu do acréscimo, acima)
+        if (baleouPrimeiro === null) {
+          if (exigeProrrogacao && !prorrogacao) {
+            await conexao.rollback();
+            return res.status(400).json({
+              erro: `${situacao}: em ${jogo.modalidade_nome} joga-se prorrogação antes das cobranças. `
+                + 'Marque a prorrogação e lance o resultado dela na súmula.'
+            });
+          }
+
+          penaltis_1 = inteiroNaoNegativo(req.body.penaltis_1);
+          penaltis_2 = inteiroNaoNegativo(req.body.penaltis_2);
+
+          if (penaltis_1 === null || penaltis_2 === null || penaltis_1 === penaltis_2) {
+            await conexao.rollback();
+            return res.status(400).json({
+              erro: exigeProrrogacao
+                ? `Empate mesmo após a prorrogação: informe ${desempate.nomeCobranca}, com um vencedor.`
+                : `${situacao}: informe ${desempate.nomeCobranca}, com um vencedor.`
+            });
+          }
+
+          vencedor_equipe_id = penaltis_1 > penaltis_2 ? jogo.equipe_1_id : jogo.equipe_2_id;
         }
-
-        penaltis_1 = inteiroNaoNegativo(req.body.penaltis_1);
-        penaltis_2 = inteiroNaoNegativo(req.body.penaltis_2);
-
-        if (penaltis_1 === null || penaltis_2 === null || penaltis_1 === penaltis_2) {
-          await conexao.rollback();
-          return res.status(400).json({
-            erro: exigeProrrogacao
-              ? `Empate mesmo após a prorrogação: informe ${desempate.nomeCobranca}, com um vencedor.`
-              : `${situacao}: informe ${desempate.nomeCobranca}, com um vencedor.`
-          });
-        }
-
-        vencedor_equipe_id = penaltis_1 > penaltis_2 ? jogo.equipe_1_id : jogo.equipe_2_id;
       } else if (placar_1 !== placar_2) {
         vencedor_equipe_id = placar_1 > placar_2 ? jogo.equipe_1_id : jogo.equipe_2_id;
       }
@@ -658,9 +679,11 @@ const registrarSumula = async (req, res) => {
     await conexao.query(
       `UPDATE jogos
           SET placar_1 = ?, placar_2 = ?, status = ?,
-              vencedor_equipe_id = ?, penaltis_1 = ?, penaltis_2 = ?, prorrogacao = ?
+              vencedor_equipe_id = ?, penaltis_1 = ?, penaltis_2 = ?, prorrogacao = ?,
+              baleou_primeiro_equipe_id = ?
         WHERE id = ?`,
-      [placar_1, placar_2, status, vencedor_equipe_id, penaltis_1, penaltis_2, prorrogacao, jogo_id]
+      [placar_1, placar_2, status, vencedor_equipe_id, penaltis_1, penaltis_2, prorrogacao,
+        baleouPrimeiro, jogo_id]
     );
 
     await conexao.commit();

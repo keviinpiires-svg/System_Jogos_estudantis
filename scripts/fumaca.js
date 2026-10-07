@@ -556,6 +556,95 @@ const rodar = async () => {
   testarQuintoLugar();
   testarDesempatePorModalidade();
   testarFolhasOficiais();
+  await testarEmpateDoBaleado();
+};
+
+// ---------------------------------------------------------------------------
+// Empate no baleado (chefe, 07/10/2026) — pela API, numa competição livre
+// ---------------------------------------------------------------------------
+// Fase de grupos: empate vale. Final: acréscimo de 4 minutos, vence quem
+// balear primeiro (jogos.baleou_primeiro_equipe_id). Semifinal: o chefe não
+// respondeu, segue o 409 de regra pendente.
+const testarEmpateDoBaleado = async () => {
+  secao('-- empate no baleado');
+
+  const [[comp]] = await db.query(
+    `SELECT c.id, c.genero, cat.idade_maxima, e1.id AS e1, e2.id AS e2,
+            e1.escola_id AS esc1, e2.escola_id AS esc2
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+       INNER JOIN equipes e1 ON e1.competicao_id = c.id
+       INNER JOIN equipes e2 ON e2.competicao_id = c.id AND e2.grupo_id = e1.grupo_id AND e2.id > e1.id
+      WHERE m.slug = 'baleado' AND c.turno = 'UNICO' AND c.id <> ?
+        AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
+      ORDER BY c.id LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) throw new Error('Não achei uma competição de baleado livre para o teste de empate.');
+
+  const [[{ ano }]] = await db.query('SELECT ano FROM configuracao_evento WHERE id = 1');
+  const nascimento = `${comp.idade_maxima ? ano - comp.idade_maxima : ano - 20}-03-15`;
+  const sexo = comp.genero === 'FEMININO' ? 'F' : 'M';
+
+  const atletaDe = async (equipe_id, escola_id, n) => {
+    const atleta = await exigir('POST', '/atletas', {
+      nome: `${MARCA} BALEADO ${n}`, rg: `${MARCA}BAL${n}`, data_nascimento: nascimento, sexo, escola_id
+    }, 'cadastrar atleta do baleado');
+    criados.atletas.push(atleta.id_atleta);
+    await exigir('POST', '/inscricoes', { equipe_id, atleta_id: atleta.id_atleta, numero_camisa: 1 }, 'inscrever no baleado');
+    return atleta.id_atleta;
+  };
+  const a1 = await atletaDe(comp.e1, comp.esc1, 1);
+  const a2 = await atletaDe(comp.e2, comp.esc2, 2);
+
+  const jogoNa = async (fase) => {
+    const jogo = await exigir('POST', '/jogos', {
+      competicao_id: comp.id, equipe_1_id: comp.e1, equipe_2_id: comp.e2, fase
+    }, `agendar ${fase} do baleado`);
+    criados.jogos.push(jogo.id_jogo);
+    return jogo.id_jogo;
+  };
+  const linha = (atleta_id) => ({ atleta_id, presente: true, capitao: true, gols: 0, amarelos: 0, vermelho: false, faltas: 0 });
+  // 3 baleadas de cada lado: empate
+  const sumula = (jogo_id, extra = {}) => chamar('POST', '/sumulas', {
+    jogo_id, finalizar: true, ...extra,
+    equipes: [
+      { equipe_id: comp.e1, baleados: 3, atletas: [linha(a1)] },
+      { equipe_id: comp.e2, baleados: 3, atletas: [linha(a2)] }
+    ]
+  });
+
+  const grupos = await jogoNa('GRUPOS');
+  const rGrupos = await sumula(grupos);
+  const [[jGrupos]] = await db.query('SELECT status, vencedor_equipe_id FROM jogos WHERE id = ?', [grupos]);
+  conferir(
+    rGrupos.status === 201 && jGrupos.status === 'FINALIZADO' && jGrupos.vencedor_equipe_id === null,
+    'fase de grupos: empate finaliza, sem vencedor (1 ponto a cada)',
+    `${rGrupos.status} ${rGrupos.corpo.erro || ''} ${JSON.stringify(jGrupos)}`
+  );
+
+  const semi = await jogoNa('SEMIFINAL');
+  const rSemi = await sumula(semi);
+  conferir(rSemi.status === 409, 'semifinal empatada: segue 409 de regra pendente', `${rSemi.status} ${rSemi.corpo.erro || ''}`);
+
+  const final = await jogoNa('FINAL');
+  const rSemInformar = await sumula(final);
+  conferir(
+    rSemInformar.status === 400,
+    'final empatada sem dizer quem baleou primeiro: recusada',
+    `${rSemInformar.status} ${rSemInformar.corpo.erro || ''}`
+  );
+  const rFinal = await sumula(final, { baleou_primeiro_equipe_id: comp.e2 });
+  const [[jFinal]] = await db.query(
+    'SELECT status, vencedor_equipe_id, baleou_primeiro_equipe_id, placar_1, placar_2 FROM jogos WHERE id = ?', [final]
+  );
+  conferir(
+    rFinal.status === 201 && jFinal.status === 'FINALIZADO' && jFinal.vencedor_equipe_id === comp.e2
+      && jFinal.baleou_primeiro_equipe_id === comp.e2 && jFinal.placar_1 === jFinal.placar_2,
+    'final empatada: vence quem baleou primeiro no acréscimo, e o placar fica empatado',
+    `${rFinal.status} ${rFinal.corpo.erro || ''} ${JSON.stringify(jFinal)}`
+  );
 };
 
 // ---------------------------------------------------------------------------

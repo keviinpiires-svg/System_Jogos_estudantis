@@ -76,12 +76,21 @@ const REGRAS = {
       // Baleado: o regulamento diz quem vence (quem balear todos ou, acabado o
       // tempo, quem eliminou mais), mas não o que fazer se as eliminações
       // empatarem. PENDENTE com a organização.
+      // Baleado (chefe, 07/10/2026): empate na fase de grupos vale (1 ponto a
+      // cada) e não chega aqui. Na FINAL há acréscimo de 4 minutos e vence quem
+      // balear primeiro (jogos.baleou_primeiro_equipe_id, db/08). Na semifinal
+      // e no ida e volta empatado o chefe não respondeu: segue PENDENTE.
       baleado: {
         sequencia: [],
         nomeCobranca: null,
         pendente: true,
         motivo: 'o regulamento do baleado diz que vence quem balear todos os adversários ou, '
-          + 'acabado o tempo, quem eliminou mais, mas não diz o que fazer se as eliminações empatarem'
+          + 'acabado o tempo, quem eliminou mais, e o chefe só definiu o empate na final',
+        final: {
+          minutosDeAcrescimo: 4,
+          decididoEm: '07/10/2026',
+          descricao: 'Na final, empate vai para um acréscimo de 4 minutos: vence quem balear primeiro.'
+        }
       }
     },
     // Consumido em: src/controllers/sumulaController.js, ao finalizar uma
