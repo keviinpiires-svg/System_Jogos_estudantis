@@ -132,7 +132,8 @@ const inscreverAtleta = async (req, res) => {
       }
     }
 
-    // 5. Teto de atletas da modalidade (14). Nulo = sem limite (atletismo).
+    // 5. Teto de atletas da modalidade (modalidades.max_atletas: 14, e 12 no
+    //    handebol e no baleado desde 07/10/2026). Nulo = sem limite (atletismo).
     const [[{ inscritos }]] = await conexao.query(
       'SELECT COUNT(*) AS inscritos FROM inscricoes_atletas WHERE equipe_id = ?',
       [equipe_id]

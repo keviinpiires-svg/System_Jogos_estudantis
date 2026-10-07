@@ -13,11 +13,11 @@
 // equipe, inclusive basquete e vôlei, cujos papéis trazem 12 — o elenco do
 // regulamento é 14 e a folha precisa comportá-lo.
 //
-// Exceção de 06/10/2026, nas folhas oficiais do HANDEBOL e do BALEADO: a folha
-// em branco tem as 12 linhas do papel, e a preenchida ganha a 13ª e a 14ª só
-// quando a equipe tiver mais de 12 inscritos. Fidelidade ao modelo oficial,
-// sem perder atleta na impressão. `linhas` é o que a folha em branco desenha;
-// `linhasMaximas` é o teto que o backend aceita e a preenchida pode chegar.
+// Exceção do HANDEBOL e do BALEADO (chefe, 07/10/2026): o elenco dessas duas
+// modalidades é de 12 atletas (modalidades.max_atletas, db/09), então as
+// folhas oficiais têm sempre as 12 linhas do papel, em branco e preenchida.
+// `linhas` é o que a folha desenha; `linhasMaximas` é o teto que o backend
+// aceita na súmula.
 // ============================================================================
 
 const LINHAS = 14;
@@ -64,7 +64,7 @@ const FOLHAS = {
     tempoTecnico: true,
     sets: false,
     linhas: LINHAS_DO_PAPEL,
-    linhasMaximas: LINHAS
+    linhasMaximas: LINHAS_DO_PAPEL
   },
 
   // Basquete: folha própria. Não tem cartão; tem faltas individuais de 0 a 5
@@ -134,7 +134,7 @@ const FOLHAS = {
     tempoTecnico: false,
     sets: false,
     linhas: LINHAS_DO_PAPEL,
-    linhasMaximas: LINHAS
+    linhasMaximas: LINHAS_DO_PAPEL
   }
 };
 

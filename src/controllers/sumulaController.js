@@ -391,8 +391,7 @@ const registrarSumula = async (req, res) => {
       const equipe_id = Number(equipe.equipe_id);
       const atletas = Array.isArray(equipe.atletas) ? equipe.atletas : [];
 
-      // O teto é o do elenco (14): no handebol e no baleado o papel tem 12
-      // linhas, e a folha preenchida ganha as que faltarem
+      // O teto é o do elenco da folha: 14, e 12 no handebol e no baleado
       if (atletas.length > folha.linhasMaximas) {
         await conexao.rollback();
         return res.status(400).json({

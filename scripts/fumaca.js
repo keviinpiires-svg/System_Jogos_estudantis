@@ -664,8 +664,9 @@ const testarFolhasOficiais = () => {
     'handebol: 10 caixas de gols, um amarelo, sem faltas, com tempo técnico'
   );
   conferir(
-    handebol.linhas === 12 && handebol.linhasMaximas === 14,
-    'handebol: 12 linhas no papel, até 14 na folha preenchida'
+    handebol.linhas === 12 && handebol.linhasMaximas === 12
+      && folhaDaModalidade('baleado', 'Baleado').linhasMaximas === 12,
+    'handebol e baleado: sempre 12 linhas (elenco de 12, 07/10/2026)'
   );
   conferir(
     folhaDaModalidade('futsal', 'Futsal').linhas === 14,
