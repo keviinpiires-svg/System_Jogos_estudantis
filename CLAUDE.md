@@ -41,13 +41,19 @@ grupos, modelos de súmula).
   soma divide a posição (1, 1, 3). O "melhor segundo" não descarta mais jogos: usa os critérios
   normais, com aviso quando os jogos diferem. Numa segunda resposta, no mesmo dia: a **semifinal
   com 3 grupos** tem confrontos fixos (1ºA × melhor 2º, 1ºB × 1ºC) e o **3º lugar sem semifinal**
-  (melhor 2º pela campanha) vale 6 pontos, ambos definitivos. **Seguem PENDENTES, sem
-  implementar:** a revanche da fase de grupos na semifinal (a chave sai, com aviso na tela), o
-  empate no mata-mata do baleado (regulamento omisso: a súmula avisa e não finaliza o empate, e não
-  há cobrança genérica em modalidade nenhuma), atletismo (plano na fatia 11), xadrez/dama/dominó,
-  número de contas de mesa e a súmula do baleado. **Provisório, aguardando o chefe:** 4º lugar
-  (quem perdeu a semifinal para o vice) e 5º lugar (a melhor campanha entre quem não chegou à semifinal,
-  só em competição com mais de 4 equipes), valendo 4 e 2 pontos, com aviso na tabela geral.
+  (melhor 2º pela campanha) vale 6 pontos, ambos definitivos. Não há cobrança genérica de
+  desempate em modalidade nenhuma. **Seguem PENDENTES (07/10/2026):** o empate do baleado na
+  semifinal e no ida e volta (a súmula avisa e não finaliza), o tamanho do set do vôlei, o que o
+  contador de baleados conta (hoje, a própria equipe), as dúvidas de atletismo/xadrez/dama/dominó
+  (fatia 11) e o número de contas de mesa.
+- **Respostas do chefe de 07/10/2026** (seção 12.1 do contexto, linhas 6, 12, 19, 21, 22 e 23):
+  4º e 5º lugar e a revanche na semifinal viraram **definitivos** (sem aviso); a soma geral desempata por
+  **mais 1ºs, depois 2ºs e 3ºs** (empate em tudo divide a posição: extensão provisória); **baleado**:
+  empate vale na fase de grupos e, na **final**, acréscimo de 4 min com vitória de quem baleia primeiro
+  (`jogos.baleou_primeiro_equipe_id`, `db/08`) — semifinal e ida e volta empatados seguem pendentes;
+  **handebol e baleado com elenco de 12** (`db/09`) e folhas de 12 linhas; **grade do vôlei de 1 a 30**
+  (o set segue em 21 até o chefe responder); atletismo, xadrez, dama e dominó: o juiz traz a súmula
+  pronta e o sistema só lançará o resultado (plano na fatia 11, sem implementar).
 - O banco antigo **`railway`** (18 tabelas do schema antigo, só dados de teste) continua parado e
   intacto no mesmo servidor, como âncora de volta atrás. **Não é o banco do sistema no ar.**
 
@@ -125,7 +131,8 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `jogo_sets`, `suspensoes`, `pontuacao_geral`, `colocacoes_finais`, `ajustes_pontos_geral`,
   `provas_atletismo`, `resultados_atletismo`. 33 chaves estrangeiras, 16 `CHECK`.
 - Ordem dos scripts: `00_apagar_tudo` → `01_schema` → `02_carga_base` → `03_importar_grupos` →
-  `04_locais` → `05_faltas_basquete` → `06_ajustes_regras_provisorios` → `07_baleados_por_equipe`.
+  `04_locais` → `05_faltas_basquete` → `06_ajustes_regras_provisorios` → `07_baleados_por_equipe` →
+  `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado`.
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
 - Scripts **sem `COLLATE`**: usam a padrão do servidor. Produção (`utf8mb4_0900_ai_ci`) é
@@ -157,7 +164,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é `08`),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é `10`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
@@ -243,6 +250,12 @@ de dados.
 10. ✅ **`db/07_baleados_por_equipe.sql` feito em 06/10/2026:** validado no MySQL 9.4.0 (instância local
     da porta 3308, em banco descartável) e aplicado na produção (`jogos_2026`), com dump antes. A coluna
     `sumula_equipes.baleados` já existe lá, então o backend que a lê pode ir ao ar.
+11. **`db/08_baleado_acrescimo_final.sql` e `db/09_elenco_handebol_baleado.sql` (07/10/2026): rodar no
+    `jogos_2026` ANTES do push do backend**, com dump antes. O backend novo grava
+    `jogos.baleou_primeiro_equipe_id` ao lançar qualquer súmula: sem o `08`, toda súmula falha. Os dois
+    são compatíveis com o backend que está no ar (coluna nula e só dados). Aplicados no banco de
+    desenvolvimento em 07/10/2026; **ainda não validados no MySQL 9.4.0** (a instância 3308 estava fora do
+    ar) — validar antes de levar à produção.
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.
