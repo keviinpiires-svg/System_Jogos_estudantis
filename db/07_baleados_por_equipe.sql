@@ -1,7 +1,7 @@
 -- =====================================================================
 -- MIGRAÇÃO 07 — contador de BALEADOS por equipe (súmula do baleado)
 --
--- Motivo: a súmula oficial do baleado (docs/referencias/SUMULA BALEADO.pdf)
+-- Motivo: a súmula oficial do baleado (docs/referencias/SUMULA_BALEADO.pdf)
 -- não conta eliminações por atleta. Cada bloco de equipe tem um contador só,
 -- com as caixas de 1 a 10: as atletas DAQUELA equipe que foram baleadas
 -- (decisão do usuário de 06/10/2026). O placar de uma equipe é o número de

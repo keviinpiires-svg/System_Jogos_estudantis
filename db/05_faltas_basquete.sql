@@ -1,7 +1,7 @@
 -- =====================================================================
 -- MIGRAÇÃO 05 — faltas individuais do basquete
 --
--- Motivo: a súmula de basquete (docs/referencias/sumula_basquete_modelo.pdf)
+-- Motivo: a súmula de basquete (docs/referencias/SUMULA_BASQUETE_MODELO.pdf)
 -- marca, por atleta, as faltas cometidas de 1 a 5 — a 5ª elimina o jogador.
 -- A tabela sumula_atletas não tem onde guardar isso: hoje ela só tem gols,
 -- amarelos e vermelho, que são de futsal/handebol.

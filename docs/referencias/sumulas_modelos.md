@@ -1,6 +1,6 @@
 # Modelos de súmula por modalidade (papel oficial)
 
-Fonte: PDFs `sumula_*_modelo.pdf` nesta pasta (A4 retrato, logos do evento e da prefeitura no topo).
+Fonte: PDFs `SUMULA_*_MODELO.pdf` nesta pasta, e os oficiais de 2026 `SUMULA_<MODALIDADE>.pdf` (baleado, futsal, handebol, voleibol e `SUMULA_DE_BASQUETEBOL.pdf`) (A4 retrato, logos do evento e da prefeitura no topo).
 A folha impressa do sistema deve seguir estes modelos.
 
 > **Decisões do usuário (29/09/2026) — valem sobre o papel:**

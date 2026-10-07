@@ -2,7 +2,7 @@
 // FOLHAS DE SÚMULA — o desenho do papel de cada modalidade, num lugar só.
 //
 // Fonte: docs/referencias/sumulas_modelos.md e os PDFs ao lado
-// (sumula_futsal_modelo.pdf, sumula_basquete_modelo.pdf, sumula_volei_modelo.pdf).
+// (SUMULA_FUTSAL_MODELO.pdf, SUMULA_BASQUETE_MODELO.pdf, SUMULA_VOLEI_MODELO.pdf).
 //
 // O backend usa isto para validar o que a mesa lança (quantas faltas cabem,
 // se a modalidade tem cartão) e manda a mesma descrição para a tela, que
@@ -47,7 +47,7 @@ const FOLHAS = {
   futsal: folhaDoFutsal,
   'futebol-society': folhaDoFutsal,
 
-  // Handebol: folha oficial própria (docs/referencias/SUMULA HANDEBOL.pdf).
+  // Handebol: folha oficial própria (docs/referencias/SUMULA_HANDEBOL.pdf).
   // Cartões em duas caixas, "A" e "V" — um amarelo e um vermelho por atleta —,
   // 10 caixas de gols (contadas no PDF), capitão escrito numa célula só e, no
   // rodapé, tempo técnico 1º T / 2º T e o técnico. Não tem falta individual
@@ -113,7 +113,7 @@ const FOLHAS = {
     gradeDoSet: { ate: 20, porLinha: 5 }
   },
 
-  // Baleado: folha oficial própria (docs/referencias/SUMULA BALEADO.pdf), que
+  // Baleado: folha oficial própria (docs/referencias/SUMULA_BALEADO.pdf), que
   // substitui a provisória de 30/09/2026. Nº | ATLETAS | BALEADOS | CAPITÃO:,
   // e no rodapé só o técnico. Não tem cartões, faltas nem tempo técnico.
   // BALEADOS é um contador DA EQUIPE, não por atleta: as caixas de 1 a 10

@@ -559,7 +559,7 @@ const rodar = async () => {
 };
 
 // ---------------------------------------------------------------------------
-// Folhas oficiais de 2026 (docs/referencias/SUMULA HANDEBOL.pdf e BALEADO.pdf)
+// Folhas oficiais de 2026 (docs/referencias/SUMULA_HANDEBOL.pdf e SUMULA_BALEADO.pdf)
 // ---------------------------------------------------------------------------
 const testarFolhasOficiais = () => {
   secao('-- folhas oficiais de súmula');
