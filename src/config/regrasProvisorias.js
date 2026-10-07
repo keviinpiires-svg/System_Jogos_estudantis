@@ -153,11 +153,11 @@ const REGRAS = {
     provisorio: true,
     decididoEm: '01/10/2026',
 
-    // 4º e 5º lugar pontuam (4 e 2) desde 06/10/2026, mas de forma PROVISÓRIA:
-    // quem é o 4º e o 5º vem de chavesMataMata.quartoEQuinto, que aguarda a
-    // confirmação do chefe (pendência 5). A tela avisa.
+    // DEFINITIVO (07/10/2026) — do 1º ao 5º pontuam (10/8/6/4/2). Quem é o 4º
+    // e o 5º vem de chavesMataMata.quartoEQuinto, confirmado pelo chefe.
+    // posicoesProvisorias fica vazio: a tela só avisa se voltar a ter posição.
     posicoesQuePontuam: [1, 2, 3, 4, 5],
-    posicoesProvisorias: [4, 5],
+    posicoesProvisorias: [],
 
     // DEFINITIVO (06/10/2026) — "modalidade com uma só inscrição não conta
     // pontos nem premia" vale por COMPETIÇÃO (modalidade × categoria × gênero).

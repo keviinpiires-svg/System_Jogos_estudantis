@@ -159,7 +159,7 @@ const confrontosPrevistos = (chave, fase) => {
 };
 
 // ---------------------------------------------------------------------------
-// 4º e 5º lugar — PROVISÓRIO (REGRAS_DA_CHAVE.quartoEQuinto, 06/10/2026)
+// 4º e 5º lugar — REGRAS_DA_CHAVE.quartoEQuinto (06/10/2026, confirmado em 07/10)
 // ---------------------------------------------------------------------------
 // Só existem com semifinal. Não há jogo de 3º lugar (regulamento), então o 4º
 // é sempre o semifinalista que perdeu para o vice. O 5º é a melhor equipe que

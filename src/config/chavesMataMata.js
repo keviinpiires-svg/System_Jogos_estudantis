@@ -78,8 +78,8 @@ const REGRAS_DA_CHAVE = {
       + 'dos dois segundos colocados pela campanha, e vale 6 pontos na tabela geral.'
   },
 
-  // 4º e 5º lugar (4 e 2 pontos na tabela geral) — PROVISÓRIO, aguardando o
-  // chefe confirmar (06/10/2026).
+  // 4º e 5º lugar (4 e 2 pontos na tabela geral) — decididos em 06/10/2026 e
+  // confirmados pelo chefe em 07/10/2026.
   //   4º: o perdedor da disputa de 3º lugar, quando houver. O regulamento diz
   //       que NÃO há jogo de 3º lugar (e o schema não tem essa fase), então
   //       hoje vale sempre o outro caminho: o semifinalista que não foi 3º,
@@ -91,16 +91,17 @@ const REGRAS_DA_CHAVE = {
   //       Empate em todos os critérios: as empatadas DIVIDEM o 5º e cada uma
   //       leva os 2 pontos — nada de sorteio aqui (o sorteio do regulamento
   //       fica para o desempate dentro do grupo).
+  // Confirmado pelo chefe em 07/10/2026: deixa de ser provisório.
   quartoEQuinto: {
-    provisorio: true,
-    decididoEm: '06/10/2026',
+    provisorio: false,
+    decididoEm: '07/10/2026',
     equipesNaCompeticaoParaQuinto: 4,
-    textoDoEmpate: '5º lugar dividido — aguardando confirmação do chefe',
+    textoDoEmpate: '5º lugar dividido',
     descricao:
       '4º é o semifinalista que não ficou em 3º (não há jogo de 3º lugar); 5º é a melhor '
       + 'equipe que não chegou à semifinal, pela campanha da fase de grupos, só quando a '
       + 'competição tem mais de 4 equipes; empatadas em tudo dividem o 5º e levam 2 pontos '
-      + 'cada uma. Regra provisória, aguardando confirmação do chefe.'
+      + 'cada uma.'
   }
 };
 

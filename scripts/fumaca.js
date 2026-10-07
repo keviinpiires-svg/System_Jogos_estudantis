@@ -441,8 +441,8 @@ const rodar = async () => {
   const semiDoVice = jogosSemi.find((j) => j.equipe_1_id === jogoFinal.equipe_2_id);
   const quarto = podio.find((c) => c.posicao === 4);
   conferir(
-    quarto?.equipe_id === semiDoVice?.equipe_2_id && quarto?.provisoria === true,
-    '4º é quem perdeu a semifinal para o vice, marcado como provisório',
+    quarto?.equipe_id === semiDoVice?.equipe_2_id && quarto?.provisoria === false,
+    '4º é quem perdeu a semifinal para o vice, sem marca de provisório (confirmado em 07/10)',
     JSON.stringify(quarto)
   );
   // 5º provisório: com mais de 4 equipes na competição, a melhor campanha
@@ -452,8 +452,8 @@ const rodar = async () => {
   if (equipes.length > 4) {
     conferir(
       quintos.length > 0
-        && quintos.every((q) => !naSemifinal.has(q.equipe_id) && q.provisoria === true),
-      `com ${equipes.length} equipes, o 5º é de quem não chegou à semifinal, provisório`,
+        && quintos.every((q) => !naSemifinal.has(q.equipe_id) && q.provisoria === false),
+      `com ${equipes.length} equipes, o 5º é de quem não chegou à semifinal, sem marca de provisório`,
       JSON.stringify(quintos)
     );
   } else {
@@ -473,7 +473,7 @@ const rodar = async () => {
   }
   if (quintos.length > 1) {
     const texto = REGRAS_DA_CHAVE.quartoEQuinto.textoDoEmpate;
-    console.log(`  (na tela: ${quintos.map((q) => `"5º ${q.escola_nome} — ${q.como} · regra provisória"`).join(' e ')})`);
+    console.log(`  (na tela: ${quintos.map((q) => `"5º ${q.escola_nome} — ${q.como}"`).join(' e ')})`);
     conferir(
       quintos.every((q) => q.dividida === true && q.como.startsWith(texto)),
       `empate em tudo: ${quintos.length} equipes dividem o 5º, com "${texto}"`,
@@ -494,8 +494,8 @@ const rodar = async () => {
     .find((e) => e.escola_nome === escolaDoQuarto)?.origens
     .find((o) => o.competicao_id === competicao.id && o.posicao === 4);
   conferir(
-    origemDoQuarto?.pontos === 4 && origemDoQuarto?.provisoria === true,
-    'o 4º soma 4 pontos na tabela geral, marcados como provisórios',
+    origemDoQuarto?.pontos === 4 && origemDoQuarto?.provisoria === false,
+    'o 4º soma 4 pontos na tabela geral, sem marca de provisório',
     JSON.stringify(origemDoQuarto)
   );
   // Cada escola que divide o 5º soma os 2 pontos inteiros
@@ -504,14 +504,14 @@ const rodar = async () => {
       .find((e) => e.escola_nome === quinto.escola_nome)?.origens
       .find((o) => o.competicao_id === competicao.id && o.posicao === 5);
     conferir(
-      origemDoQuinto?.pontos === 2 && origemDoQuinto?.provisoria === true,
-      `5º (${quinto.escola_nome}) soma 2 pontos na tabela geral, marcados como provisórios`,
+      origemDoQuinto?.pontos === 2 && origemDoQuinto?.provisoria === false,
+      `5º (${quinto.escola_nome}) soma 2 pontos na tabela geral, sem marca de provisório`,
       JSON.stringify(origemDoQuinto)
     );
   }
   conferir(
-    tabela.regras.posicoes_provisorias?.posicoes?.join(',') === '4,5',
-    'a tabela geral avisa que 4º e 5º são provisórios'
+    (tabela.regras.posicoes_provisorias?.posicoes || []).length === 0,
+    'a tabela geral não avisa mais 4º e 5º provisórios'
   );
 
   // colocacoes traz a equipe; a escola vem da lista que o teste já montou
@@ -613,13 +613,13 @@ const testarDesempatePorModalidade = () => {
 };
 
 // ---------------------------------------------------------------------------
-// 5º lugar provisório — só lógica
+// 5º lugar — só lógica
 // ---------------------------------------------------------------------------
 // O passeio já confere o 5º numa competição real. Aqui, duas de mentira,
 // com desempate decidido pelos pontos: uma de 5 equipes (há 5º) e uma de 4
 // (não há).
 const testarQuintoLugar = () => {
-  secao('-- 5º lugar (provisório)');
+  secao('-- 5º lugar');
 
   const equipe = (grupo, posicao, equipe_id, pontos) => ({
     ...equipeDeTeste(grupo, posicao, equipe_id), pontos, saldo: 0, vitorias: 0, marcados: 0,
@@ -650,7 +650,7 @@ const testarQuintoLugar = () => {
   ]);
   const quinto = cinco.find((c) => c.posicao === 5);
   conferir(
-    quinto?.equipe_id === 5 && quinto?.provisoria === true,
+    quinto?.equipe_id === 5 && quinto?.provisoria === false,
     'competição de 5 equipes: o 5º é quem não chegou à semifinal',
     JSON.stringify(quinto)
   );
@@ -669,7 +669,7 @@ const testarQuintoLugar = () => {
   const divididos = seis.filter((c) => c.posicao === 5);
   conferir(
     divididos.map((c) => c.equipe_id).sort().join(',') === '5,6'
-      && divididos.every((c) => c.dividida && c.provisoria
+      && divididos.every((c) => c.dividida && c.provisoria === false
         && c.como.startsWith(REGRAS_DA_CHAVE.quartoEQuinto.textoDoEmpate)),
     'empate em tudo: as duas candidatas aparecem como 5º, com "5º lugar dividido"',
     JSON.stringify(divididos)
