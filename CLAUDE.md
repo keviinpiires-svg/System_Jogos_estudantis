@@ -254,8 +254,9 @@ de dados.
     `jogos_2026` ANTES do push do backend**, com dump antes. O backend novo grava
     `jogos.baleou_primeiro_equipe_id` ao lançar qualquer súmula: sem o `08`, toda súmula falha. Os dois
     são compatíveis com o backend que está no ar (coluna nula e só dados). Aplicados no banco de
-    desenvolvimento em 07/10/2026; **ainda não validados no MySQL 9.4.0** (a instância 3308 estava fora do
-    ar) — validar antes de levar à produção.
+    desenvolvimento e **validados no MySQL 8.0.46 em 07/10/2026** (`01`–`09` em banco descartável: chave
+    estrangeira do `08` recusa equipe de outra competição e inexistente; teto do `09` em 12). Ainda não
+    passaram por um MySQL 9 (a produção é 9.7.2).
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.
