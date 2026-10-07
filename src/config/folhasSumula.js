@@ -108,9 +108,11 @@ const FOLHAS = {
     setsParaVencer: 2,
     maxSets: 3,
     pontosPorSet: 21,
-    // O papel traz a sequência de pontos 1 a 20 por equipe em cada set,
-    // em 4 linhas de 5, com o placar escrito embaixo.
-    gradeDoSet: { ate: 20, porLinha: 5 }
+    // O papel (SUMULA_VOLEIBOL.pdf) traz a sequência de pontos 1 a 20 por
+    // equipe em cada set; o chefe pediu 1 a 30 (07/10/2026), em 6 linhas de 5,
+    // com o placar escrito embaixo. A regra do set (21 com 2 de vantagem)
+    // segue igual até ele responder o tamanho do set.
+    gradeDoSet: { ate: 30, porLinha: 5 }
   },
 
   // Baleado: folha oficial própria (docs/referencias/SUMULA_BALEADO.pdf), que
