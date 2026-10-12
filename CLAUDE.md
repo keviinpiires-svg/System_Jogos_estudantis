@@ -117,6 +117,7 @@ Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mes
 | atletas | `GET /escola/:escola_id`; `POST`, `GET/PUT/DELETE /:id` (ADMIN) |
 | inscricoes | `GET /equipe/:equipe_id`; `POST /`, `DELETE /:id` (ADMIN) |
 | jogos | `GET /`, `GET /:id`; `POST`, `PUT /:id`, `PUT /:id/wo`, `DELETE /:id` (ADMIN); `PUT /:id/iniciar` (mesa) |
+| importacao-jogos | `POST /previa` e `POST /` (ADMIN; corpo `text/csv`): jogos da fase de grupos por CSV, prévia sem gravar e importação idempotente numa transação; modelo em `docs/modelo_importacao_jogos.csv` |
 | sumulas | `GET /:jogo_id`; `POST /` (mesa ou ADMIN) — a súmula é a **única fonte do placar** |
 | classificacao | `GET /competicao/:id` (calculada dos jogos, nunca gravada) |
 | matamata | `GET /competicao/:id`; `POST /competicao/:id/gerar`, `DELETE /competicao/:id/:fase` (ADMIN) |

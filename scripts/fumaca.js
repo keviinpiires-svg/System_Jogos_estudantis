@@ -25,6 +25,7 @@ const { compararEntreGrupos } = require('../src/controllers/classificacaoControl
 const { posicionar } = require('../src/controllers/tabelaGeralController');
 const { colocacoesFinais } = require('../src/controllers/mataMataController');
 const { apurarSets } = require('../src/controllers/sumulaController');
+const { lerData, lerHora } = require('../src/controllers/importacaoJogosController');
 const { chaveDaSemifinal, REGRAS_DA_CHAVE } = require('../src/config/chavesMataMata');
 
 const API = process.env.FUMACA_API || 'http://localhost:3000/api';
@@ -154,6 +155,7 @@ const limpar = async () => {
   await db.query('DELETE FROM atletas WHERE rg LIKE ?', [`${MARCA}%`]);
   await db.query('DELETE FROM ajustes_pontos_geral WHERE motivo LIKE ?', [`${MARCA}%`]);
   await db.query('DELETE FROM usuarios WHERE email = ?', [EMAIL]);
+  await db.query('DELETE FROM escola_apelidos WHERE apelido LIKE ?', [`${MARCA}%`]);
 
   criados.inscricoes = [];
   criados.atletas = [];
@@ -560,6 +562,7 @@ const rodar = async () => {
   testarFolhasOficiais();
   await testarEmpateDoBaleado();
   await testarIdaEVoltaDoBaleado();
+  await testarImportacaoDeJogos();
 };
 
 // ---------------------------------------------------------------------------
@@ -1213,6 +1216,153 @@ const testarConflitoDeLocal = async (competicao, equipes, grupos) => {
       `saiu ${status.join(' e ')} ${respostas.map((r) => r.corpo.erro || '').join(' | ')}`
     );
   }
+};
+
+
+// ---------------------------------------------------------------------------
+// Importação de jogos por CSV — pela API, numa competição livre
+// ---------------------------------------------------------------------------
+// Prévia sem gravar, linhas com erro de fora, avisos que não bloqueiam,
+// numeração por data e hora, e reimportação que não duplica.
+const enviarCsv = async (caminho, csv) => {
+  const resposta = await fetch(`${API}${caminho}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/csv', Authorization: `Bearer ${token}` },
+    body: csv
+  });
+  return { status: resposta.status, corpo: await resposta.json().catch(() => ({})) };
+};
+
+const testarImportacaoDeJogos = async () => {
+  secao('-- importação de jogos por CSV');
+
+  conferir(
+    lerData('31/11/2026', 2026) === undefined && lerData('23/11', 2026) === '2026-11-23'
+      && lerHora('14h') === '14:00' && lerHora('25:00') === undefined,
+    'datas e horas: 31/11 recusado, ano do evento quando falta, 14h e 25:00'
+  );
+
+  const [[comp]] = await db.query(
+    `SELECT c.id, m.nome AS modalidade, cat.nome AS categoria, c.genero, g.nome AS grupo,
+            MIN(e.id) AS qualquer
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+       INNER JOIN grupos g ON g.competicao_id = c.id
+       INNER JOIN equipes e ON e.grupo_id = g.id
+      WHERE c.id <> ? AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
+      GROUP BY c.id, g.id
+     HAVING COUNT(e.id) >= 3
+      ORDER BY c.id DESC LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) throw new Error('Não achei uma competição livre com grupo de 3 equipes para a importação.');
+
+  const [equipes] = await db.query(
+    `SELECT e.id, esc.id AS escola_id, esc.nome FROM equipes e
+       INNER JOIN escolas esc ON esc.id = e.escola_id
+       INNER JOIN grupos g ON g.id = e.grupo_id
+      WHERE e.competicao_id = ? AND g.nome = ? ORDER BY e.id LIMIT 3`,
+    [comp.id, comp.grupo]
+  );
+  const [e1, e2, e3] = equipes;
+  const [locais] = await db.query('SELECT nome FROM locais_disputa ORDER BY id LIMIT 2');
+
+  // Nome ambíguo: dois apelidos que só diferem no ponto servem a escolas diferentes
+  await db.query('INSERT INTO escola_apelidos (escola_id, apelido) VALUES (?, ?), (?, ?)',
+    [e2.escola_id, `${MARCA} AMBIGUA`, e3.escola_id, `${MARCA} AMBIGUA.`]);
+
+  // Escrita torta de propósito: minúsculas, espaços e "SUB-0N"
+  const torto = (nome) => `  ${nome.toLowerCase().replace(/ /g, '  ')} `;
+  const categoria = comp.categoria.replace(/^Sub (\d+)$/, 'SUB-0$1');
+  const genero = { MASCULINO: 'M', FEMININO: 'f', MISTO: 'misto' }[comp.genero];
+  const base = (eq1, eq2, data, hora, local, extra = {}) => [
+    extra.modalidade || comp.modalidade, categoria, genero, extra.grupo || '',
+    eq1, eq2, data, hora, local, extra.rodada || '', extra.arbitro || ''
+  ].join(';');
+
+  const csv = [
+    'Modalidade;Categoria;Gênero;Grupo;Equipe 1;Equipe 2;Data;Hora;Local;Rodada;Árbitro',
+    base(torto(e1.nome), e2.nome, '24/11/2026', '05:13', locais[0].nome, { grupo: `Grupo ${comp.grupo}`, rodada: 1, arbitro: `${MARCA} árbitro` }), // 2
+    base(e1.nome, e3.nome, '23/11/2026', '05:13', locais[0].nome, { modalidade: comp.modalidade.toUpperCase() }), // 3
+    base(e2.nome, e3.nome, '24/11/2026', '05h13', locais[0].nome), // 4: e2 e local no mesmo horário da linha 2
+    base(e2.nome, e1.nome, '24/11/2026', '05:13', locais[0].nome), // 5: repete a linha 2
+    base(e1.nome, e2.nome, '30/11/2026', '05:13', locais[1].nome), // 6: fora do evento, confronto repetido
+    base('ESCOLA QUE NAO EXISTE', e1.nome, '25/11/2026', '05:13', ''), // 7
+    base(`${MARCA} ambígua`, e1.nome, '25/11/2026', '05:13', ''), // 8
+    base(e1.nome, e3.nome, '25/11/2026', '05:13', 'Quadra Inexistente') // 9
+  ].join('\r\n');
+
+  const contarJogos = async () => (await db.query('SELECT COUNT(*) AS n FROM jogos WHERE competicao_id = ?', [comp.id]))[0][0].n;
+  const linha = (resposta, n) => resposta.corpo.linhas.find((l) => l.linha === n);
+  const temAviso = (l, trecho) => l.avisos.some((a) => a.includes(trecho));
+
+  const semToken = await fetch(`${API}/importacao-jogos/previa`, {
+    method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: csv
+  });
+  conferir(semToken.status === 401, 'prévia sem login -> 401', `saiu ${semToken.status}`);
+
+  const previa = await enviarCsv('/importacao-jogos/previa', csv);
+  const r = previa.corpo.resumo || {};
+  conferir(
+    previa.status === 200 && r.novas === 4 && r.duplicadas === 1 && r.erros === 3 && r.existentes === 0,
+    'prévia: 4 novas, 1 duplicada e 3 com erro',
+    `${previa.status} ${previa.corpo.erro || JSON.stringify(r)}`
+  );
+  conferir(await contarJogos() === 0, 'a prévia não grava nada');
+
+  if (previa.status === 200) {
+    conferir(
+      [linha(previa, 3), linha(previa, 2), linha(previa, 4), linha(previa, 6)].map((l) => l.numero_jogo).join(',') === '1,2,3,4',
+      'numeração por data e hora: a linha do dia 23 é o jogo 1, mesmo vindo depois no arquivo'
+    );
+    conferir(
+      linha(previa, 2).equipe_1 === e1.nome && linha(previa, 2).grupo === comp.grupo,
+      'escola reconhecida sem maiúsculas e com espaços sobrando; grupo "Grupo X" aceito'
+    );
+    conferir(
+      temAviso(linha(previa, 4), 'mesmo horário') && temAviso(linha(previa, 4), 'minutos entre os inícios'),
+      'aviso: equipe em dois jogos no mesmo horário e local ocupado'
+    );
+    conferir(
+      temAviso(linha(previa, 6), 'fora do evento') && temAviso(linha(previa, 6), 'Confronto repetido'),
+      'aviso: data fora de 23 a 28/11 e confronto repetido no grupo'
+    );
+    conferir(
+      linha(previa, 7).situacao === 'ERRO' && linha(previa, 7).erros[0].includes('não encontrada')
+        && linha(previa, 8).erros[0].includes('ambíguo')
+        && linha(previa, 9).erros.some((e) => e.includes('não está cadastrado')),
+      'erros: escola desconhecida, nome ambíguo e local fora do cadastro'
+    );
+  }
+
+  const importacao = await enviarCsv('/importacao-jogos', csv);
+  const [gravados] = await db.query(
+    'SELECT id, numero_jogo, data_hora, arbitro_1, rodada FROM jogos WHERE competicao_id = ? ORDER BY numero_jogo',
+    [comp.id]
+  );
+  criados.jogos.push(...gravados.map((j) => j.id));
+  conferir(
+    importacao.status === 201 && gravados.length === 4 && gravados[0].data_hora.startsWith('2026-11-23')
+      && gravados[1].arbitro_1 === `${MARCA} árbitro` && gravados[1].rodada === 1,
+    'importação: grava as 4 novas, numeradas por data, com árbitro e rodada',
+    `${importacao.status} ${importacao.corpo.erro || ''} ${JSON.stringify(gravados)}`
+  );
+
+  const de_novo = await enviarCsv('/importacao-jogos', csv);
+  conferir(
+    // A linha 5, que repetia a 2, agora também casa com o jogo gravado
+    de_novo.status === 200 && de_novo.corpo.resumo.novas === 0 && de_novo.corpo.resumo.existentes === 5
+      && await contarJogos() === 4,
+    'reimportar o mesmo arquivo não duplica: tudo já existe, nada gravado',
+    `${de_novo.status} ${JSON.stringify(de_novo.corpo.resumo)}`
+  );
+
+  const semColuna = await enviarCsv('/importacao-jogos/previa', 'Modalidade;Categoria\r\nFutsal;Sub 8');
+  conferir(
+    semColuna.status === 400 && (semColuna.corpo.erro || '').includes('Faltam colunas'),
+    'cabeçalho sem as colunas -> 400 dizendo quais faltam'
+  );
 };
 
 // ---------------------------------------------------------------------------

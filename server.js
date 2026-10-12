@@ -57,6 +57,7 @@ app.use((req, res, next) => {
 const escolaRoutes = require('./src/routes/escolaRoutes');
 
 const jogoRoutes = require('./src/routes/jogoRoutes');
+const importacaoJogosRoutes = require('./src/routes/importacaoJogosRoutes');
 const sumulaRoutes = require('./src/routes/sumulaRoutes');
 const mataMataRoutes = require('./src/routes/mataMataRoutes');
 const classificacaoRoutes = require('./src/routes/classificacaoRoutes');
@@ -88,6 +89,7 @@ app.use('/api/usuarios', usuarioRoutes);
 
 app.use('/api/escolas', escolaRoutes);
 app.use('/api/jogos', jogoRoutes);
+app.use('/api/importacao-jogos', importacaoJogosRoutes);
 app.use('/api/atletas', atletaRoutes);
 app.use('/api/locais', localRoutes);
 app.use('/api/etapas-ensino', etapaEnsinoRoutes);
