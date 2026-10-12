@@ -707,21 +707,28 @@ const testarIdaEVoltaDoBaleado = async () => {
     criados.jogos.push(jogo.id_jogo);
     return jogo.id_jogo;
   };
-  // 2 a 2 nos dois jogos: a soma empata
-  const sumula = (jogo_id, extra = {}) => chamar('POST', '/sumulas', {
+  // O contador de cada equipe são as adversárias que ELA eliminou (chefe,
+  // 12/10/2026), e o placar dela é o próprio contador. Ida 3 x 1 para a e1,
+  // volta 3 x 1 para a e2: a soma empata em 4 x 4.
+  const sumula = (jogo_id, eliminadasPor1, eliminadasPor2, extra = {}) => chamar('POST', '/sumulas', {
     jogo_id, finalizar: true, ...extra,
     equipes: [
-      { equipe_id: comp.e1, baleados: 2, atletas: [linha(a1)] },
-      { equipe_id: comp.e2, baleados: 2, atletas: [linha(a2)] }
+      { equipe_id: comp.e1, baleados: eliminadasPor1, atletas: [linha(a1)] },
+      { equipe_id: comp.e2, baleados: eliminadasPor2, atletas: [linha(a2)] }
     ]
   });
 
   const ida = await jogoEntre(comp.e1, comp.e2);
-  const rIda = await sumula(ida);
-  conferir(rIda.status === 201, 'ida empatada finaliza (ainda há a volta)', `${rIda.status} ${rIda.corpo.erro || ''}`);
+  const rIda = await sumula(ida, 3, 1);
+  const [[jIda]] = await db.query('SELECT status, placar_1, placar_2, vencedor_equipe_id FROM jogos WHERE id = ?', [ida]);
+  conferir(
+    rIda.status === 201 && jIda.placar_1 === 3 && jIda.placar_2 === 1 && jIda.vencedor_equipe_id === comp.e1,
+    'contador do baleado: o placar da equipe é o próprio contador (3 eliminadas = 3), e vence quem eliminou mais',
+    `${rIda.status} ${rIda.corpo.erro || ''} ${JSON.stringify(jIda)}`
+  );
 
   const volta = await jogoEntre(comp.e2, comp.e1);
-  const rVolta = await sumula(volta, { baleou_primeiro_equipe_id: comp.e1 });
+  const rVolta = await sumula(volta, 1, 3, { baleou_primeiro_equipe_id: comp.e1 });
   conferir(
     rVolta.status === 409,
     'volta com a soma empatada: segue 409 de regra pendente, mesmo informando quem baleou primeiro',

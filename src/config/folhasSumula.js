@@ -119,9 +119,10 @@ const FOLHAS = {
   // substitui a provisória de 30/09/2026. Nº | ATLETAS | BALEADOS | CAPITÃO:,
   // e no rodapé só o técnico. Não tem cartões, faltas nem tempo técnico.
   // BALEADOS é um contador DA EQUIPE, não por atleta: as caixas de 1 a 10
-  // marcam as atletas daquela equipe que foram baleadas (06/10/2026), e o
-  // placar de uma equipe é o número de baleadas da adversária. Fica em
-  // sumula_equipes.baleados (db/07_baleados_por_equipe.sql).
+  // marcam as adversárias que aquela equipe eliminou (chefe, 12/10/2026), e
+  // o placar de uma equipe é o próprio contador. Fica em
+  // sumula_equipes.baleados (db/07_baleados_por_equipe.sql). De 06 a
+  // 12/10/2026 o contador marcava as atletas da própria equipe baleadas.
   baleado: {
     tipo: 'BALEADO',
     titulo: 'SÚMULA DE BALEADO',

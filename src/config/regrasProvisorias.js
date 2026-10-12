@@ -125,13 +125,19 @@ const REGRAS = {
   // atleta) acabou em 06/10/2026: chegou a folha oficial
   // (docs/referencias/SUMULA_BALEADO.pdf), com um contador de BALEADOS por
   // equipe. O desenho dela está em src/config/folhasSumula.js.
+  //
+  // O que o contador conta (chefe, 12/10/2026): no bloco de cada equipe, as
+  // ADVERSÁRIAS que ela eliminou, e o placar da equipe é o próprio contador.
+  // De 06 a 12/10/2026 valeu o contrário (cada bloco marcava as atletas da
+  // própria equipe baleadas, e o placar era o contador da adversária).
   baleado: {
     provisorio: false,
-    decididoEm: CONFIRMADO_EM,
+    decididoEm: '12/10/2026',
     folhaOficial: 'docs/referencias/SUMULA_BALEADO.pdf',
     descricao:
       'O baleado tem folha oficial: Nº, atletas, capitão e um contador de baleados por '
-      + 'equipe, de 1 a 10. O placar de uma equipe é o número de baleadas da adversária.',
+      + 'equipe, de 1 a 10, com as adversárias que a equipe eliminou. O placar de uma equipe '
+      + 'é o próprio contador.',
     aplicadoEm: 'folhasSumula.baleado e sumula_equipes.baleados'
   },
 

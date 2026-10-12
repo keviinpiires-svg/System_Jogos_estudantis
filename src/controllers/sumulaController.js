@@ -227,7 +227,7 @@ const buscarSumulaPorJogo = async (req, res) => {
         faltas_2t: rodape?.faltas_2t ?? 0,
         tempo_tecnico_1t: Boolean(rodape?.tempo_tecnico_1t),
         tempo_tecnico_2t: Boolean(rodape?.tempo_tecnico_2t),
-        // Baleado: atletas DESTA equipe que foram baleadas (db/07)
+        // Baleado: adversárias que ESTA equipe eliminou (db/07; chefe, 12/10/2026)
         baleados: Number(rodape?.baleados ?? 0),
         gols: atletas.reduce((total, atleta) => total + Number(atleta.gols), 0),
         atletas: atletas.map((atleta) => ({
@@ -399,7 +399,7 @@ const registrarSumula = async (req, res) => {
         });
       }
 
-      // Baleado: o contador de baleadas é da equipe, de 0 a 10 (caixas do
+      // Baleado: o contador de eliminadas é da equipe, de 0 a 10 (caixas do
       // papel). Nas outras folhas o campo não existe.
       const baleados = inteiroNaoNegativo(equipe.baleados ?? 0);
       if (baleados === null || baleados > (folha.baleadosPorEquipe || 0)) {
@@ -567,9 +567,10 @@ const registrarSumula = async (req, res) => {
       }
     }
 
-    // No vôlei o placar do jogo são os sets vencidos; no baleado, as baleadas
-    // da ADVERSÁRIA (cada bloco conta as atletas da própria equipe que foram
-    // baleadas); nas outras, a soma da coluna do atleta (gols ou pontos).
+    // No vôlei o placar do jogo são os sets vencidos; no baleado, o contador
+    // da PRÓPRIA equipe (cada bloco conta as adversárias que aquela equipe
+    // eliminou — chefe, 12/10/2026); nas outras, a soma da coluna do atleta
+    // (gols ou pontos).
     const baleadosDe = (equipe_id) => inteiroNaoNegativo(
       equipesEnviadas.find((e) => Number(e.equipe_id) === equipe_id)?.baleados ?? 0
     ) ?? 0;
@@ -580,8 +581,8 @@ const registrarSumula = async (req, res) => {
       placar_1 = apuracao.vencidos.um;
       placar_2 = apuracao.vencidos.dois;
     } else if (folha.baleadosPorEquipe) {
-      placar_1 = baleadosDe(jogo.equipe_2_id);
-      placar_2 = baleadosDe(jogo.equipe_1_id);
+      placar_1 = baleadosDe(jogo.equipe_1_id);
+      placar_2 = baleadosDe(jogo.equipe_2_id);
     }
 
     const prorrogacao = booleano(req.body.prorrogacao);
