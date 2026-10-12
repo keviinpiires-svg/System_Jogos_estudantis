@@ -75,21 +75,23 @@ const REGRAS = {
       volei: { sequencia: [], nomeCobranca: null },
       // Baleado: o regulamento diz quem vence (quem balear todos ou, acabado o
       // tempo, quem eliminou mais), mas não o que fazer se as eliminações
-      // empatarem. PENDENTE com a organização.
-      // Baleado (chefe, 07/10/2026): empate na fase de grupos vale (1 ponto a
-      // cada) e não chega aqui. Na FINAL há acréscimo de 4 minutos e vence quem
-      // balear primeiro (jogos.baleou_primeiro_equipe_id, db/08). Na semifinal
-      // e no ida e volta empatado o chefe não respondeu: segue PENDENTE.
+      // empatarem. Empate na fase de grupos vale (1 ponto a cada) e não chega
+      // aqui. Na FINAL (chefe, 07/10/2026) e na SEMIFINAL (chefe, 12/10/2026)
+      // há acréscimo de 4 minutos e vence quem balear primeiro
+      // (jogos.baleou_primeiro_equipe_id, db/08). No ida e volta com a soma
+      // empatada o chefe não respondeu: segue PENDENTE (409).
       baleado: {
         sequencia: [],
         nomeCobranca: null,
         pendente: true,
         motivo: 'o regulamento do baleado diz que vence quem balear todos os adversários ou, '
-          + 'acabado o tempo, quem eliminou mais, e o chefe só definiu o empate na final',
-        final: {
+          + 'acabado o tempo, quem eliminou mais, e o chefe só definiu o empate na semifinal e na final',
+        acrescimo: {
+          fases: ['SEMIFINAL', 'FINAL'],
           minutosDeAcrescimo: 4,
-          decididoEm: '07/10/2026',
-          descricao: 'Na final, empate vai para um acréscimo de 4 minutos: vence quem balear primeiro.'
+          decididoEm: '12/10/2026',
+          descricao: 'Na semifinal e na final, empate vai para um acréscimo de 4 minutos: '
+            + 'vence quem balear primeiro.'
         }
       }
     },

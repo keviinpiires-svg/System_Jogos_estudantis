@@ -589,7 +589,7 @@ const registrarSumula = async (req, res) => {
     let vencedor_equipe_id = null;
     let penaltis_1 = null;
     let penaltis_2 = null;
-    // Final do baleado empatada: a equipe que baleou primeiro no acréscimo
+    // Semifinal ou final do baleado empatada: quem baleou primeiro no acréscimo
     let baleouPrimeiro = null;
 
     if (finalizar) {
@@ -616,19 +616,24 @@ const registrarSumula = async (req, res) => {
           ? 'Os dois jogos terminaram com a soma empatada'
           : 'Empate no mata-mata';
 
-        // Final do baleado (07/10/2026): acréscimo de 4 minutos, vence quem
-        // balear primeiro. A mesa informa quem foi; o placar fica empatado.
-        // Fora dela, modalidade em que o regulamento não diz como desempatar
+        // Semifinal e final do baleado (07 e 12/10/2026): acréscimo de 4
+        // minutos, vence quem balear primeiro. A mesa informa quem foi; o
+        // placar fica empatado. Fora delas (o ida e volta com a soma
+        // empatada), modalidade em que o regulamento não diz como desempatar
         // não tem cobrança genérica: a súmula pode ser salva sem finalizar, e
         // o jogo espera a organização decidir.
-        if (desempate.pendente && desempate.final && jogo.fase === 'FINAL' && !somaEmpatada) {
+        const comAcrescimo = desempate.pendente && desempate.acrescimo && !somaEmpatada
+          && desempate.acrescimo.fases.includes(jogo.fase);
+
+        if (comAcrescimo) {
           const primeiro = Number(req.body.baleou_primeiro_equipe_id);
 
           if (![jogo.equipe_1_id, jogo.equipe_2_id].includes(primeiro)) {
             await conexao.rollback();
+            const fase = jogo.fase === 'FINAL' ? 'final' : 'semifinal';
             return res.status(400).json({
-              erro: `Empate na final de ${jogo.modalidade_nome}: houve acréscimo de `
-                + `${desempate.final.minutosDeAcrescimo} minutos. Informe a equipe que baleou primeiro nele.`
+              erro: `Empate na ${fase} de ${jogo.modalidade_nome}: houve acréscimo de `
+                + `${desempate.acrescimo.minutosDeAcrescimo} minutos. Informe a equipe que baleou primeiro nele.`
             });
           }
 
@@ -643,8 +648,8 @@ const registrarSumula = async (req, res) => {
           });
         }
 
-        // Prorrogação e cobranças: só para quem ainda não tem vencedor (a final
-        // do baleado já saiu do acréscimo, acima)
+        // Prorrogação e cobranças: só para quem ainda não tem vencedor (a
+        // semifinal e a final do baleado já saíram do acréscimo, acima)
         if (baleouPrimeiro === null) {
           if (exigeProrrogacao && !prorrogacao) {
             await conexao.rollback();
