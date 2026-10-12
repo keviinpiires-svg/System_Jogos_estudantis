@@ -210,8 +210,9 @@ const REGRAS = {
       decididoEm: CONFIRMADO_EM
     },
 
-    // Atletismo fica de fora: não há competição cadastrada nem regra de
-    // lançamento do resultado (pendência 3).
+    // Competição de modalidade individual não pontua pela chave: não há
+    // nenhuma cadastrada. Atletismo, xadrez, dama e dominó entram na soma
+    // pelos pontos lançados pela mesa (pontosLancados, abaixo).
     incluiAtletismo: false,
 
     descricao:
@@ -222,57 +223,67 @@ const REGRAS = {
   },
 
   // --------------------------------------------------------------------
-  // 7. Atletismo (pendência 3) — NADA DISTO ESTÁ IMPLEMENTADO
+  // 7. Pontos lançados: atletismo, xadrez, dama e dominó (12/10/2026)
   // --------------------------------------------------------------------
-  // O regulamento diz quem corre o quê (Sub 8/9: 50 m; Sub 11 a 17: 100 m e
-  // salto; 1 atleta por escola, categoria, gênero e prova; salto com 2
-  // tentativas, vale a melhor), mas não diz como o resultado é lançado nem
-  // se pontua na tabela geral. Hoje não há nenhuma competição de atletismo
-  // cadastrada — as 50 da tabela de grupos são todas coletivas.
+  // O chefe definiu (12/10/2026) que essas quatro modalidades funcionam FORA
+  // do sistema: sem súmula e sem cálculo de colocação. O juiz entrega a
+  // folha, e a mesa (perfil PLACAR) ou o ADMIN digita os pontos de cada
+  // escola, por modalidade × categoria × gênero, na tela /pontos-lancados.
+  // Os pontos somam na Tabela Geral. (Substitui os padrões de 01/10/2026,
+  // em que o ADMIN digitava a marca de cada atleta e xadrez, dama e dominó
+  // ficavam de fora.)
   //
-  // Padrões escolhidos em 01/10/2026 para a fatia do atletismo poder começar
-  // sem travar à espera do chefe. Mudar aqui é o bastante.
-  atletismo: {
+  // Os números abaixo são PADRÃO ADOTADO em 12/10/2026, SEM confirmação do
+  // chefe: trocar aqui quando chegar a folha do juiz.
+  pontosLancados: {
     provisorio: true,
-    decididoEm: '01/10/2026',
+    decididoEm: '12/10/2026',
 
-    // Uma competição por categoria × gênero, com as provas DENTRO dela — e não
-    // uma competição por prova, que multiplicaria por três a lista do menu.
-    competicaoPor: 'CATEGORIA_E_GENERO',
+    // Abas da tela, nesta ordem (modalidades.slug; Xadrez, Dama e Dominó
+    // vêm do db/11)
+    modalidades: ['atletismo', 'xadrez', 'dama', 'domino'],
 
-    // O ADMIN digita a marca de cada atleta (segundos na corrida, metros no
-    // salto) e o sistema ordena: tempo, menor vence; distância, maior vence.
-    lancamento: 'ADMIN_DIGITA_A_MARCA',
+    // As mesmas categorias e gêneros nas quatro modalidades (categorias.nome).
+    // A mesa usa as que existirem.
+    categorias: ['Sub 8', 'Sub 9', 'Sub 11', 'Sub 13', 'Sub 15', 'Sub 17', 'Aberto'],
+    generos: ['MASCULINO', 'FEMININO'],
 
-    // As duas tentativas do salto ficam guardadas (o schema já tem as colunas);
-    // a que vale é a melhor.
-    guardaAsDuasTentativas: true,
+    // Combinação que não existe sai da tela: [slug, categoria, gênero].
+    // Gênero null tira os dois. Ex.: ['xadrez', 'Sub 8', null].
+    ocultas: [],
 
-    // Fora da tabela geral enquanto o chefe não disser como pontua.
-    // Espelha tabelaGeral.incluiAtletismo.
-    pontuaNaTabelaGeral: false,
+    // Pontos esperados por escola em cada lançamento. Passar disso NÃO
+    // bloqueia: a linha fica destacada e a mesa confirma antes de salvar.
+    // Atletismo: Sub 8 e Sub 9 têm uma prova (50 m); da Sub 11 em diante,
+    // duas (salto e 100 m). O Aberto do atletismo segue o padrão de duas
+    // provas, por suposição nossa.
+    esperado: {
+      atletismo: { 'Sub 8': 10, 'Sub 9': 10, padrao: 20 },
+      xadrez: { padrao: 10 },
+      dama: { padrao: 10 },
+      domino: { padrao: 10 }
+    },
+
+    // Teto absoluto, contra erro de digitação: acima disso a API recusa (o
+    // banco também: CHECK em pontos_lancados.pontos)
+    tetoAbsoluto: 99,
+
+    // Desempate da soma geral (mais 1ºs, 2ºs e 3ºs): essas modalidades ficam
+    // de fora e só somam pontos. A colocação, quando digitada, é só
+    // informação.
+    contaNoDesempate: false,
 
     descricao:
-      'Atletismo: uma competição por categoria e gênero, com as provas dentro; o ADMIN digita '
-      + 'a marca e o sistema ordena; as duas tentativas do salto ficam guardadas, valendo a '
-      + 'melhor; e o atletismo ainda não pontua na tabela geral.',
-    aplicadoEm: 'ainda não implementado — é a parte que falta da fatia 8'
+      'Atletismo, xadrez, dama e dominó: a mesa digita os pontos de cada escola por categoria '
+      + 'e gênero, conforme a folha do juiz. Os pontos somam na tabela geral, mas não entram no '
+      + 'desempate por 1º, 2º e 3º lugares. Pontos esperados por escola: 10 no atletismo Sub 8 e '
+      + 'Sub 9, 20 nas demais categorias do atletismo e 10 no xadrez, na dama e no dominó.',
+    aplicadoEm: 'pontosLancadosController e tabelaGeralController'
   },
 
   // --------------------------------------------------------------------
-  // 8. Modalidades fora e técnicos (pendências 3 e 14)
+  // 8. Técnicos (pendência 14)
   // --------------------------------------------------------------------
-  modalidadesForaDoSistema: {
-    provisorio: true,
-    decididoEm: '01/10/2026',
-    // O regulamento cita Xadrez, Dama e Dominó; a tabela de grupos não traz
-    // nenhuma competição delas.
-    fora: ['Xadrez', 'Dama', 'Dominó'],
-    descricao:
-      'Xadrez, Dama e Dominó ficam fora do sistema enquanto o chefe não confirmar que entram.',
-    aplicadoEm: 'nada a implementar: não há competição dessas modalidades cadastrada'
-  },
-
   tecnicos: {
     provisorio: true,
     decididoEm: '01/10/2026',

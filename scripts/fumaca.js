@@ -31,6 +31,7 @@ const { chaveDaSemifinal, REGRAS_DA_CHAVE } = require('../src/config/chavesMataM
 const API = process.env.FUMACA_API || 'http://localhost:3000/api';
 const MARCA = 'FUMACA';
 const EMAIL = 'fumaca@local';
+const EMAIL_MESA = 'fumaca-mesa@local';
 const SENHA = 'fumaca-senha-longa';
 
 // Jogos e competição que o dono do projeto usa para testar à mão. Mesmo que a
@@ -154,7 +155,13 @@ const limpar = async () => {
   );
   await db.query('DELETE FROM atletas WHERE rg LIKE ?', [`${MARCA}%`]);
   await db.query('DELETE FROM ajustes_pontos_geral WHERE motivo LIKE ?', [`${MARCA}%`]);
-  await db.query('DELETE FROM usuarios WHERE email = ?', [EMAIL]);
+  await db.query(
+    `DELETE p FROM pontos_lancados p
+       INNER JOIN usuarios u ON u.id = p.criado_por OR u.id = p.alterado_por
+      WHERE u.email IN (?)`,
+    [[EMAIL, EMAIL_MESA]]
+  );
+  await db.query('DELETE FROM usuarios WHERE email IN (?)', [[EMAIL, EMAIL_MESA]]);
   await db.query('DELETE FROM escola_apelidos WHERE apelido LIKE ?', [`${MARCA}%`]);
 
   criados.inscricoes = [];
@@ -563,6 +570,7 @@ const rodar = async () => {
   await testarEmpateDoBaleado();
   await testarIdaEVoltaDoBaleado();
   await testarImportacaoDeJogos();
+  await testarPontosLancados();
 };
 
 // ---------------------------------------------------------------------------
@@ -1363,6 +1371,113 @@ const testarImportacaoDeJogos = async () => {
     semColuna.status === 400 && (semColuna.corpo.erro || '').includes('Faltam colunas'),
     'cabeçalho sem as colunas -> 400 dizendo quais faltam'
   );
+};
+
+
+// ---------------------------------------------------------------------------
+// Pontos lançados (atletismo, xadrez, dama e dominó) — pela API
+// ---------------------------------------------------------------------------
+// A mesa lança e edita; só o ADMIN apaga; acima do esperado pede confirmação;
+// teto de 99; quem salva com a grade velha leva 409; e o rastro de quem
+// digitou e de quem alterou.
+const comToken = async (tok, metodo, caminho, corpo) => {
+  const resposta = await fetch(`${API}${caminho}`, {
+    method: metodo,
+    headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+    ...(corpo ? { body: JSON.stringify(corpo) } : {})
+  });
+  return { status: resposta.status, corpo: await resposta.json().catch(() => ({})) };
+};
+
+const testarPontosLancados = async () => {
+  secao('-- pontos lançados (atletismo, xadrez, dama e dominó)');
+
+  await db.query('INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, ?)',
+    [`Mesa (${MARCA})`, EMAIL_MESA, bcrypt.hashSync(SENHA, 10), 'PLACAR']);
+  const mesa = (await exigir('POST', '/login', { email: EMAIL_MESA, senha: SENHA }, 'login da mesa')).token;
+
+  const publica = await comToken(null, 'GET', '/pontos-lancados');
+  const abas = (publica.corpo.configuracao?.modalidades || []).map((m) => m.slug).join(',');
+  conferir(publica.status === 200 && abas === 'atletismo,xadrez,dama,domino',
+    'leitura pública, com as quatro abas na ordem', `${publica.status} ${abas}`);
+
+  // Uma categoria e gênero da dama ainda sem lançamento nenhum
+  const dama = publica.corpo.configuracao.modalidades.find((m) => m.slug === 'dama');
+  const ocupadas = new Set(publica.corpo.lancamentos
+    .filter((l) => l.modalidade === 'dama').map((l) => `${l.categoria_id}|${l.genero}`));
+  const alvo = dama.combinacoes.find((c) => !ocupadas.has(`${c.categoria_id}|${c.genero}`));
+  if (!alvo) throw new Error('Não achei categoria livre na dama para o teste.');
+  const [e1, e2, e3] = publica.corpo.escolas;
+
+  const recorte = { modalidade: 'dama', categoria_id: alvo.categoria_id, genero: alvo.genero };
+  const lerRecorte = async () => (await db.query(
+    `SELECT p.escola_id, p.pontos, p.colocacao, uc.email AS criado_por, ua.email AS alterado_por,
+            p.alterado_em
+       FROM pontos_lancados p
+       INNER JOIN modalidades m ON m.id = p.modalidade_id
+       INNER JOIN usuarios uc ON uc.id = p.criado_por
+       LEFT JOIN usuarios ua ON ua.id = p.alterado_por
+      WHERE m.slug = 'dama' AND p.categoria_id = ? AND p.genero = ? ORDER BY p.escola_id`,
+    [alvo.categoria_id, alvo.genero]
+  ))[0];
+  const salvar = (tok, linhas, base, extra = {}) => comToken(tok, 'PUT', '/pontos-lancados',
+    { ...recorte, linhas, base, ...extra });
+
+  const semLogin = await salvar(null, [{ escola_id: e1.id, pontos: 8 }], []);
+  conferir(semLogin.status === 401, 'lançar sem login -> 401', `saiu ${semLogin.status}`);
+
+  const primeiro = await salvar(mesa, [
+    { escola_id: e1.id, pontos: 8, colocacao: 1 },
+    { escola_id: e2.id, pontos: 6 },
+    { escola_id: e3.id, pontos: null }
+  ], []);
+  let linhas = await lerRecorte();
+  conferir(
+    primeiro.status === 200 && linhas.length === 2 && linhas.every((l) => l.criado_por === EMAIL_MESA && !l.alterado_por)
+      && primeiro.corpo.resumo?.texto.endsWith('2 escolas, total 14 pontos'),
+    'a mesa lança: 2 escolas (a em branco fica de fora), com o resumo e quem digitou',
+    `${primeiro.status} ${primeiro.corpo.erro || primeiro.corpo.resumo?.texto} ${JSON.stringify(linhas)}`
+  );
+  const base = linhas.map(({ escola_id, pontos, colocacao }) => ({ escola_id, pontos, colocacao }));
+
+  const teto = await salvar(mesa, [{ escola_id: e3.id, pontos: 100 }], base);
+  conferir(teto.status === 400, 'acima do teto de 99 -> 400', `saiu ${teto.status}`);
+
+  const acima = await salvar(mesa, [{ escola_id: e3.id, pontos: alvo.esperado + 2 }], base);
+  conferir(
+    acima.status === 422 && acima.corpo.acima_do_esperado?.includes(e3.id),
+    `acima dos ${alvo.esperado} esperados sem confirmar -> 422 com a escola`,
+    `saiu ${acima.status} ${acima.corpo.erro || ''}`
+  );
+  const confirmado = await salvar(mesa, [{ escola_id: e3.id, pontos: alvo.esperado + 2 }], base, { confirmado: true });
+  conferir(confirmado.status === 200 && (await lerRecorte()).length === 3,
+    'confirmado, o valor acima do esperado é salvo', `${confirmado.status} ${confirmado.corpo.erro || ''}`);
+
+  const velha = await salvar(mesa, [{ escola_id: e1.id, pontos: 9 }], base);
+  conferir(velha.status === 409, 'salvar com a grade velha (outra pessoa salvou no meio) -> 409',
+    `saiu ${velha.status} ${velha.corpo.erro || ''}`);
+
+  linhas = await lerRecorte();
+  const baseAtual = linhas.map(({ escola_id, pontos, colocacao }) => ({ escola_id, pontos, colocacao }));
+  const edicao = await salvar(token, [{ escola_id: e1.id, pontos: 9, colocacao: 1 }], baseAtual);
+  const editada = (await lerRecorte()).find((l) => l.escola_id === e1.id);
+  conferir(
+    edicao.status === 200 && editada.pontos === 9 && editada.criado_por === EMAIL_MESA
+      && editada.alterado_por === EMAIL && editada.alterado_em,
+    'correção no lugar: guarda quem digitou (mesa) e quem alterou por último (ADMIN)',
+    `${edicao.status} ${edicao.corpo.erro || ''} ${JSON.stringify(editada)}`
+  );
+
+  const invalida = await comToken(mesa, 'PUT', '/pontos-lancados',
+    { modalidade: 'futsal', categoria_id: alvo.categoria_id, genero: alvo.genero, linhas: [], base: [] });
+  conferir(invalida.status === 400, 'modalidade fora das quatro -> 400', `saiu ${invalida.status}`);
+
+  const caminho = `/pontos-lancados/dama/${alvo.categoria_id}/${alvo.genero}`;
+  const apagaMesa = await comToken(mesa, 'DELETE', caminho);
+  conferir(apagaMesa.status === 403, 'a mesa não apaga o lançamento inteiro -> 403', `saiu ${apagaMesa.status}`);
+  const apagaAdmin = await comToken(token, 'DELETE', caminho);
+  conferir(apagaAdmin.status === 200 && (await lerRecorte()).length === 0,
+    'o ADMIN apaga o lançamento inteiro', `${apagaAdmin.status} ${apagaAdmin.corpo.erro || ''}`);
 };
 
 // ---------------------------------------------------------------------------

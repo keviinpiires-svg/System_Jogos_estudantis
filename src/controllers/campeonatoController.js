@@ -15,6 +15,7 @@ const TABELAS_EM_ORDEM = [
   'suspensoes',
   'colocacoes_finais',
   'ajustes_pontos_geral',
+  'pontos_lancados',
   'resultados_atletismo',
   'jogos'
 ];
