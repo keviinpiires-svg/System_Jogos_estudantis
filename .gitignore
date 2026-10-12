@@ -1,2 +1,4 @@
 node_modules/
 .env
+# Súmulas geradas para conferir contra o papel oficial (não versionadas)
+docs/referencias/conferencia/
