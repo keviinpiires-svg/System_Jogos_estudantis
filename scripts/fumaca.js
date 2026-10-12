@@ -24,6 +24,7 @@ const { folhaDaModalidade } = require('../src/config/folhasSumula');
 const { compararEntreGrupos } = require('../src/controllers/classificacaoController');
 const { posicionar } = require('../src/controllers/tabelaGeralController');
 const { colocacoesFinais } = require('../src/controllers/mataMataController');
+const { apurarSets } = require('../src/controllers/sumulaController');
 const { chaveDaSemifinal, REGRAS_DA_CHAVE } = require('../src/config/chavesMataMata');
 
 const API = process.env.FUMACA_API || 'http://localhost:3000/api';
@@ -552,6 +553,7 @@ const rodar = async () => {
 
   testarRegrasDoChefe();
   testarSemifinalDeTresGrupos();
+  testarSetsDoVolei();
   await testarTerceiroSemSemifinal();
   testarQuintoLugar();
   testarDesempatePorModalidade();
@@ -734,6 +736,30 @@ const testarIdaEVoltaDoBaleado = async () => {
     'volta com a soma empatada: segue 409 de regra pendente, mesmo informando quem baleou primeiro',
     `${rVolta.status} ${rVolta.corpo.erro || ''}`
   );
+};
+
+// ---------------------------------------------------------------------------
+// Sets do vôlei (chefe, 12/10/2026) — só lógica
+// ---------------------------------------------------------------------------
+// Três sets de 21, o 3º inclusive, com 2 de vantagem e sem teto.
+const testarSetsDoVolei = () => {
+  secao('-- sets do vôlei');
+
+  const volei = folhaDaModalidade('volei', 'Vôlei');
+  const jogo = (...placares) => placares.map(([pontos_1, pontos_2], i) => ({ numero_set: i + 1, pontos_1, pontos_2 }));
+
+  const tresSets = apurarSets(jogo([21, 15], [18, 21], [21, 19]), volei, true);
+  conferir(
+    !tresSets.erro && tresSets.vencidos.um === 2 && tresSets.vencidos.dois === 1,
+    '3º set de 21 x 19 fecha o jogo em 2 x 1',
+    tresSets.erro
+  );
+  const setCurto = apurarSets(jogo([21, 15], [18, 21], [15, 13]), volei, true);
+  conferir(Boolean(setCurto.erro), '3º set de 15 x 13 não fecha: o 3º set também é de 21', setCurto.erro || 'aceito');
+  const semTeto = apurarSets(jogo([21, 15], [18, 21], [27, 25]), volei, true);
+  conferir(!semTeto.erro && semTeto.vencidos.um === 2, '3º set sem teto: 27 x 25 fecha', semTeto.erro);
+  const semVantagem = apurarSets(jogo([21, 15], [18, 21], [21, 20]), volei, true);
+  conferir(Boolean(semVantagem.erro), '3º set de 21 x 20 não fecha: precisa de 2 de vantagem', semVantagem.erro || 'aceito');
 };
 
 // ---------------------------------------------------------------------------

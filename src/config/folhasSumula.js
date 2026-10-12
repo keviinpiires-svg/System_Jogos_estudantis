@@ -105,13 +105,15 @@ const FOLHAS = {
     linhas: LINHAS,
     linhasMaximas: LINHAS,
     // Regulamento: melhor de 3, set de 21 pontos, vencendo por 2 de vantagem.
+    // O 3º set (o desempate, com 1 x 1) também é de 21, sem set curto de 15
+    // (chefe, 12/10/2026): pontosPorSet vale para os três sets. Não há teto:
+    // empatado em 20 x 20, o set segue até alguém abrir 2 de vantagem.
     setsParaVencer: 2,
     maxSets: 3,
     pontosPorSet: 21,
     // O papel (SUMULA_VOLEIBOL.pdf) traz a sequência de pontos 1 a 20 por
     // equipe em cada set; o chefe pediu 1 a 30 (07/10/2026), em 6 linhas de 5,
-    // com o placar escrito embaixo. A regra do set (21 com 2 de vantagem)
-    // segue igual até ele responder o tamanho do set.
+    // com o placar escrito embaixo.
     gradeDoSet: { ate: 30, porLinha: 5 }
   },
 

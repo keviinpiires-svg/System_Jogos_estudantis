@@ -46,8 +46,9 @@ const lerSets = async (conexao, jogo_id, folha) => {
 };
 
 // Um set está fechado quando alguém chega aos 21 com 2 pontos de vantagem
-// (regulamento: melhor de 3, set de 21). Abaixo disso o set está em andamento,
-// que é o que a mesa salva enquanto o jogo corre.
+// (regulamento: melhor de 3, set de 21). Vale igual para os três sets — o 3º
+// também é de 21 (chefe, 12/10/2026) —, e sem teto. Abaixo disso o set está
+// em andamento, que é o que a mesa salva enquanto o jogo corre.
 const setFechado = (set, folha) => {
   const maior = Math.max(set.pontos_1, set.pontos_2);
   const menor = Math.min(set.pontos_1, set.pontos_2);
@@ -712,5 +713,7 @@ const registrarSumula = async (req, res) => {
 
 module.exports = {
   buscarSumulaPorJogo,
-  registrarSumula
+  registrarSumula,
+  // Exportada para o teste de fumaça conferir a regra do set
+  apurarSets
 };
