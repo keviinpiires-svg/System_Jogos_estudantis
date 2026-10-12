@@ -17,7 +17,7 @@ grupos, modelos de súmula).
 
 ---
 
-## Estado atual (atualizado em 05/10/2026)
+## Estado atual (atualizado em 12/10/2026)
 
 - **A produção JÁ RODA O SISTEMA NOVO desde a noite de 01/10/2026** (virada entre ~20:59 e 21:50).
   Render publica a branch **`feat/novo-escopo`** (deploy `eaa50b6`, "Fatia 10d"), a Vercel também
@@ -31,9 +31,9 @@ grupos, modelos de súmula).
   sobra** 🔄 (falta técnicos/dirigentes, se entrarem); **11 — atletismo** 📝 só planejada (padrões
   provisórios e dúvidas em aberto no contexto, nada implementado). A fatia 10 foi executada com
   desvios do roteiro (ver "Histórico") e ainda tem pendências de produção (seção abaixo).
-- **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): a resposta
-  do chefe de 06/10/2026 às regras provisórias (abaixo). O conflito de local, o `FormAgendaJogo` e o
-  local na chave do mata-mata já foram publicados em 05/10/2026.
+- **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): as respostas
+  do chefe de 12/10/2026 (abaixo), nos dois repositórios. As de 06 e 07/10 já foram publicadas
+  (backend `63964e4`; frontend até `70385ca`).
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
@@ -42,9 +42,8 @@ grupos, modelos de súmula).
   normais, com aviso quando os jogos diferem. Numa segunda resposta, no mesmo dia: a **semifinal
   com 3 grupos** tem confrontos fixos (1ºA × melhor 2º, 1ºB × 1ºC) e o **3º lugar sem semifinal**
   (melhor 2º pela campanha) vale 6 pontos, ambos definitivos. Não há cobrança genérica de
-  desempate em modalidade nenhuma. **Seguem PENDENTES (07/10/2026):** o empate do baleado na
-  semifinal e no ida e volta (a súmula avisa e não finaliza), o tamanho do set do vôlei, o que o
-  contador de baleados conta (hoje, a própria equipe), as dúvidas de atletismo/xadrez/dama/dominó
+  desempate em modalidade nenhuma. **Seguem PENDENTES (12/10/2026):** o empate do baleado no ida e
+  volta com a soma empatada (a súmula avisa e não finaliza), as dúvidas de atletismo/xadrez/dama/dominó
   (fatia 11) e o número de contas de mesa.
 - **Respostas do chefe de 07/10/2026** (seção 12.1 do contexto, linhas 6, 12, 19, 21, 22 e 23):
   4º e 5º lugar e a revanche na semifinal viraram **definitivos** (sem aviso); a soma geral desempata por
@@ -54,6 +53,13 @@ grupos, modelos de súmula).
   **handebol e baleado com elenco de 12** (`db/09`) e folhas de 12 linhas; **grade do vôlei de 1 a 30**
   (o set segue em 21 até o chefe responder); atletismo, xadrez, dama e dominó: o juiz traz a súmula
   pronta e o sistema só lançará o resultado (plano na fatia 11, sem implementar).
+- **Respostas do chefe de 12/10/2026** (seção 12.1 do contexto, linhas 20, 22 e 23): a **semifinal do
+  baleado** empatada tem o mesmo acréscimo de 4 min da final (o 409 saiu; segue só no ida e volta, que
+  não está no regulamento: vem da tabela de grupos, Baleado Feminino Sub 08); o **contador de
+  baleados** de cada equipe passa a contar as **adversárias que ela eliminou**, e o placar é o próprio
+  contador (súmula de baleado gravada antes, se houver, guarda o sentido antigo; nada foi migrado);
+  **vôlei**: 3 sets de 21, **o 3º inclusive**, com 2 de vantagem e sem teto (o código já fazia assim).
+  Nenhum script de banco.
 - O banco antigo **`railway`** (18 tabelas do schema antigo, só dados de teste) continua parado e
   intacto no mesmo servidor, como âncora de volta atrás. **Não é o banco do sistema no ar.**
 
@@ -251,7 +257,8 @@ de dados.
     da porta 3308, em banco descartável) e aplicado na produção (`jogos_2026`), com dump antes. A coluna
     `sumula_equipes.baleados` já existe lá, então o backend que a lê pode ir ao ar.
 11. **`db/08_baleado_acrescimo_final.sql` e `db/09_elenco_handebol_baleado.sql` (07/10/2026): rodar no
-    `jogos_2026` ANTES do push do backend**, com dump antes. O backend novo grava
+    `jogos_2026` ANTES do push do backend** (o backend de 07/10 já foi publicado em `63964e4`:
+    **confirmar** que os dois rodaram lá), com dump antes. O backend novo grava
     `jogos.baleou_primeiro_equipe_id` ao lançar qualquer súmula: sem o `08`, toda súmula falha. Os dois
     são compatíveis com o backend que está no ar (coluna nula e só dados). Aplicados no banco de
     desenvolvimento e **validados no MySQL 8.0.46 em 07/10/2026** (`01`–`09` em banco descartável: chave
