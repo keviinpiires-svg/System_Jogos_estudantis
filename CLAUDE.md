@@ -44,7 +44,8 @@ grupos, modelos de súmula).
   (melhor 2º pela campanha) vale 6 pontos, ambos definitivos. Não há cobrança genérica de
   desempate em modalidade nenhuma. **Seguem PENDENTES (12/10/2026):** o empate do baleado no ida e
   volta com a soma empatada (a súmula avisa e não finaliza), as dúvidas de atletismo/xadrez/dama/dominó
-  (fatia 11) e o número de contas de mesa.
+  (fatia 11). **Contas de mesa (chefe, 12/10/2026): uma por local de jogo** (5 locais com o `db/10`);
+  hoje a conta PLACAR não é ligada a local nenhum e vê e lança qualquer jogo.
 - **Respostas do chefe de 07/10/2026** (seção 12.1 do contexto, linhas 6, 12, 19, 21, 22 e 23):
   4º e 5º lugar e a revanche na semifinal viraram **definitivos** (sem aviso); a soma geral desempata por
   **mais 1ºs, depois 2ºs e 3ºs** (empate em tudo divide a posição: extensão provisória); **baleado**:
@@ -138,7 +139,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `provas_atletismo`, `resultados_atletismo`. 33 chaves estrangeiras, 16 `CHECK`.
 - Ordem dos scripts: `00_apagar_tudo` → `01_schema` → `02_carga_base` → `03_importar_grupos` →
   `04_locais` → `05_faltas_basquete` → `06_ajustes_regras_provisorios` → `07_baleados_por_equipe` →
-  `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado`.
+  `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja`.
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
 - Scripts **sem `COLLATE`**: usam a padrão do servidor. Produção (`utf8mb4_0900_ai_ci`) é
@@ -170,7 +171,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é `10`),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é `11`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
@@ -264,6 +265,8 @@ de dados.
     desenvolvimento e **validados no MySQL 8.0.46 em 07/10/2026** (`01`–`09` em banco descartável: chave
     estrangeira do `08` recusa equipe de outra competição e inexistente; teto do `09` em 12). Ainda não
     passaram por um MySQL 9 (a produção é 9.7.2).
+12. **`db/10_locais_cebc_ceja.sql` (12/10/2026): rodar no `jogos_2026`**, com dump antes. Só dados e
+    idempotente (lá a Quadra do CEJA já existe: entra só a do CEBC). Validado no MySQL 8.0.46.
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.
