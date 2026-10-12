@@ -571,6 +571,7 @@ const rodar = async () => {
   await testarIdaEVoltaDoBaleado();
   await testarImportacaoDeJogos();
   await testarPontosLancados();
+  await testarPontosLancadosNaTabelaGeral();
 };
 
 // ---------------------------------------------------------------------------
@@ -1478,6 +1479,46 @@ const testarPontosLancados = async () => {
   const apagaAdmin = await comToken(token, 'DELETE', caminho);
   conferir(apagaAdmin.status === 200 && (await lerRecorte()).length === 0,
     'o ADMIN apaga o lançamento inteiro', `${apagaAdmin.status} ${apagaAdmin.corpo.erro || ''}`);
+};
+
+
+// Os pontos lançados somam na Tabela Geral, mas não desempatam: a colocação
+// digitada é só informação (regrasProvisorias.pontosLancados.contaNoDesempate)
+const testarPontosLancadosNaTabelaGeral = async () => {
+  secao('-- pontos lançados na tabela geral');
+
+  const leitura = await exigir('GET', '/pontos-lancados?modalidade=xadrez', null, 'ler o xadrez');
+  const xadrez = leitura.configuracao.modalidades.find((m) => m.slug === 'xadrez');
+  const ocupadas = new Set(leitura.lancamentos.map((l) => `${l.categoria_id}|${l.genero}`));
+  const alvo = xadrez.combinacoes.find((c) => !ocupadas.has(`${c.categoria_id}|${c.genero}`));
+  if (!alvo) throw new Error('Não achei categoria livre no xadrez para o teste.');
+  const escola = leitura.escolas[0];
+
+  const daEscola = (tabela) => tabela.geral.find((e) => e.escola_id === escola.id)
+    || { pontos: 0, primeiros: 0, origens: [] };
+  const antes = daEscola(await exigir('GET', '/tabela-geral', null, 'a tabela geral antes'));
+
+  await exigir('PUT', '/pontos-lancados', {
+    modalidade: 'xadrez', categoria_id: alvo.categoria_id, genero: alvo.genero,
+    linhas: [{ escola_id: escola.id, pontos: 7, colocacao: 1 }], base: []
+  }, 'lançar pontos do xadrez');
+
+  const tabela = await exigir('GET', '/tabela-geral', null, 'a tabela geral com o xadrez');
+  const depois = daEscola(tabela);
+  const origem = depois.origens.find((o) => o.lancado && o.modalidade_nome === 'Xadrez');
+  conferir(
+    depois.pontos === antes.pontos + 7 && origem?.pontos === 7 && origem?.colocacao === 1,
+    'os 7 pontos lançados no xadrez somam para a escola, e a abertura mostra de onde vieram',
+    `antes ${antes.pontos}, depois ${depois.pontos}, origem ${JSON.stringify(origem)}`
+  );
+  conferir(
+    depois.primeiros === antes.primeiros && tabela.regras.pontos_lancados?.conta_no_desempate === false,
+    'a colocação digitada (1º) não conta como 1º lugar no desempate'
+  );
+
+  await exigir('DELETE', `/pontos-lancados/xadrez/${alvo.categoria_id}/${alvo.genero}`, null, 'apagar o xadrez');
+  const final = daEscola(await exigir('GET', '/tabela-geral', null, 'a tabela geral sem o xadrez'));
+  conferir(final.pontos === antes.pontos, 'apagado o lançamento, a soma volta ao que era');
 };
 
 // ---------------------------------------------------------------------------

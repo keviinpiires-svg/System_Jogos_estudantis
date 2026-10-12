@@ -15,6 +15,11 @@ const { REGRAS_DA_CHAVE } = require('../config/chavesMataMata');
 // Desde 06/10/2026 há só a soma geral: a divisão em três blocos (anos
 // iniciais, anos finais e ensino médio) saiu por decisão do chefe.
 //
+// Duas coisas entram GRAVADAS, porque não saem de jogo nenhum: as punições
+// (ajustes_pontos_geral) e, desde 12/10/2026, os pontos que a mesa lança
+// para atletismo, xadrez, dama e dominó (pontos_lancados), que funcionam
+// fora do sistema.
+//
 // As decisões que o regulamento não fecha (posições que pontuam, mínimo de
 // equipes, empate na soma, punição) estão em src/config/regrasProvisorias.js,
 // chave `tabelaGeral`, e não aqui.
@@ -166,6 +171,40 @@ const tabelaGeral = async (req, res) => {
       });
     }
 
+    // Pontos lançados pela mesa (atletismo, xadrez, dama e dominó, que
+    // funcionam fora do sistema): somam, mas não entram no desempate por 1º,
+    // 2º e 3º lugares (regrasProvisorias.pontosLancados.contaNoDesempate).
+    // A colocação, quando digitada, vai junto só como informação.
+    const [lancados] = await db.query(
+      `SELECT p.escola_id, esc.nome AS escola_nome, p.pontos, p.colocacao, p.genero,
+              m.nome AS modalidade_nome, cat.nome AS categoria_nome
+         FROM pontos_lancados p
+         INNER JOIN escolas esc ON esc.id = p.escola_id
+         INNER JOIN modalidades m ON m.id = p.modalidade_id
+         INNER JOIN categorias cat ON cat.id = p.categoria_id
+        ORDER BY m.ordem, cat.ordem, p.genero`
+    );
+
+    for (const lancado of lancados) {
+      const linha = somar(geral, lancado.escola_id, lancado.escola_nome);
+      linha.pontos += lancado.pontos;
+      linha.lancados = (linha.lancados || 0) + lancado.pontos;
+      linha.origens.push({
+        lancado: true,
+        modalidade_nome: lancado.modalidade_nome,
+        categoria_nome: lancado.categoria_nome,
+        genero: lancado.genero,
+        colocacao: lancado.colocacao,
+        pontos: lancado.pontos
+      });
+
+      if (REGRAS.pontosLancados.contaNoDesempate) {
+        if (lancado.colocacao === 1) linha.primeiros += 1;
+        if (lancado.colocacao === 2) linha.segundos += 1;
+        if (lancado.colocacao === 3) linha.terceiros += 1;
+      }
+    }
+
     // Punições da Comissão: descontam da soma geral da escola
     const [ajustes] = await db.query(
       `SELECT a.id, a.escola_id, a.pontos, a.motivo, a.criado_em,
@@ -211,6 +250,13 @@ const tabelaGeral = async (req, res) => {
           .filter((posicao) => !REGRA.posicoesQuePontuam.includes(posicao))
           .sort((a, b) => a - b),
         // 4º e 5º entram, mas pela regra provisória (pendência 5): a tela avisa
+        // Atletismo, xadrez, dama e dominó: a tela explica de onde vêm
+        pontos_lancados: {
+          conta_no_desempate: REGRAS.pontosLancados.contaNoDesempate,
+          provisoria: REGRAS.pontosLancados.provisorio,
+          decidido_em: REGRAS.pontosLancados.decididoEm,
+          descricao: REGRAS.pontosLancados.descricao
+        },
         posicoes_provisorias: {
           posicoes: REGRA.posicoesProvisorias,
           descricao: REGRAS_DA_CHAVE.quartoEQuinto.descricao,
