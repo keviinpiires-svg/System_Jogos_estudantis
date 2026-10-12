@@ -28,8 +28,8 @@ grupos, modelos de súmula).
   confirmar nos painéis se o auto-deploy está ligado e, na dúvida, assuma que está). Não dê push sem
   o usuário pedir e sem testar antes no banco de dev.
 - Fatias (numeração oficial na seção 9 do contexto): 1–7, 9 e 10 ✅; **8 — tabela geral e o que
-  sobra** 🔄 (falta técnicos/dirigentes, se entrarem); **11 — atletismo** 📝 só planejada (padrões
-  provisórios e dúvidas em aberto no contexto, nada implementado). A fatia 10 foi executada com
+  sobra** 🔄 (falta técnicos/dirigentes, se entrarem); **11 — atletismo, xadrez, dama e dominó**
+  ✅ (12/10/2026: a mesa lança os pontos na tela `/pontos-lancados`; números provisórios, seção 12.1, item 24). A fatia 10 foi executada com
   desvios do roteiro (ver "Histórico") e ainda tem pendências de produção (seção abaixo).
 - **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): as respostas
   do chefe de 12/10/2026 (abaixo), nos dois repositórios. As de 06 e 07/10 já foram publicadas
@@ -61,6 +61,11 @@ grupos, modelos de súmula).
   contador (súmula de baleado gravada antes, se houver, guarda o sentido antigo; nada foi migrado);
   **vôlei**: 3 sets de 21, **o 3º inclusive**, com 2 de vantagem e sem teto (o código já fazia assim).
   Nenhum script de banco.
+- **Pontos lançados (12/10/2026, fatia 11):** atletismo, xadrez, dama e dominó funcionam fora do sistema;
+  a mesa (ou o ADMIN) digita os pontos de cada escola por categoria e gênero em `/pontos-lancados`, e eles
+  somam na Tabela Geral sem entrar no desempate. Pontos esperados (10 ou 20), teto de 99, categorias e
+  combinações ocultas em `regrasProvisorias.pontosLancados`: **padrão adotado sem confirmação do chefe**.
+  Precisa do `db/11` na produção **antes** do backend que o lê.
 - O banco antigo **`railway`** (18 tabelas do schema antigo, só dados de teste) continua parado e
   intacto no mesmo servidor, como âncora de volta atrás. **Não é o banco do sistema no ar.**
 
@@ -125,6 +130,7 @@ Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mes
 | artilharia | `GET /lideres`, `GET /competicao/:id` |
 | tabela-geral | `GET /` (calculada) |
 | ajustes-pontos | `GET /`; `POST /`, `DELETE /:id` (ADMIN; punição de −5 a −10 com motivo) |
+| pontos-lancados | `GET /` (público); `PUT /` (ADMIN ou mesa: grade de pontos de atletismo, xadrez, dama e dominó por categoria e gênero); `DELETE /:modalidade/:categoria_id/:genero` (ADMIN) |
 | locais / etapas-ensino / dashboard | `GET /` |
 | campeonato | `DELETE /reset` (ADMIN; apaga só o que o evento produz) |
 | `/saude` | fora de `/api`; 200 com banco de pé, **503** sem banco |
@@ -133,14 +139,14 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 
 ## Banco de dados
 
-- **23 tabelas** do schema novo (`db/01_schema.sql`): `configuracao_evento`, `usuarios`, `etapas_ensino`,
+- **24 tabelas**: as 23 do schema novo (`db/01_schema.sql`) e `pontos_lancados` (`db/11`). As 23: `configuracao_evento`, `usuarios`, `etapas_ensino`,
   `escolas`, `escola_apelidos`, `modalidades`, `categorias`, `competicoes`, `grupos`, `equipes`,
   `atletas`, `inscricoes_atletas`, `locais_disputa`, `jogos`, `sumula_atletas`, `sumula_equipes`,
   `jogo_sets`, `suspensoes`, `pontuacao_geral`, `colocacoes_finais`, `ajustes_pontos_geral`,
   `provas_atletismo`, `resultados_atletismo`. 33 chaves estrangeiras, 16 `CHECK`.
 - Ordem dos scripts: `00_apagar_tudo` → `01_schema` → `02_carga_base` → `03_importar_grupos` →
   `04_locais` → `05_faltas_basquete` → `06_ajustes_regras_provisorios` → `07_baleados_por_equipe` →
-  `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja`.
+  `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja` → `11_pontos_lancados`.
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
 - Scripts **sem `COLLATE`**: usam a padrão do servidor. Produção (`utf8mb4_0900_ai_ci`) é
@@ -172,7 +178,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é `11`),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é `12`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
@@ -268,6 +274,9 @@ de dados.
     passaram por um MySQL 9 (a produção é 9.7.2).
 12. **`db/10_locais_cebc_ceja.sql` (12/10/2026): rodar no `jogos_2026`**, com dump antes. Só dados e
     idempotente (lá a Quadra do CEJA já existe: entra só a do CEBC). Validado no MySQL 8.0.46.
+13. **`db/11_pontos_lancados.sql` (12/10/2026): rodar no `jogos_2026` ANTES do push do backend**, com dump
+    antes. Sem a tabela, a Tabela Geral (pública) responde 500. Idempotente e só acrescenta; validado no
+    MySQL 8.0.46 (`01`–`11` em banco descartável). O reset do campeonato passa a apagar os pontos lançados.
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.
