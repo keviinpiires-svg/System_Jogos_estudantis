@@ -135,9 +135,9 @@ Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mes
 | usuarios | `GET/POST /`, `PUT /:id`, `PUT /:id/senha` — tudo ADMIN (não se apaga: desativa) |
 | escolas | `GET /`; `POST /`, `PUT /:id` (ADMIN) |
 | modalidades / competicoes | `GET /modalidades`; `GET /competicoes`, `GET /competicoes/:id` |
-| equipes | `GET /`, `GET /:id/atletas-elegiveis` |
-| atletas | `GET /escola/:escola_id`; `POST`, `GET/PUT/DELETE /:id` (ADMIN) |
-| inscricoes | `GET /equipe/:equipe_id`; `POST /`, `DELETE /:id` (ADMIN) |
+| equipes | `GET /`; `GET /:id/atletas-elegiveis` (ADMIN — traz sexo e ano de nascimento) |
+| atletas | `GET /escola/:escola_id` (pública: anônimo recebe só id, nome e escola; o ADMIN também sexo e nascimento); `POST`, `GET/PUT/DELETE /:id` (ADMIN) |
+| inscricoes | `GET /equipe/:equipe_id` (pública: anônimo recebe só camisa e nome; o ADMIN também sexo e ano); `POST /`, `DELETE /:id` (ADMIN) |
 | jogos | `GET /`, `GET /:id`; `POST`, `PUT /:id`, `PUT /:id/wo`, `DELETE /:id` (ADMIN); `PUT /:id/iniciar` (mesa) |
 | importacao-jogos | `POST /previa` e `POST /` (ADMIN; corpo `text/csv`): jogos da fase de grupos por CSV, prévia sem gravar e importação idempotente numa transação; modelo em `docs/modelo_importacao_jogos.csv` |
 | sumulas | `GET /:jogo_id`; `POST /` (mesa ou ADMIN) — a súmula é a **única fonte do placar** |
@@ -182,6 +182,12 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - `npm run fumaca` — com a API no ar, monta uma competição inteira pelas rotas, confere cada passo e
   apaga o que criou. **Só roda em banco com "dev" no nome** (a trava lê o alvo real, inclusive
   `DATABASE_URL`). **Rode antes de dar uma fatia por pronta.** Não há testes de unidade.
+  **Desde 20/10/2026 ele roda num banco próprio**, porque o `jogos_estudantis_dev` tem a tabela de jogos
+  importada e o teste precisa de competições sem jogos:
+  `npm run fumaca:banco` (recria o `jogos_fumaca_dev` com `db/01`–`db/14`; só apaga banco com "fumaca"
+  e "dev" no nome) → `PORT=3001 DB_NAME=jogos_fumaca_dev npm start` (API de teste, sem derrubar a 3000) →
+  `DB_NAME=jogos_fumaca_dev FUMACA_API=http://localhost:3001/api npm run fumaca`. O `DB_NAME` no ambiente
+  vence o do `.env`, que usa `DB_*`.
 
 ## Variáveis de ambiente (ver `.env.example`)
 
