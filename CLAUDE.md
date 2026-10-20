@@ -50,7 +50,8 @@ grupos, modelos de súmula).
   desempate em modalidade nenhuma. **Seguem PENDENTES:** as dúvidas de atletismo/xadrez/dama/dominó
   (fatia 11). O empate do baleado no ida e volta foi resolvido em 20/10/2026 (abaixo). **Contas de mesa (chefe, 12/10/2026): uma por local de jogo** (8 locais com o `db/12`);
   hoje a conta PLACAR não é ligada a local nenhum e vê e lança qualquer jogo. A trava de mesa por local
-  será o **`db/15`** (o `db/13` é o da Conveniada e o `db/14`, o das equipes pela tabela do chefe).
+  será o **`db/16`** (o `db/13` é o da Conveniada, o `db/14` o das equipes pela tabela do chefe e o `db/15` o
+  do número da tabela do chefe).
 - **Respostas do chefe de 07/10/2026** (seção 12.1 do contexto, linhas 6, 12, 19, 21, 22 e 23):
   4º e 5º lugar e a revanche na semifinal viraram **definitivos** (sem aviso); a soma geral desempata por
   **mais 1ºs, depois 2ºs e 3ºs** (empate em tudo divide a posição: extensão provisória); **baleado**:
@@ -139,7 +140,7 @@ Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mes
 | atletas | `GET /escola/:escola_id` (pública: anônimo recebe só id, nome e escola; o ADMIN também sexo e nascimento); `POST`, `GET/PUT/DELETE /:id` (ADMIN) |
 | inscricoes | `GET /equipe/:equipe_id` (pública: anônimo recebe só camisa e nome; o ADMIN também sexo e ano); `POST /`, `DELETE /:id` (ADMIN) |
 | jogos | `GET /`, `GET /:id`; `POST`, `PUT /:id`, `PUT /:id/wo`, `DELETE /:id` (ADMIN); `PUT /:id/iniciar` (mesa) |
-| importacao-jogos | `POST /previa` e `POST /` (ADMIN; corpo `text/csv`): jogos da fase de grupos por CSV, prévia sem gravar e importação idempotente numa transação; modelo em `docs/modelo_importacao_jogos.csv` |
+| importacao-jogos | `POST /previa` e `POST /` (ADMIN; corpo `text/csv`): jogos da fase de grupos por CSV, prévia sem gravar e importação idempotente numa transação; modelo em `docs/modelo_importacao_jogos.csv`. Coluna **opcional "Nº Tabela"** (número do jogo na tabela do chefe, `db/15`): célula vazia aceita, número repetido no arquivo ou já usado no banco é erro, e reimportar só preenche o número de jogo que já existe e está sem — sem mudar mais nada nem trocar número gravado |
 | sumulas | `GET /:jogo_id`; `POST /` (mesa ou ADMIN) — a súmula é a **única fonte do placar** |
 | classificacao | `GET /competicao/:id` (calculada dos jogos, nunca gravada) |
 | matamata | `GET /competicao/:id`; `POST /competicao/:id/gerar`, `DELETE /competicao/:id/:fase` (ADMIN) |
@@ -166,7 +167,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `04_locais` → `05_faltas_basquete` → `06_ajustes_regras_provisorios` → `07_baleados_por_equipe` →
   `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja` → `11_pontos_lancados` →
   `12_locais_adelieta_ceti` → `13_escola_conveniada` →
-  `14_tabela_do_chefe_equipes`.
+  `14_tabela_do_chefe_equipes` → `15_numero_tabela`.
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
 - Scripts **sem `COLLATE`**: usam a padrão do servidor. Produção (`utf8mb4_0900_ai_ci`) é
@@ -204,7 +205,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `15`, a trava de mesa por local),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `16`, a trava de mesa por local),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
@@ -315,8 +316,13 @@ de dados.
 16. **`db/13_escola_conveniada.sql` (20/10/2026): rodar no `jogos_2026` ANTES de importar a tabela de
     jogos do chefe**, com dump antes. Renomeia a escola COVENIADA para "Conveniada" e guarda o nome antigo
     como apelido; o id não muda. Idempotente. Aplicado no dev; validado no MySQL 8.0.46 em 20/10/2026.
-    **Ordem na produção:** `12`, `13` e `14`, depois a prévia (o esperado é zero erros) e só então a
+    **Ordem na produção:** `12`, `13`, `14` e `15`, depois a prévia (o esperado é zero erros) e só então a
     importação.
+17. **`db/15_numero_tabela.sql` (20/10/2026): rodar no `jogos_2026` ANTES do push do backend**, com dump antes.
+    O backend novo lê `jogos.numero_tabela` na agenda e na importação: sem o `15`, a `/api/agenda` e a
+    importação respondem 500. Roda uma vez (de novo dá erro 3822 sem mudar nada). Validado no MySQL 8.0.46
+    em 20/10/2026 (`00`–`11`, limpeza, `12`–`15` em banco descartável) e aplicado no dev, onde a reimportação
+    do CSV com a coluna "Nº Tabela" preencheu 206 dos 207 jogos (um veio em branco de propósito).
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.

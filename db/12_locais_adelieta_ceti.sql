@@ -18,8 +18,9 @@
 -- e o backend no ar não precisa mudar para ler os locais novos.
 --
 -- A trava de mesa por local (cada conta PLACAR presa ao seu local), que
--- estava planejada para este número, passa a ser o 15 (o 13 é o da escola
--- Conveniada e o 14, o das equipes pela tabela do chefe).
+-- estava planejada para este número, passa a ser o 16 (o 13 é o da escola
+-- Conveniada, o 14 o das equipes pela tabela do chefe e o 15 o do número da
+-- tabela do chefe).
 -- =====================================================================
 
 SET NAMES utf8mb4;
