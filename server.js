@@ -78,6 +78,7 @@ const tabelaGeralRoutes = require('./src/routes/tabelaGeralRoutes');
 const ajusteRoutes = require('./src/routes/ajusteRoutes');
 const pontosLancadosRoutes = require('./src/routes/pontosLancadosRoutes');
 const saudeRoutes = require('./src/routes/saudeRoutes');
+const agendaRoutes = require('./src/routes/agendaRoutes');
 
 app.use('/api/sumulas', sumulaRoutes);
 app.use('/api/matamata', mataMataRoutes);
@@ -90,6 +91,7 @@ app.use('/api/usuarios', usuarioRoutes);
 
 app.use('/api/escolas', escolaRoutes);
 app.use('/api/jogos', jogoRoutes);
+app.use('/api/agenda', agendaRoutes);
 app.use('/api/importacao-jogos', importacaoJogosRoutes);
 app.use('/api/atletas', atletaRoutes);
 app.use('/api/locais', localRoutes);

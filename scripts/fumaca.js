@@ -571,6 +571,7 @@ const rodar = async () => {
   await testarMelhorDeDoisJogos('futsal');
   await testarMelhorDeDoisJogos('baleado');
   await testarJogoUnico();
+  await testarAgenda();
   await testarImportacaoDeJogos();
   await testarPontosLancados();
   await testarPontosLancadosNaTabelaGeral();
@@ -850,6 +851,70 @@ const testarJogoUnico = async () => {
     'jogo único empatado: "O jogo terminou empatado", prorrogação e 7 metros, e "campeão nas cobranças"',
     `${semProrrogacao.status} ${semProrrogacao.corpo.erro || ''} | ${comCobranca.status} ${comCobranca.corpo.erro || ''} | ${JSON.stringify(campeao2)}`
   );
+};
+
+// Agenda de jogos (pública, 20/10/2026): a lista e o detalhe trazem só os
+// campos da tela; os atletas só com nome e camisa — nunca RG nem nascimento.
+const testarAgenda = async () => {
+  secao('-- agenda de jogos (pública)');
+
+  const [[comp]] = await db.query(
+    `SELECT c.id, c.genero, cat.idade_maxima, e1.id AS e1, e2.id AS e2, e1.escola_id AS esc1
+       FROM competicoes c
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN equipes e1 ON e1.competicao_id = c.id
+       INNER JOIN equipes e2 ON e2.competicao_id = c.id AND e2.grupo_id = e1.grupo_id AND e2.id > e1.id
+      WHERE m.tipo = 'COLETIVO' AND c.turno = 'UNICO' AND c.id <> ?
+        AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
+        AND NOT EXISTS (SELECT 1 FROM inscricoes_atletas i WHERE i.equipe_id IN (e1.id, e2.id))
+      ORDER BY c.id DESC LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) throw new Error('Não achei uma competição livre para o teste da agenda.');
+  const [[local]] = await db.query('SELECT id, nome FROM locais_disputa ORDER BY id LIMIT 1');
+  const [[{ ano }]] = await db.query('SELECT ano FROM configuracao_evento WHERE id = 1');
+
+  const atleta = await exigir('POST', '/atletas', {
+    nome: `${MARCA} AGENDA`, rg: `${MARCA}AGENDA`, sexo: comp.genero === 'FEMININO' ? 'F' : 'M',
+    data_nascimento: `${comp.idade_maxima ? ano - comp.idade_maxima : ano - 20}-03-15`, escola_id: comp.esc1
+  }, 'cadastrar atleta da agenda');
+  criados.atletas.push(atleta.id_atleta);
+  await exigir('POST', '/inscricoes', { equipe_id: comp.e1, atleta_id: atleta.id_atleta, numero_camisa: 10 }, 'inscrever na agenda');
+  const jogo = await exigir('POST', '/jogos', {
+    competicao_id: comp.id, equipe_1_id: comp.e1, equipe_2_id: comp.e2, fase: 'GRUPOS',
+    data_hora: '2026-11-25T05:41', local_id: local.id
+  }, 'agendar jogo da agenda');
+  criados.jogos.push(jogo.id_jogo);
+
+  // Sem token: as duas rotas são públicas
+  const lista = await fetch(`${API}/agenda`);
+  const corpoLista = await lista.text();
+  const doJogo = lista.ok ? JSON.parse(corpoLista).find((j) => j.id === jogo.id_jogo) : null;
+  conferir(
+    lista.status === 200 && doJogo?.data === '2026-11-25' && doJogo?.hora === '05:41'
+      && doJogo?.local?.nome === local.nome && doJogo?.status === 'AGENDADO' && doJogo?.placar === null,
+    'GET /agenda sem login: o jogo com dia e hora de parede, local e status, sem placar antes de encerrar',
+    `${lista.status} ${JSON.stringify(doJogo)}`
+  );
+
+  const detalhe = await fetch(`${API}/agenda/jogos/${jogo.id_jogo}`);
+  const corpoDetalhe = await detalhe.text();
+  const d = detalhe.ok ? JSON.parse(corpoDetalhe) : {};
+  conferir(
+    detalhe.status === 200 && d.equipe_1?.atletas?.length === 1
+      && JSON.stringify(d.equipe_1.atletas[0]) === JSON.stringify({ nome: `${MARCA} AGENDA`, numero_camisa: 10 })
+      && Array.isArray(d.equipe_2?.atletas) && d.equipe_2.atletas.length === 0,
+    'GET /agenda/jogos/:id sem login: atletas só com nome e camisa; equipe sem inscritos vem vazia',
+    `${detalhe.status} ${JSON.stringify(d.equipe_1)} ${JSON.stringify(d.equipe_2)}`
+  );
+  conferir(
+    ![corpoLista, corpoDetalhe].some((c) => /"rg"|nascimento|"sexo"|arbitro|observac/i.test(c))
+      && !corpoDetalhe.includes(`${MARCA}AGENDA"`),
+    'resposta pública sem RG, nascimento, sexo, árbitros nem observações'
+  );
+  const inexistente = await fetch(`${API}/agenda/jogos/999999999`);
+  conferir(inexistente.status === 404, 'detalhe de jogo inexistente -> 404', `saiu ${inexistente.status}`);
 };
 
 // ---------------------------------------------------------------------------
