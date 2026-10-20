@@ -29,14 +29,16 @@ grupos, modelos de súmula).
   o usuário pedir e sem testar antes no banco de dev.
 - Fatias (numeração oficial na seção 9 do contexto): 1–7, 9 e 10 ✅; **8 — tabela geral e o que
   sobra** 🔄 (falta técnicos/dirigentes, se entrarem); **11 — atletismo, xadrez, dama e dominó**
-  ✅ (12/10/2026: a mesa lança os pontos na tela `/pontos-lancados`; números provisórios, seção 12.1, item 24). A fatia 10 foi executada com
+  ✅ (12/10/2026: a mesa lança os pontos na tela `/pontos-lancados`; números provisórios, seção 12.1, item 24). **12 — agenda de jogos** ✅ (20/10/2026: `/agenda` pública). A fatia 10 foi executada com
   desvios do roteiro (ver "Histórico") e ainda tem pendências de produção (seção abaixo).
 - **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): o trabalho de
-  20/10/2026 (tabela oficial de jogos e "melhor de dois jogos"), nos dois repositórios. As respostas
-  de 12/10 já foram publicadas (backend até `b86a2c9`; frontend até `8d1388a`). **Ordem do push:**
-  `db/12` na produção antes de importar; **frontend e backend juntos, frontend primeiro**: o backend
-  novo tira o `pendente` do baleado, e a tela antiga só mostrava o acréscimo da semifinal e da final
-  com ele; a tela nova funciona com o backend antigo.
+  20/10/2026 (tabela oficial de jogos, "melhor de dois jogos" e a Agenda de Jogos), nos dois
+  repositórios. As respostas de 12/10 já foram publicadas (backend até `b86a2c9`; frontend até
+  `8d1388a`). **Ordem do push: backend primeiro, frontend logo em seguida** — a tela `/agenda` chama
+  `GET /api/agenda`, que só existe no backend novo. (No intervalo, a tela antiga não mostra o
+  acréscimo do baleado na semifinal e na final, porque o backend novo tirou o `pendente` dele; antes
+  de 23/11 não há súmula real sendo lançada, então não morde.) Os scripts `12`, `13` e `14` rodam na
+  produção antes de importar a tabela.
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
@@ -144,6 +146,7 @@ Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mes
 | suspensoes | `GET /competicao/:id`, `GET /jogo/:id` (calculadas das súmulas) |
 | artilharia | `GET /lideres`, `GET /competicao/:id` |
 | tabela-geral | `GET /` (calculada) |
+| agenda | `GET /` e `GET /jogos/:id` — **públicas**, só leitura (tela `/agenda`): a lista inteira numa consulta só (dia, local, hora, competição, fase, escolas, status e placar se encerrado) e o detalhe com os atletas das duas equipes **só com nome e camisa** (nada de RG, nascimento ou sexo: são menores) |
 | ajustes-pontos | `GET /`; `POST /`, `DELETE /:id` (ADMIN; punição de −5 a −10 com motivo) |
 | pontos-lancados | `GET /` (público); `PUT /` (ADMIN ou mesa: grade de pontos de atletismo, xadrez, dama e dominó por categoria e gênero); `DELETE /:modalidade/:categoria_id/:genero` (ADMIN) |
 | locais / etapas-ensino / dashboard | `GET /` |
