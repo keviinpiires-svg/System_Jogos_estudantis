@@ -25,11 +25,12 @@
 --   * Se o DBeaver estiver em modo "manual commit", confirme no fim.
 --
 -- As tabelas não levam prefixo de banco: valem para o banco ATIVO, que a
--- trava confere. Pré-validado em 20/10/2026 no MariaDB 10.4 do desenvolvimento,
--- num banco descartável com dados de teste em todas as tabelas (01 a 11, como
--- a produção hoje): contadores voltam a 1, as 39 chaves estrangeiras seguem de
--- pé e recusando, e o 12, o 13 e o 14 rodam limpos depois. FALTA a validação
--- no MySQL 8.0.46 (a instância 3307 estava fora do ar).
+-- trava confere. Validado em 20/10/2026 no MySQL 8.0.46 (e antes no MariaDB
+-- 10.4 do desenvolvimento), em banco descartável com dados de teste em todas as
+-- tabelas (01 a 11, como a produção hoje), partes 1 e 2: as tabelas zeram, os
+-- contadores voltam a 1, as 39 chaves estrangeiras seguem de pé e recusando,
+-- os cadastros não mudam, e o 12, o 13 e o 14 rodam limpos depois. Num banco
+-- sem "dev" no nome, a trava parou com o erro 3819 antes de apagar.
 -- =====================================================================
 
 SET NAMES utf8mb4;
