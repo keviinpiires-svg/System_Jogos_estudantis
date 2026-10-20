@@ -41,6 +41,13 @@ const COLUNAS = [
 
 const OBRIGATORIAS = ['modalidade', 'categoria', 'genero', 'equipe_1', 'equipe_2'];
 
+// Coluna OPCIONAL (db/15, 20/10/2026): o número do jogo na tabela oficial do
+// chefe, global (1 a 338). O arquivo pode vir com ou sem ela, e a célula pode
+// ficar vazia. Aceita "Nº Tabela", "N° Tabela", "No Tabela", "Numero Tabela"...
+const COLUNA_NUMERO_TABELA = 'Nº Tabela';
+const cabecalhoDoNumeroTabela = (texto) => ['N TABELA', 'NO TABELA', 'NUMERO TABELA', 'NUMERO DA TABELA']
+  .includes(normalizar(texto).replace(/[º°]/g, '').replace(/\s+/g, ' ').trim());
+
 // Outros nomes aceitos para as modalidades, além do nome e do slug cadastrados
 const APELIDOS_MODALIDADE = {
   VOLEIBOL: 'volei',
@@ -377,6 +384,17 @@ const validarLinha = (valores, cadastro) => {
   }
 
   if (valores.arbitro.length > 150) erros.push('Árbitro com mais de 150 caracteres.');
+
+  // Nº Tabela: vazio é permitido; preenchido, um inteiro de 1 a 65535
+  linha.numero_tabela = null;
+  if (valores.numero_tabela) {
+    const numero = Number(valores.numero_tabela);
+    if (!/^\d+$/.test(valores.numero_tabela) || numero < 1 || numero > 65535) {
+      erros.push(`${COLUNA_NUMERO_TABELA} "${valores.numero_tabela}" inválido: use um número inteiro a partir de 1.`);
+    } else {
+      linha.numero_tabela = numero;
+    }
+  }
   linha.arbitro = valores.arbitro || null;
 
   return linha;
@@ -421,6 +439,9 @@ const analisar = async (conexao, texto, { travar = false } = {}) => {
     };
   }
 
+  // A coluna opcional do número da tabela do chefe: -1 = o arquivo não tem
+  const indiceNumeroTabela = csv.linhas[0].campos.findIndex(cabecalhoDoNumeroTabela);
+
   // O cadastro é lido fora da transação: não muda durante a importação, e
   // uma leitura comum aqui fixaria a foto da transação antes da trava.
   const cadastro = await carregarCadastro(travar ? db : conexao);
@@ -429,8 +450,25 @@ const analisar = async (conexao, texto, { travar = false } = {}) => {
     const valores = Object.fromEntries(
       COLUNAS.map(([chave]) => [chave, String(l.campos[posicao[chave]] ?? '').trim()])
     );
+    valores.numero_tabela = indiceNumeroTabela === -1 ? '' : String(l.campos[indiceNumeroTabela] ?? '').trim();
     return { linha: l.numero, valores, ...validarLinha(valores, cadastro) };
   });
+
+  // Nº Tabela repetido dentro do próprio arquivo: erro em todas as linhas que
+  // o repetem (não dá para saber qual delas está certa)
+  const linhasPorNumero = new Map();
+  for (const l of linhas) {
+    if (!l.numero_tabela) continue;
+    if (!linhasPorNumero.has(l.numero_tabela)) linhasPorNumero.set(l.numero_tabela, []);
+    linhasPorNumero.get(l.numero_tabela).push(l);
+  }
+  for (const [numero, doNumero] of linhasPorNumero) {
+    if (doNumero.length < 2) continue;
+    for (const l of doNumero) {
+      const outras = doNumero.filter((o) => o !== l).map((o) => o.linha).join(', ');
+      l.erros.push(`${COLUNA_NUMERO_TABELA} ${numero} repetido no arquivo (também na linha ${outras}).`);
+    }
+  }
 
   const validas = linhas.filter((l) => l.erros.length === 0);
   const competicoesIds = [...new Set(validas.map((l) => l.competicao_id))].sort((a, b) => a - b);
@@ -447,12 +485,30 @@ const analisar = async (conexao, texto, { travar = false } = {}) => {
   // que ocupam algum local (para o aviso de local)
   const [jogosDasCompeticoes] = competicoesIds.length
     ? await conexao.query(
-      `SELECT id, competicao_id, numero_jogo, fase, grupo_id, equipe_1_id, equipe_2_id,
+      `SELECT id, competicao_id, numero_jogo, numero_tabela, fase, grupo_id, equipe_1_id, equipe_2_id,
               data_hora, local_id, rodada, arbitro_1, status
          FROM jogos WHERE competicao_id IN (?)${travar ? ' FOR UPDATE' : ''}`,
       [competicoesIds]
     )
     : [[]];
+
+  // Números da tabela do chefe já usados em QUALQUER jogo do evento (o índice
+  // único do db/15 é global): número -> jogo que o tem
+  const comNumero = linhas.some((l) => l.numero_tabela);
+  const [jogosComNumero] = comNumero
+    ? await conexao.query(
+      `SELECT j.id, j.numero_jogo, j.numero_tabela, m.nome AS modalidade_nome,
+              cat.nome AS categoria_nome, c.genero
+         FROM jogos j
+         INNER JOIN competicoes c ON c.id = j.competicao_id
+         INNER JOIN modalidades m ON m.id = c.modalidade_id
+         INNER JOIN categorias cat ON cat.id = c.categoria_id
+        WHERE j.numero_tabela IS NOT NULL`
+    )
+    : [[]];
+  const donoDoNumero = new Map(jogosComNumero.map((j) => [j.numero_tabela, j]));
+  const descreverJogo = (j) => `jogo nº ${j.numero_jogo} de ${j.modalidade_nome} ${j.categoria_nome} `
+    + `${NOME_GENERO[j.genero] || j.genero}`;
 
   const { intervaloMinutos, statusQueOcupam } = REGRAS.conflitoDeLocal;
   const [jogosComLocal] = await conexao.query(
@@ -485,6 +541,26 @@ const analisar = async (conexao, texto, { travar = false } = {}) => {
         l.avisos.push(`O jogo nº ${existente.numero_jogo} já cadastrado tem ${diferencas.join(', ')} `
           + 'diferente desta linha. A importação não altera jogos que já existem.');
       }
+
+      // Nº Tabela de um jogo que já existe: só PREENCHE quando ele está sem
+      // número; o resto do jogo não muda, e um número já gravado não é trocado
+      if (l.numero_tabela && existente.numero_tabela !== l.numero_tabela) {
+        const dono = donoDoNumero.get(l.numero_tabela);
+        if (existente.numero_tabela) {
+          l.avisos.push(`O jogo nº ${existente.numero_jogo} já tem o ${COLUNA_NUMERO_TABELA} `
+            + `${existente.numero_tabela}; a importação não troca um número já gravado.`);
+        } else if (dono && dono.id !== existente.id) {
+          l.erros.push(`${COLUNA_NUMERO_TABELA} ${l.numero_tabela} já é do ${descreverJogo(dono)}.`);
+        } else {
+          l.preencher_numero = true;
+        }
+      }
+      continue;
+    }
+
+    // Jogo novo com Nº Tabela que outro jogo já tem
+    if (l.numero_tabela && donoDoNumero.has(l.numero_tabela)) {
+      l.erros.push(`${COLUNA_NUMERO_TABELA} ${l.numero_tabela} já é do ${descreverJogo(donoDoNumero.get(l.numero_tabela))}.`);
       continue;
     }
 
@@ -589,12 +665,15 @@ const analisar = async (conexao, texto, { travar = false } = {}) => {
       local: l.local || null,
       rodada: l.rodada || null,
       arbitro: l.arbitro || null,
+      numero_tabela: l.numero_tabela || null,
+      // Jogo que já existe e vai ganhar o Nº Tabela na importação
+      preencher_numero: Boolean(l.preencher_numero),
       numero_jogo: l.numero_jogo || null,
       jogo_id: l.jogo_id || null,
       erros: l.erros,
       avisos: l.avisos,
       // Só o backend usa: o que vai para o INSERT
-      _gravar: l.situacao === 'NOVA' ? l : undefined
+      _gravar: l.situacao === 'NOVA' || (l.situacao === 'EXISTENTE' && l.preencher_numero) ? l : undefined
     })),
     resumo: {
       linhas: linhas.length,
@@ -602,6 +681,7 @@ const analisar = async (conexao, texto, { travar = false } = {}) => {
       existentes: contar('EXISTENTE'),
       duplicadas: contar('DUPLICADA'),
       erros: contar('ERRO'),
+      numeros_a_preencher: linhas.filter((l) => l.situacao === 'EXISTENTE' && l.preencher_numero).length,
       com_avisos: linhas.filter((l) => l.avisos.length > 0 && l.situacao !== 'ERRO').length
     }
   };
@@ -639,12 +719,20 @@ const importarJogos = async (req, res) => {
     }
 
     for (const { _gravar: l } of analise.linhas.filter((x) => x._gravar)) {
+      // Jogo que já existe: só ganha o Nº Tabela, e só se ainda estiver sem
+      if (l.situacao === 'EXISTENTE') {
+        await conexao.query(
+          'UPDATE jogos SET numero_tabela = ? WHERE id = ? AND numero_tabela IS NULL',
+          [l.numero_tabela, l.jogo_id]
+        );
+        continue;
+      }
       const [resultado] = await conexao.query(
         `INSERT INTO jogos
-           (competicao_id, numero_jogo, fase, rodada, grupo_id, local_id, data_hora,
+           (competicao_id, numero_jogo, numero_tabela, fase, rodada, grupo_id, local_id, data_hora,
             equipe_1_id, equipe_2_id, arbitro_1)
-         VALUES (?, ?, 'GRUPOS', ?, ?, ?, ?, ?, ?, ?)`,
-        [l.competicao_id, l.numero_jogo, l.rodada || null, l.grupo_id, l.local_id || null,
+         VALUES (?, ?, ?, 'GRUPOS', ?, ?, ?, ?, ?, ?, ?)`,
+        [l.competicao_id, l.numero_jogo, l.numero_tabela || null, l.rodada || null, l.grupo_id, l.local_id || null,
           l.data_hora, l.equipe_1_id, l.equipe_2_id, l.arbitro]
       );
       l.jogo_id = resultado.insertId;
@@ -656,12 +744,15 @@ const importarJogos = async (req, res) => {
     resposta.linhas.forEach((linha, i) => {
       if (analise.linhas[i]._gravar) linha.jogo_id = analise.linhas[i]._gravar.jogo_id;
     });
-    const { novas } = resposta.resumo;
+    const { novas, numeros_a_preencher: preenchidos } = resposta.resumo;
+    const partes = [];
+    if (novas > 0) partes.push(`${novas} ${novas === 1 ? 'jogo importado' : 'jogos importados'}`);
+    if (preenchidos > 0) {
+      partes.push(`${preenchidos} ${preenchidos === 1 ? 'jogo que já existia ganhou' : 'jogos que já existiam ganharam'} o ${COLUNA_NUMERO_TABELA}`);
+    }
 
-    res.status(novas > 0 ? 201 : 200).json({
-      mensagem: novas > 0
-        ? `${novas} ${novas === 1 ? 'jogo importado' : 'jogos importados'}.`
-        : 'Nenhum jogo novo: nada foi gravado.',
+    res.status(novas > 0 || preenchidos > 0 ? 201 : 200).json({
+      mensagem: partes.length ? `${partes.join(' e ')}.` : 'Nada novo: nada foi gravado.',
       ...resposta
     });
   } catch (erro) {

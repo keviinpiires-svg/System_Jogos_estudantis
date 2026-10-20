@@ -17,7 +17,7 @@ const db = require('../config/db');
 const ENCERRADO = ['FINALIZADO', 'WO'];
 
 const SELECT_AGENDA = `
-  SELECT j.id, j.numero_jogo, j.fase, j.status, j.data_hora,
+  SELECT j.id, j.numero_jogo, j.numero_tabela, j.fase, j.status, j.data_hora,
          j.placar_1, j.placar_2, j.penaltis_1, j.penaltis_2, j.prorrogacao,
          j.vencedor_equipe_id, j.baleou_primeiro_equipe_id,
          j.equipe_1_id, esc1.nome AS escola_1_nome,
@@ -51,6 +51,8 @@ const jogoDaAgenda = (j) => {
   return {
     id: j.id,
     numero_jogo: j.numero_jogo,
+    // Número do jogo na tabela oficial do chefe (global; db/15). Pode faltar.
+    numero_tabela: j.numero_tabela ?? null,
     data,
     hora: horaCompleta ? horaCompleta.slice(0, 5) : null,
     local: j.local_id ? { id: j.local_id, nome: j.local_nome } : null,

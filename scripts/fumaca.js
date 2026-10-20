@@ -574,6 +574,7 @@ const rodar = async () => {
   await testarAgenda();
   await testarDadosPessoais();
   await testarImportacaoDeJogos();
+  await testarNumeroTabela();
   await testarPontosLancados();
   await testarPontosLancadosNaTabelaGeral();
 };
@@ -1487,6 +1488,113 @@ const enviarCsv = async (caminho, csv) => {
     body: csv
   });
   return { status: resposta.status, corpo: await resposta.json().catch(() => ({})) };
+};
+
+// Nº Tabela — o número do jogo na tabela oficial do chefe (db/15, 20/10/2026).
+// Coluna opcional do CSV: com ou sem ela, célula vazia aceita, número repetido
+// no arquivo ou já usado no banco é erro, e reimportar só preenche o número de
+// jogo que já existe e está sem — sem mudar mais nada nem trocar número gravado.
+const testarNumeroTabela = async () => {
+  secao('-- Nº Tabela (número da tabela do chefe)');
+
+  const [[comp]] = await db.query(
+    `SELECT c.id, m.nome AS modalidade, cat.nome AS categoria, c.genero, g.id AS grupo_id
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+       INNER JOIN grupos g ON g.competicao_id = c.id
+       INNER JOIN equipes e ON e.grupo_id = g.id
+      WHERE c.id <> ? AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
+      GROUP BY c.id, g.id
+     HAVING COUNT(e.id) >= 3
+      ORDER BY c.id LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) throw new Error('Não achei uma competição livre com grupo de 3 equipes para o teste do Nº Tabela.');
+  const [eq] = await db.query(
+    'SELECT esc.nome FROM equipes e INNER JOIN escolas esc ON esc.id = e.escola_id WHERE e.grupo_id = ? ORDER BY e.id LIMIT 3',
+    [comp.grupo_id]
+  );
+  const [[{ maior }]] = await db.query('SELECT COALESCE(MAX(numero_tabela), 0) AS maior FROM jogos');
+  const n = (k) => 9000 + Number(maior) + k; // números que o banco ainda não usa (o MAX volta como texto)
+  const CAB = 'Modalidade;Categoria;Gênero;Grupo;Equipe 1;Equipe 2;Data;Hora;Local;Rodada;Árbitro;Nº Tabela';
+  const linhaCsv = (a, b, hora, numero) => [comp.modalidade, comp.categoria, comp.genero, '', eq[a].nome, eq[b].nome,
+    '26/11/2026', hora, '', '', '', numero].join(';');
+  const meus = async () => (await db.query(
+    'SELECT id, numero_tabela, data_hora, local_id, rodada, arbitro_1, numero_jogo FROM jogos WHERE competicao_id = ? ORDER BY data_hora',
+    [comp.id]
+  ))[0];
+  const linha = (r, k) => (r.corpo.linhas || []).find((l) => l.linha === k) || { erros: [], avisos: [] };
+
+  // 1) Com a coluna: número, célula vazia e um par repetido no arquivo
+  const csv1 = [CAB,
+    linhaCsv(0, 1, '05:01', n(1)), // 2: nova com número
+    linhaCsv(0, 2, '05:02', ''), // 3: nova sem número (célula vazia)
+    linhaCsv(1, 2, '05:03', n(2)), // 4: repetido...
+    linhaCsv(1, 0, '05:04', n(2)) // 5: ...com a linha 4
+  ].join('\r\n');
+  const previa1 = await enviarCsv('/importacao-jogos/previa', csv1);
+  conferir(
+    previa1.status === 200 && linha(previa1, 2).situacao === 'NOVA' && linha(previa1, 2).numero_tabela === n(1)
+      && linha(previa1, 3).situacao === 'NOVA' && linha(previa1, 3).numero_tabela === null
+      && [4, 5].every((k) => linha(previa1, k).situacao === 'ERRO' && linha(previa1, k).erros.some((e) => e.includes('repetido no arquivo'))),
+    'com a coluna: número aceito, célula vazia aceita, número repetido no arquivo é erro nas duas linhas',
+    JSON.stringify(previa1.corpo.resumo || previa1.corpo)
+  );
+  const imp1 = await enviarCsv('/importacao-jogos', csv1);
+  let gravados = await meus();
+  criados.jogos.push(...gravados.map((j) => j.id));
+  conferir(
+    imp1.status === 201 && gravados.length === 2 && gravados[0].numero_tabela === n(1) && gravados[1].numero_tabela === null,
+    'importação grava o número da nova e deixa vazio o da célula vazia; as repetidas não entram',
+    JSON.stringify(gravados)
+  );
+
+  // 2) Número que já é de outro jogo no banco
+  const previa2 = await enviarCsv('/importacao-jogos/previa', [CAB, linhaCsv(1, 2, '05:05', n(1))].join('\r\n'));
+  conferir(
+    linha(previa2, 2).situacao === 'ERRO' && linha(previa2, 2).erros.some((e) => e.includes(`${n(1)} já é do jogo`)),
+    'número que já é de outro jogo do banco: erro',
+    JSON.stringify(linha(previa2, 2).erros)
+  );
+
+  // 3) Reimportar: preenche o número do jogo sem número; não troca o já gravado
+  const antes = await meus();
+  const csv3 = [CAB, linhaCsv(0, 1, '05:01', n(9)), linhaCsv(0, 2, '05:02', n(3))].join('\r\n');
+  const previa3 = await enviarCsv('/importacao-jogos/previa', csv3);
+  conferir(
+    previa3.corpo.resumo?.numeros_a_preencher === 1 && previa3.corpo.resumo?.novas === 0
+      && linha(previa3, 3).preencher_numero === true
+      && linha(previa3, 2).avisos.some((a) => a.includes('não troca')),
+    'reimportação: 1 número a preencher, nenhum jogo novo, aviso para o número já gravado',
+    JSON.stringify(previa3.corpo.resumo)
+  );
+  const imp3 = await enviarCsv('/importacao-jogos', csv3);
+  gravados = await meus();
+  const igualFora = (a, b) => JSON.stringify({ ...a, numero_tabela: 0 }) === JSON.stringify({ ...b, numero_tabela: 0 });
+  conferir(
+    imp3.status === 201 && gravados.length === 2 && gravados[0].numero_tabela === n(1) && gravados[1].numero_tabela === n(3)
+      && gravados.every((g, i) => igualFora(g, antes[i])),
+    'reimportação preenche só o número do jogo sem número; o resto do jogo e o número já gravado não mudam',
+    JSON.stringify(gravados)
+  );
+
+  // 4) Sem a coluna: o arquivo é aceito e o número gravado continua
+  const semColuna = await enviarCsv('/importacao-jogos/previa',
+    [CAB.replace(';Nº Tabela', ''), linhaCsv(0, 1, '05:01', '').replace(/;$/, '')].join('\r\n'));
+  conferir(
+    semColuna.status === 200 && linha(semColuna, 2).situacao === 'EXISTENTE' && !linha(semColuna, 2).preencher_numero,
+    'sem a coluna Nº Tabela: arquivo aceito, nada a preencher',
+    JSON.stringify(semColuna.corpo.resumo || semColuna.corpo)
+  );
+
+  // 5) A agenda (pública) devolve o número
+  const agenda = await (await fetch(`${API}/agenda`)).json();
+  conferir(
+    agenda.find((j) => j.id === gravados[0].id)?.numero_tabela === n(1)
+      && agenda.find((j) => j.id === gravados[1].id)?.numero_tabela === n(3),
+    'GET /agenda devolve o numero_tabela de cada jogo'
+  );
 };
 
 const testarImportacaoDeJogos = async () => {
