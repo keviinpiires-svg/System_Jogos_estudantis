@@ -79,19 +79,21 @@ const REGRAS = {
       // aqui. Na FINAL (chefe, 07/10/2026) e na SEMIFINAL (chefe, 12/10/2026)
       // há acréscimo de 4 minutos e vence quem balear primeiro
       // (jogos.baleou_primeiro_equipe_id, db/08). No ida e volta com a soma
-      // empatada o chefe não respondeu: segue PENDENTE (409).
+      // empatada vale a mesma regra, no SEGUNDO jogo (20/10/2026): a súmula
+      // exige quem baleou primeiro e essa equipe é a campeã. Sem caso
+      // pendente: não há cobrança, e sim o acréscimo.
       baleado: {
         sequencia: [],
         nomeCobranca: null,
-        pendente: true,
-        motivo: 'o regulamento do baleado diz que vence quem balear todos os adversários ou, '
-          + 'acabado o tempo, quem eliminou mais, e o chefe só definiu o empate na semifinal e na final',
         acrescimo: {
           fases: ['SEMIFINAL', 'FINAL'],
+          // Também no 2º jogo do ida e volta com a soma empatada
+          somaDosDoisJogos: true,
           minutosDeAcrescimo: 4,
           decididoEm: '12/10/2026',
-          descricao: 'Na semifinal e na final, empate vai para um acréscimo de 4 minutos: '
-            + 'vence quem balear primeiro.'
+          somaDecididaEm: '20/10/2026',
+          descricao: 'Na semifinal, na final e no segundo jogo do ida e volta com a soma empatada, '
+            + 'o empate vai para um acréscimo de 4 minutos: vence quem balear primeiro.'
         }
       }
     },

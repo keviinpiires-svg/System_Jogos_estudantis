@@ -568,7 +568,8 @@ const rodar = async () => {
   testarDesempatePorModalidade();
   testarFolhasOficiais();
   await testarEmpateDoBaleado();
-  await testarIdaEVoltaDoBaleado();
+  await testarMelhorDeDoisJogos('futsal');
+  await testarMelhorDeDoisJogos('baleado');
   await testarImportacaoDeJogos();
   await testarPontosLancados();
   await testarPontosLancadosNaTabelaGeral();
@@ -579,8 +580,8 @@ const rodar = async () => {
 // ---------------------------------------------------------------------------
 // Fase de grupos: empate vale. Semifinal (chefe, 12/10/2026) e final (07/10):
 // acréscimo de 4 minutos, vence quem balear primeiro
-// (jogos.baleou_primeiro_equipe_id). O ida e volta com a soma empatada segue
-// com o 409 de regra pendente.
+// (jogos.baleou_primeiro_equipe_id). O ida e volta com a soma empatada fica em
+// testarMelhorDeDoisJogos (20/10/2026).
 const testarEmpateDoBaleado = async () => {
   secao('-- empate no baleado');
 
@@ -677,10 +678,13 @@ const testarEmpateDoBaleado = async () => {
   );
 };
 
-// Ida e volta do baleado com a soma empatada: o chefe ainda não respondeu,
-// então o segundo jogo não finaliza (409), nem dizendo quem baleou primeiro.
-const testarIdaEVoltaDoBaleado = async () => {
-  secao('-- ida e volta do baleado');
+// "Melhor de dois jogos" (ida e volta de duas equipes, sem mata-mata) — pela
+// API, no futsal e no baleado (20/10/2026). O campeão é quem soma mais nos
+// dois jogos, pela soma direta dos placares, sem passar pela classificação.
+// Empatada a soma, o 2º jogo exige o desempate: pênaltis no futsal; no
+// baleado, o acréscimo de 4 minutos, e quem baleou primeiro é a campeã.
+const testarMelhorDeDoisJogos = async (slug) => {
+  secao(`-- melhor de dois jogos: ${slug}`);
 
   const [[comp]] = await db.query(
     `SELECT c.id, c.genero, cat.idade_maxima, e1.id AS e1, e2.id AS e2,
@@ -690,13 +694,14 @@ const testarIdaEVoltaDoBaleado = async () => {
        INNER JOIN categorias cat ON cat.id = c.categoria_id
        INNER JOIN equipes e1 ON e1.competicao_id = c.id
        INNER JOIN equipes e2 ON e2.competicao_id = c.id AND e2.id > e1.id
-      WHERE m.slug = 'baleado' AND c.turno = 'IDA_E_VOLTA' AND c.proxima_fase = 'NENHUMA' AND c.id <> ?
+      WHERE m.slug = ? AND c.turno = 'IDA_E_VOLTA' AND c.proxima_fase = 'NENHUMA' AND c.id <> ?
         AND (SELECT COUNT(*) FROM equipes e WHERE e.competicao_id = c.id) = 2
         AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
       ORDER BY c.id LIMIT 1`,
-    [COMPETICAO_PROTEGIDA]
+    [slug, COMPETICAO_PROTEGIDA]
   );
-  if (!comp) throw new Error('Não achei uma competição de baleado em ida e volta livre para o teste.');
+  if (!comp) throw new Error(`Não achei uma competição de ${slug} em ida e volta livre para o teste.`);
+  const baleado = slug === 'baleado';
 
   const [[{ ano }]] = await db.query('SELECT ano FROM configuracao_evento WHERE id = 1');
   const nascimento = `${comp.idade_maxima ? ano - comp.idade_maxima : ano - 20}-03-15`;
@@ -704,7 +709,8 @@ const testarIdaEVoltaDoBaleado = async () => {
 
   const atletaDe = async (equipe_id, escola_id, n) => {
     const atleta = await exigir('POST', '/atletas', {
-      nome: `${MARCA} BALEADO IV ${n}`, rg: `${MARCA}BALIV${n}`, data_nascimento: nascimento, sexo, escola_id
+      nome: `${MARCA} IV ${slug.toUpperCase()} ${n}`, rg: `${MARCA}IV${slug.slice(0, 3)}${n}`,
+      data_nascimento: nascimento, sexo, escola_id
     }, 'cadastrar atleta do ida e volta');
     criados.atletas.push(atleta.id_atleta);
     await exigir('POST', '/inscricoes', { equipe_id, atleta_id: atleta.id_atleta, numero_camisa: 1 }, 'inscrever no ida e volta');
@@ -713,7 +719,6 @@ const testarIdaEVoltaDoBaleado = async () => {
   const a1 = await atletaDe(comp.e1, comp.esc1, 1);
   const a2 = await atletaDe(comp.e2, comp.esc2, 2);
 
-  const linha = (atleta_id) => ({ atleta_id, presente: true, capitao: true, gols: 0, amarelos: 0, vermelho: false, faltas: 0 });
   const jogoEntre = async (um, dois) => {
     const jogo = await exigir('POST', '/jogos', {
       competicao_id: comp.id, equipe_1_id: um, equipe_2_id: dois, fase: 'GRUPOS'
@@ -721,33 +726,71 @@ const testarIdaEVoltaDoBaleado = async () => {
     criados.jogos.push(jogo.id_jogo);
     return jogo.id_jogo;
   };
-  // O contador de cada equipe são as adversárias que ELA eliminou (chefe,
-  // 12/10/2026), e o placar dela é o próprio contador. Ida 3 x 1 para a e1,
-  // volta 3 x 1 para a e2: a soma empata em 4 x 4.
-  const sumula = (jogo_id, eliminadasPor1, eliminadasPor2, extra = {}) => chamar('POST', '/sumulas', {
+  const apagarJogos = async (ids) => {
+    await db.query('DELETE FROM sumula_atletas WHERE jogo_id IN (?)', [ids]);
+    await db.query('DELETE FROM sumula_equipes WHERE jogo_id IN (?)', [ids]);
+    await db.query('DELETE FROM jogos WHERE id IN (?)', [ids]);
+    criados.jogos = criados.jogos.filter((id) => !ids.includes(id));
+  };
+  // Placar de cada equipe: gols no futsal; no baleado, o próprio contador de
+  // adversárias eliminadas (chefe, 12/10/2026). `de1`/`de2` são de comp.e1/e2.
+  const linha = (atleta_id, gols) => ({
+    atleta_id, presente: true, capitao: true, gols: baleado ? 0 : gols, amarelos: 0, vermelho: false, faltas: 0
+  });
+  const sumula = (jogo_id, de1, de2, extra = {}) => chamar('POST', '/sumulas', {
     jogo_id, finalizar: true, ...extra,
     equipes: [
-      { equipe_id: comp.e1, baleados: eliminadasPor1, atletas: [linha(a1)] },
-      { equipe_id: comp.e2, baleados: eliminadasPor2, atletas: [linha(a2)] }
+      { equipe_id: comp.e1, ...(baleado ? { baleados: de1 } : {}), atletas: [linha(a1, de1)] },
+      { equipe_id: comp.e2, ...(baleado ? { baleados: de2 } : {}), atletas: [linha(a2, de2)] }
     ]
   });
+  const podio = async () => ((await chamar('GET', `/matamata/competicao/${comp.id}`)).corpo.colocacoes || []);
 
+  // Caso 1 — a soma decide: e1 vence a ida por 5 x 4 e perde a volta por
+  // 1 x 3. Soma 6 x 7: a e2 é campeã, mesmo com uma vitória para cada (no
+  // baleado, antes de 20/10, a classificação podia pôr a e1 em 1º).
   const ida = await jogoEntre(comp.e1, comp.e2);
-  const rIda = await sumula(ida, 3, 1);
-  const [[jIda]] = await db.query('SELECT status, placar_1, placar_2, vencedor_equipe_id FROM jogos WHERE id = ?', [ida]);
+  const rIda = await sumula(ida, 5, 4);
+  const volta = await jogoEntre(comp.e2, comp.e1);
+  const rVolta = await sumula(volta, 1, 3);
+  const [campeao, vice] = await podio();
   conferir(
-    rIda.status === 201 && jIda.placar_1 === 3 && jIda.placar_2 === 1 && jIda.vencedor_equipe_id === comp.e1,
-    'contador do baleado: o placar da equipe é o próprio contador (3 eliminadas = 3), e vence quem eliminou mais',
-    `${rIda.status} ${rIda.corpo.erro || ''} ${JSON.stringify(jIda)}`
+    rIda.status === 201 && rVolta.status === 201
+      && campeao?.equipe_id === comp.e2 && campeao?.como.includes('6') && vice?.equipe_id === comp.e1,
+    `${slug}: 5 x 4 e 1 x 3 (soma 6 x 7) — campeã é quem soma mais, pela soma direta`,
+    `${rIda.status}/${rVolta.status} ${rVolta.corpo.erro || ''} ${JSON.stringify([campeao, vice])}`
+  );
+  await apagarJogos([ida, volta]);
+
+  // Caso 2 — soma empatada: 5 x 4 na ida e 4 x 5 na volta (9 x 9)
+  const ida2 = await jogoEntre(comp.e1, comp.e2);
+  await sumula(ida2, 5, 4);
+  const volta2 = await jogoEntre(comp.e2, comp.e1);
+  const semDesempate = await sumula(volta2, 4, 5);
+  conferir(
+    semDesempate.status === 400,
+    `${slug}: soma empatada sem o desempate do 2º jogo é recusada (400, não 409)`,
+    `${semDesempate.status} ${semDesempate.corpo.erro || ''}`
   );
 
-  const volta = await jogoEntre(comp.e2, comp.e1);
-  const rVolta = await sumula(volta, 1, 3, { baleou_primeiro_equipe_id: comp.e1 });
-  conferir(
-    rVolta.status === 409,
-    'volta com a soma empatada: segue 409 de regra pendente, mesmo informando quem baleou primeiro',
-    `${rVolta.status} ${rVolta.corpo.erro || ''}`
+  // Na volta a equipe 1 do jogo é a e2: penaltis_2 = 3 dá a vitória à e1
+  const comDesempate = baleado
+    ? await sumula(volta2, 4, 5, { baleou_primeiro_equipe_id: comp.e1 })
+    : await sumula(volta2, 4, 5, { penaltis_1: 2, penaltis_2: 3 });
+  const esperado = comp.e1;
+  const [[jVolta2]] = await db.query(
+    'SELECT status, vencedor_equipe_id, baleou_primeiro_equipe_id, penaltis_1, penaltis_2 FROM jogos WHERE id = ?', [volta2]
   );
+  const [campeao2] = await podio();
+  conferir(
+    comDesempate.status === 201 && jVolta2.vencedor_equipe_id === esperado && campeao2?.equipe_id === esperado
+      && (baleado ? jVolta2.baleou_primeiro_equipe_id === comp.e1 : jVolta2.penaltis_1 === 2),
+    baleado
+      ? 'baleado: soma empatada — quem baleou primeiro no acréscimo do 2º jogo é a campeã'
+      : 'futsal: soma empatada — os pênaltis do 2º jogo dão o título',
+    `${comDesempate.status} ${comDesempate.corpo.erro || ''} ${JSON.stringify(jVolta2)} ${JSON.stringify(campeao2)}`
+  );
+  await apagarJogos([ida2, volta2]);
 };
 
 // ---------------------------------------------------------------------------
@@ -819,9 +862,11 @@ const testarDesempatePorModalidade = () => {
       `${slug}: prorrogação antes de qualquer cobrança`
     );
   }
+  const baleado = desempateDaModalidade('baleado');
   conferir(
-    desempateDaModalidade('baleado').pendente === true && !desempateDaModalidade('baleado').nomeCobranca,
-    'baleado: regulamento omisso, regra pendente e sem cobrança'
+    !baleado.pendente && !baleado.nomeCobranca && baleado.acrescimo?.somaDosDoisJogos === true
+      && baleado.acrescimo.fases.join(',') === 'SEMIFINAL,FINAL',
+    'baleado: sem cobrança; acréscimo na semifinal, na final e no 2º jogo do ida e volta'
   );
   conferir(
     desempateDaModalidade('modalidade-que-nao-existe').pendente === true,

@@ -52,17 +52,21 @@ const REGRAS_DA_CHAVE = {
     descricao: 'A revanche da fase de grupos na semifinal é aceita, sem aviso.'
   },
 
-  // Formato E — duas equipes em ida e volta, sem mata-mata. O campeão é quem
-  // soma mais nos dois jogos; empatada a soma, decide nas cobranças lançadas
-  // na súmula do segundo jogo (pênaltis, 7 metros ou eliminações, conforme a
-  // modalidade — a sequência vem de regrasProvisorias.desempateMataMata).
+  // Formato E — duas equipes em ida e volta, sem mata-mata ("melhor de dois
+  // jogos"). O campeão é quem soma mais nos dois jogos, pela SOMA DIRETA dos
+  // placares, em qualquer modalidade, sem passar pela classificação
+  // (20/10/2026). Empatada a soma, decide o desempate lançado na súmula do
+  // segundo jogo: cobranças no futsal e no handebol (pênaltis, 7 metros — a
+  // sequência vem de regrasProvisorias.desempateMataMata) e, no baleado, o
+  // acréscimo de 4 minutos, com vitória de quem balear primeiro (20/10/2026).
   // Confirmada pelo chefe em 06/10/2026.
   somaDosDoisJogos: {
     provisorio: false,
     decididoEm: '06/10/2026',
     descricao:
-      'Com duas equipes em ida e volta, o campeão é quem soma mais nos dois jogos. '
-      + 'Se a soma empatar, decide nas cobranças lançadas na súmula do segundo jogo.'
+      'Com duas equipes em ida e volta, o campeão é quem soma mais nos dois jogos, pela soma '
+      + 'direta dos placares. Se a soma empatar, decide o desempate lançado na súmula do segundo '
+      + 'jogo: as cobranças no futsal e no handebol, e o acréscimo de 4 minutos no baleado.'
   },
 
   // Sem semifinal, o 3º lugar sai da fase classificatória (regulamento). Num

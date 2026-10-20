@@ -6,6 +6,7 @@ const {
 const {
   REGRAS_DA_CHAVE, chaveDaSemifinal, chaveDaFinal, temMataMata
 } = require('../config/chavesMataMata');
+const { desempateDaModalidade } = require('../config/regrasProvisorias');
 
 // ============================================================================
 // MATA-MATA — a chave de cada competição, montada a partir da classificação.
@@ -244,7 +245,10 @@ const colocacoesFinais = (chave) => {
     return '';
   };
 
-  // Competição sem mata-mata: campeão pela soma dos dois jogos
+  // Competição sem mata-mata ("melhor de dois jogos"): campeão pela SOMA
+  // DIRETA dos placares dos dois jogos, em qualquer modalidade, sem passar
+  // pela classificação (20/10/2026). Antes saía do 1º da tabela, e no baleado,
+  // cujo desempate não olha saldo, a soma podia não decidir.
   if (!temMataMata(competicao)) {
     if (!faseDeGrupos.completa) return [];
 
@@ -252,9 +256,18 @@ const colocacoesFinais = (chave) => {
     if (!grupo || grupo.equipes.length < 2) return [];
 
     const [primeiro, segundo] = grupo.equipes;
-    const somaEmpatada = primeiro.pontos === segundo.pontos && primeiro.saldo === segundo.saldo;
-    // Empatada a soma, o título sai das cobranças do último jogo
-    const ultimo = jogosDaFase(todosOsJogos, 'GRUPOS').slice(-1)[0];
+    const deGrupos = jogosDaFase(todosOsJogos, 'GRUPOS');
+    const soma = new Map([[primeiro.equipe_id, 0], [segundo.equipe_id, 0]]);
+    for (const jogo of deGrupos) {
+      if (soma.has(jogo.equipe_1_id)) soma.set(jogo.equipe_1_id, soma.get(jogo.equipe_1_id) + (jogo.placar_1 ?? 0));
+      if (soma.has(jogo.equipe_2_id)) soma.set(jogo.equipe_2_id, soma.get(jogo.equipe_2_id) + (jogo.placar_2 ?? 0));
+    }
+    const somaEmpatada = soma.get(primeiro.equipe_id) === soma.get(segundo.equipe_id);
+
+    // Empatada a soma, o título sai do vencedor gravado no último jogo: as
+    // cobranças no futsal e no handebol, quem baleou primeiro no acréscimo do
+    // baleado (sumulaController.registrarSumula)
+    const ultimo = deGrupos.slice(-1)[0];
     const porCobranca = somaEmpatada && ultimo?.vencedor_equipe_id
       ? ultimo.vencedor_equipe_id
       : null;
@@ -263,7 +276,8 @@ const colocacoesFinais = (chave) => {
       return [];
     }
 
-    const campeao = porCobranca || primeiro.equipe_id;
+    const lider = soma.get(primeiro.equipe_id) > soma.get(segundo.equipe_id) ? primeiro : segundo;
+    const campeao = porCobranca || lider.equipe_id;
     const vice = campeao === primeiro.equipe_id ? segundo.equipe_id : primeiro.equipe_id;
 
     return [
@@ -272,8 +286,10 @@ const colocacoesFinais = (chave) => {
         equipe_id: campeao,
         escola_nome: nomeDaEquipe(campeao),
         como: porCobranca
-          ? 'campeão nas cobranças, com a soma dos dois jogos empatada'
-          : 'campeão pela soma dos dois jogos'
+          ? (desempateDaModalidade(competicao.modalidade_slug).acrescimo
+            ? 'campeão no acréscimo do segundo jogo (baleou primeiro), com a soma dos dois jogos empatada'
+            : 'campeão nas cobranças, com a soma dos dois jogos empatada')
+          : `campeão pela soma dos dois jogos (${soma.get(campeao)} × ${soma.get(vice)})`
       },
       { posicao: 2, equipe_id: vice, escola_nome: nomeDaEquipe(vice), como: 'vice' }
     ];

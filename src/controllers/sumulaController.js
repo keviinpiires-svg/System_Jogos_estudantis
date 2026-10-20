@@ -155,7 +155,7 @@ const buscarSumulaPorJogo = async (req, res) => {
               j.equipe_1_id, j.equipe_2_id, j.vencedor_equipe_id,
               g.nome AS grupo_nome, l.nome AS local_nome,
               m.nome AS modalidade_nome, m.slug AS modalidade_slug, m.tipo_placar,
-              cat.nome AS categoria_nome, c.genero
+              cat.nome AS categoria_nome, c.genero, c.turno, c.proxima_fase
          FROM jogos j
          INNER JOIN competicoes c ON c.id = j.competicao_id
          INNER JOIN modalidades m ON m.id = c.modalidade_id
@@ -258,6 +258,9 @@ const buscarSumulaPorJogo = async (req, res) => {
       // A regra de desempate e o desenho da folha viajam junto para a tela não
       // precisar de cópia deles: a fonte continua sendo src/config/
       desempate: desempateDaModalidade(jogo.modalidade_slug),
+      // Ida e volta sem mata-mata: o placar do outro jogo, do lado deste, para a
+      // tela saber se a soma empatou e pedir o desempate (null fora desse formato)
+      soma_dos_dois_jogos: await somaDosOutrosJogos(db, jogo),
       folha,
       sets,
       linhas_sumula: folha.linhas,
@@ -280,12 +283,12 @@ const buscarSumulaPorJogo = async (req, res) => {
 // na súmula do segundo jogo — decisão provisória de 30/09/2026, registrada em
 // src/config/chavesMataMata.js (somaDosDoisJogos).
 //
-// Devolve true só quando ESTE é o último jogo a finalizar e a soma dos dois
-// empata: é quando as cobranças passam a ser obrigatórias. Enquanto houver
-// outro jogo em aberto, o empate é resultado, como em qualquer fase de grupos.
-const somaDosDoisJogosEmpatada = async (conexao, jogo, placar_1, placar_2) => {
-  if (jogo.turno !== 'IDA_E_VOLTA' || jogo.proxima_fase !== 'NENHUMA') return false;
-  if (jogo.fase !== 'GRUPOS') return false;
+// Placar dos OUTROS jogos da competição, visto do lado deste jogo (a equipe 1
+// deste jogo soma em soma_1). Null fora do ida e volta. `resolvidos` diz se
+// todos os outros já acabaram: só então este é o último jogo e a soma decide.
+const somaDosOutrosJogos = async (conexao, jogo) => {
+  if (jogo.turno !== 'IDA_E_VOLTA' || jogo.proxima_fase !== 'NENHUMA') return null;
+  if (jogo.fase !== 'GRUPOS') return null;
 
   const [outros] = await conexao.query(
     `SELECT id, status, equipe_1_id, equipe_2_id, placar_1, placar_2
@@ -294,12 +297,8 @@ const somaDosDoisJogosEmpatada = async (conexao, jogo, placar_1, placar_2) => {
     [jogo.competicao_id, jogo.id]
   );
 
-  // Ainda há jogo por disputar: dá para desempatar em quadra
-  if (outros.some((outro) => !['FINALIZADO', 'WO'].includes(outro.status))) return false;
-
-  let soma_1 = placar_1;
-  let soma_2 = placar_2;
-
+  let soma_1 = 0;
+  let soma_2 = 0;
   for (const outro of outros) {
     // As equipes trocam de lado no jogo de volta
     const mesmaOrdem = outro.equipe_1_id === jogo.equipe_1_id;
@@ -307,7 +306,21 @@ const somaDosDoisJogosEmpatada = async (conexao, jogo, placar_1, placar_2) => {
     soma_2 += (mesmaOrdem ? outro.placar_2 : outro.placar_1) ?? 0;
   }
 
-  return soma_1 === soma_2;
+  return {
+    resolvidos: outros.every((outro) => ['FINALIZADO', 'WO'].includes(outro.status)),
+    soma_1,
+    soma_2
+  };
+};
+
+// Devolve true só quando ESTE é o último jogo a finalizar e a soma dos dois
+// empata: é quando o desempate passa a ser obrigatório. Enquanto houver
+// outro jogo em aberto, o empate é resultado, como em qualquer fase de grupos.
+const somaDosDoisJogosEmpatada = async (conexao, jogo, placar_1, placar_2) => {
+  const outros = await somaDosOutrosJogos(conexao, jogo);
+  // Ainda há jogo por disputar: dá para desempatar em quadra
+  if (!outros || !outros.resolvidos) return false;
+  return placar_1 + outros.soma_1 === placar_2 + outros.soma_2;
 };
 
 const registrarSumula = async (req, res) => {
@@ -618,23 +631,26 @@ const registrarSumula = async (req, res) => {
           ? 'Os dois jogos terminaram com a soma empatada'
           : 'Empate no mata-mata';
 
-        // Semifinal e final do baleado (07 e 12/10/2026): acréscimo de 4
-        // minutos, vence quem balear primeiro. A mesa informa quem foi; o
-        // placar fica empatado. Fora delas (o ida e volta com a soma
-        // empatada), modalidade em que o regulamento não diz como desempatar
-        // não tem cobrança genérica: a súmula pode ser salva sem finalizar, e
-        // o jogo espera a organização decidir.
-        const comAcrescimo = desempate.pendente && desempate.acrescimo && !somaEmpatada
-          && desempate.acrescimo.fases.includes(jogo.fase);
+        // Baleado (07, 12 e 20/10/2026): na semifinal, na final e no 2º jogo
+        // do ida e volta com a soma empatada, acréscimo de 4 minutos e vence
+        // quem balear primeiro. A mesa informa quem foi; o placar fica
+        // empatado. Modalidade em que o regulamento não diz como desempatar,
+        // e sem acréscimo, não tem cobrança genérica: a súmula pode ser salva
+        // sem finalizar, e o jogo espera a organização decidir.
+        const comAcrescimo = Boolean(desempate.acrescimo) && (somaEmpatada
+          ? Boolean(desempate.acrescimo.somaDosDoisJogos)
+          : desempate.acrescimo.fases.includes(jogo.fase));
 
         if (comAcrescimo) {
           const primeiro = Number(req.body.baleou_primeiro_equipe_id);
 
           if (![jogo.equipe_1_id, jogo.equipe_2_id].includes(primeiro)) {
             await conexao.rollback();
-            const fase = jogo.fase === 'FINAL' ? 'final' : 'semifinal';
+            const onde = somaEmpatada
+              ? 'Os dois jogos terminaram com a soma empatada'
+              : `Empate na ${jogo.fase === 'FINAL' ? 'final' : 'semifinal'} de ${jogo.modalidade_nome}`;
             return res.status(400).json({
-              erro: `Empate na ${fase} de ${jogo.modalidade_nome}: houve acréscimo de `
+              erro: `${onde}: houve acréscimo de `
                 + `${desempate.acrescimo.minutosDeAcrescimo} minutos. Informe a equipe que baleou primeiro nele.`
             });
           }
