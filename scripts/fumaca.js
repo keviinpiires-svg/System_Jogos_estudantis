@@ -570,6 +570,7 @@ const rodar = async () => {
   await testarEmpateDoBaleado();
   await testarMelhorDeDoisJogos('futsal');
   await testarMelhorDeDoisJogos('baleado');
+  await testarJogoUnico();
   await testarImportacaoDeJogos();
   await testarPontosLancados();
   await testarPontosLancadosNaTabelaGeral();
@@ -791,6 +792,64 @@ const testarMelhorDeDoisJogos = async (slug) => {
     `${comDesempate.status} ${comDesempate.corpo.erro || ''} ${JSON.stringify(jVolta2)} ${JSON.stringify(campeao2)}`
   );
   await apagarJogos([ida2, volta2]);
+};
+
+// Competição de 2 escolas com um jogo só (Handebol M Sub 9, db/14, tabela do
+// chefe de 20/10/2026): funciona como final única, e os textos falam do jogo,
+// não da "soma dos dois jogos". Sem a competição no banco, o teste é pulado.
+const testarJogoUnico = async () => {
+  secao('-- 2 escolas e 1 jogo só (Handebol M Sub 9)');
+
+  const [[comp]] = await db.query(
+    `SELECT c.id FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+      WHERE m.slug = 'handebol' AND cat.nome = 'Sub 9' AND c.genero = 'MASCULINO'
+        AND c.turno = 'IDA_E_VOLTA' AND c.id <> ?
+        AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) {
+    console.log('  (pulado: sem o Handebol M Sub 9 livre — o db/14 não rodou neste banco)');
+    return;
+  }
+  const [eq] = await db.query('SELECT id, grupo_id FROM equipes WHERE competicao_id = ? ORDER BY id', [comp.id]);
+  const podio = async () => ((await chamar('GET', `/matamata/competicao/${comp.id}`)).corpo.colocacoes || []);
+
+  // Vitória: o jogo gravado já finalizado, 3 x 2
+  const [vitoria] = await db.query(
+    `INSERT INTO jogos (competicao_id, numero_jogo, fase, grupo_id, equipe_1_id, equipe_2_id,
+                        status, placar_1, placar_2, vencedor_equipe_id)
+     VALUES (?, 1, 'GRUPOS', ?, ?, ?, 'FINALIZADO', 3, 2, ?)`,
+    [comp.id, eq[0].grupo_id, eq[0].id, eq[1].id, eq[0].id]
+  );
+  criados.jogos.push(vitoria.insertId);
+  const [campeao] = await podio();
+  conferir(
+    campeao?.equipe_id === eq[0].id && campeao.como === 'venceu o jogo (3 × 2)',
+    'jogo único vencido: "venceu o jogo", sem falar em soma',
+    JSON.stringify(campeao)
+  );
+  await db.query('DELETE FROM jogos WHERE id = ?', [vitoria.insertId]);
+  criados.jogos = criados.jogos.filter((id) => id !== vitoria.insertId);
+
+  // Empate pela súmula (sem gols: 0 x 0): prorrogação e 7 metros, como numa final
+  const jogo = await exigir('POST', '/jogos', {
+    competicao_id: comp.id, equipe_1_id: eq[0].id, equipe_2_id: eq[1].id, fase: 'GRUPOS'
+  }, 'agendar o jogo único');
+  criados.jogos.push(jogo.id_jogo);
+  const sumula = (extra) => chamar('POST', '/sumulas', {
+    jogo_id: jogo.id_jogo, finalizar: true, ...extra, equipes: eq.map((e) => ({ equipe_id: e.id, atletas: [] }))
+  });
+  const semProrrogacao = await sumula({});
+  const comCobranca = await sumula({ prorrogacao: true, penaltis_1: 3, penaltis_2: 4 });
+  const [campeao2] = await podio();
+  conferir(
+    semProrrogacao.status === 400 && (semProrrogacao.corpo.erro || '').startsWith('O jogo terminou empatado')
+      && comCobranca.status === 201 && campeao2?.equipe_id === eq[1].id && campeao2.como === 'campeão nas cobranças',
+    'jogo único empatado: "O jogo terminou empatado", prorrogação e 7 metros, e "campeão nas cobranças"',
+    `${semProrrogacao.status} ${semProrrogacao.corpo.erro || ''} | ${comCobranca.status} ${comCobranca.corpo.erro || ''} | ${JSON.stringify(campeao2)}`
+  );
 };
 
 // ---------------------------------------------------------------------------

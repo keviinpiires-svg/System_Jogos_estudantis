@@ -308,6 +308,9 @@ const somaDosOutrosJogos = async (conexao, jogo) => {
 
   return {
     resolvidos: outros.every((outro) => ['FINALIZADO', 'WO'].includes(outro.status)),
+    // 0 = competição de 2 escolas com um jogo só (Handebol M Sub 9): a
+    // "soma" é o placar deste jogo, e os textos falam do jogo
+    outros_jogos: outros.length,
     soma_1,
     soma_2
   };
@@ -320,7 +323,9 @@ const somaDosDoisJogosEmpatada = async (conexao, jogo, placar_1, placar_2) => {
   const outros = await somaDosOutrosJogos(conexao, jogo);
   // Ainda há jogo por disputar: dá para desempatar em quadra
   if (!outros || !outros.resolvidos) return false;
-  return placar_1 + outros.soma_1 === placar_2 + outros.soma_2;
+  if (placar_1 + outros.soma_1 !== placar_2 + outros.soma_2) return false;
+  // Verdadeiro nos dois casos; o valor só muda o texto da mensagem
+  return outros.outros_jogos === 0 ? 'JOGO_UNICO' : 'SOMA';
 };
 
 const registrarSumula = async (req, res) => {
@@ -628,7 +633,7 @@ const registrarSumula = async (req, res) => {
         // Em handebol e basquete a prorrogação vem antes das cobranças: só
         // depois de marcada é que faz sentido pedir o placar da cobrança.
         const situacao = somaEmpatada
-          ? 'Os dois jogos terminaram com a soma empatada'
+          ? (somaEmpatada === 'JOGO_UNICO' ? 'O jogo terminou empatado' : 'Os dois jogos terminaram com a soma empatada')
           : 'Empate no mata-mata';
 
         // Baleado (07, 12 e 20/10/2026): na semifinal, na final e no 2º jogo
@@ -647,7 +652,7 @@ const registrarSumula = async (req, res) => {
           if (![jogo.equipe_1_id, jogo.equipe_2_id].includes(primeiro)) {
             await conexao.rollback();
             const onde = somaEmpatada
-              ? 'Os dois jogos terminaram com a soma empatada'
+              ? (somaEmpatada === 'JOGO_UNICO' ? 'O jogo terminou empatado' : 'Os dois jogos terminaram com a soma empatada')
               : `Empate na ${jogo.fase === 'FINAL' ? 'final' : 'semifinal'} de ${jogo.modalidade_nome}`;
             return res.status(400).json({
               erro: `${onde}: houve acréscimo de `

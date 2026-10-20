@@ -88,6 +88,20 @@ const montarChave = async (id) => {
   };
 };
 
+// Texto do campeão de uma competição sem mata-mata. Com dois jogos fala da
+// soma; com um jogo só (2 escolas e 1 jogo, como o Handebol M Sub 9), do jogo.
+const comoFoiCampeao = (jogoUnico, porCobranca, slug, placar) => {
+  const acrescimo = Boolean(desempateDaModalidade(slug).acrescimo);
+  if (jogoUnico) {
+    if (!porCobranca) return `venceu o jogo (${placar})`;
+    return acrescimo ? 'campeão no acréscimo (baleou primeiro), com o jogo empatado' : 'campeão nas cobranças';
+  }
+  if (!porCobranca) return `campeão pela soma dos dois jogos (${placar})`;
+  return acrescimo
+    ? 'campeão no acréscimo do segundo jogo (baleou primeiro), com a soma dos dois jogos empatada'
+    : 'campeão nas cobranças, com a soma dos dois jogos empatada';
+};
+
 // Quem venceu cada semifinal, na ordem dos jogos
 const vencedoresDaSemifinal = (semifinais) => semifinais
   .filter(decidido)
@@ -285,11 +299,10 @@ const colocacoesFinais = (chave) => {
         posicao: 1,
         equipe_id: campeao,
         escola_nome: nomeDaEquipe(campeao),
-        como: porCobranca
-          ? (desempateDaModalidade(competicao.modalidade_slug).acrescimo
-            ? 'campeão no acréscimo do segundo jogo (baleou primeiro), com a soma dos dois jogos empatada'
-            : 'campeão nas cobranças, com a soma dos dois jogos empatada')
-          : `campeão pela soma dos dois jogos (${soma.get(campeao)} × ${soma.get(vice)})`
+        // Competição de 2 escolas com um jogo só (Handebol M Sub 9, tabela do
+        // chefe de 20/10/2026): não há soma, há o jogo
+        como: comoFoiCampeao(deGrupos.length === 1, porCobranca, competicao.modalidade_slug,
+          `${soma.get(campeao)} × ${soma.get(vice)}`)
       },
       { posicao: 2, equipe_id: vice, escola_nome: nomeDaEquipe(vice), como: 'vice' }
     ];
