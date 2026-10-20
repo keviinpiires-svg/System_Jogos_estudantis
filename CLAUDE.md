@@ -71,11 +71,12 @@ grupos, modelos de súmula).
   Precisa do `db/11` na produção **antes** do backend que o lê.
 - **Tabela oficial de jogos do chefe (20/10/2026):** o lote 1 (207 jogos de fase de grupos, CSV em
   `docs/importacao/`, **fora do git** pelo `.gitignore`: é a programação real). **Prévia no dev, sem
-  importar, com o `db/14` aplicado:** 179 novas, 28 com erro, 21 com aviso (todos de confronto repetido).
-  Os 28 erros são de "Conveniada" × COVENIADA no cadastro, à espera do **`db/13` (ainda não escrito)**.
+  importar, com o `db/13` e o `db/14` aplicados:** **207 novas, 0 erros**, 24 com aviso (todos de
+  confronto repetido). O `db/13` renomeou a escola COVENIADA para **"Conveniada"** (com o nome antigo
+  como apelido).
   **Decisão (20/10): onde o cadastro e a tabela do chefe divergem, vale a tabela** — o `db/14` trocou
   duas equipes e criou o Handebol M Sub 9 (51 competições; 1 jogo só, que funciona como final única;
-  pendência 18 do contexto). Pronto: `db/12` (três locais, no dev); o importador já usava o
+  pendência 18 do contexto; os textos dela falam do jogo, não da soma). Pronto: `db/12` (três locais, no dev); o importador já usava o
   grupo das equipes com a coluna Grupo vazia (coberto no `fumaca`); grupos de 4 com 4 jogos não precisam
   de mudança. **"Melhor de dois jogos" corrigido:** o campeão sai da soma direta dos placares, em qualquer
   modalidade; empatada a soma, cobranças no 2º jogo (futsal e handebol) ou o acréscimo de 4 min do
@@ -161,7 +162,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - Ordem dos scripts: `00_apagar_tudo` → `01_schema` → `02_carga_base` → `03_importar_grupos` →
   `04_locais` → `05_faltas_basquete` → `06_ajustes_regras_provisorios` → `07_baleados_por_equipe` →
   `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja` → `11_pontos_lancados` →
-  `12_locais_adelieta_ceti` → (`13`, Conveniada, ainda não escrito) →
+  `12_locais_adelieta_ceti` → `13_escola_conveniada` →
   `14_tabela_do_chefe_equipes`.
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
@@ -194,7 +195,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o `13` está reservado para a Conveniada; depois dele, o próximo é o `15`),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `15`, a trava de mesa por local),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
@@ -295,12 +296,18 @@ de dados.
     MySQL 8.0.46 (`01`–`11` em banco descartável). O reset do campeonato passa a apagar os pontos lançados.
 14. **`db/12_locais_adelieta_ceti.sql` (20/10/2026): rodar no `jogos_2026` ANTES de importar a tabela de
     jogos do chefe**, com dump antes. Só dados e idempotente (três locais: Quadra da Adelieta Ramalho,
-    Quadra do CETI e Campo Society do CETI). Aplicado no dev; **ainda não validado no MySQL** (em 20/10 a instância 3307 não estava no ar).
+    Quadra do CETI e Campo Society do CETI). Aplicado no dev; **validado no MySQL 8.0.46 em 20/10/2026** (`01`–`14`).
 15. **`db/14_tabela_do_chefe_equipes.sql` (20/10/2026): rodar no `jogos_2026` ANTES de importar a tabela de
     jogos do chefe**, com dump antes. Troca duas equipes e cria o Handebol M Sub 9. **Se uma equipe a remover
     tiver jogo, súmula, atleta inscrito ou colocação, o script para com erro** (`CHECK`
     `equipe_a_remover_tem_jogos_sumulas_ou_inscritos`) e não grava nada: aí, conferir os dados antes de
-    decidir. Idempotente. Aplicado no dev; **ainda não validado no MySQL**.
+    decidir. Idempotente. Aplicado no dev; **validado no MySQL 8.0.46 em 20/10/2026** (a trava parou com o
+    erro 3819 sem apagar nada).
+16. **`db/13_escola_conveniada.sql` (20/10/2026): rodar no `jogos_2026` ANTES de importar a tabela de
+    jogos do chefe**, com dump antes. Renomeia a escola COVENIADA para "Conveniada" e guarda o nome antigo
+    como apelido; o id não muda. Idempotente. Aplicado no dev; validado no MySQL 8.0.46 em 20/10/2026.
+    **Ordem na produção:** `12`, `13` e `14`, depois a prévia (o esperado é zero erros) e só então a
+    importação.
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.
