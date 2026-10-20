@@ -572,6 +572,7 @@ const rodar = async () => {
   await testarMelhorDeDoisJogos('baleado');
   await testarJogoUnico();
   await testarAgenda();
+  await testarDadosPessoais();
   await testarImportacaoDeJogos();
   await testarPontosLancados();
   await testarPontosLancadosNaTabelaGeral();
@@ -915,6 +916,83 @@ const testarAgenda = async () => {
   );
   const inexistente = await fetch(`${API}/agenda/jogos/999999999`);
   conferir(inexistente.status === 404, 'detalhe de jogo inexistente -> 404', `saiu ${inexistente.status}`);
+};
+
+// Dado pessoal de atleta nas rotas públicas (pendência 19, 20/10/2026): sem
+// login, nenhuma leitura traz RG, nascimento nem sexo; com login de ADMIN, as
+// telas de cadastro e inscrição continuam recebendo o que precisam.
+const PESSOAL = /"rg"|nascimento|"sexo"/i;
+const testarDadosPessoais = async () => {
+  secao('-- dado pessoal de atleta nas rotas públicas');
+
+  const [[equipe]] = await db.query(
+    `SELECT e.id, e.escola_id, e.competicao_id, c.genero, cat.idade_maxima
+       FROM equipes e
+       INNER JOIN competicoes c ON c.id = e.competicao_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+      WHERE m.tipo = 'COLETIVO' AND c.id <> ?
+        AND NOT EXISTS (SELECT 1 FROM inscricoes_atletas i WHERE i.equipe_id = e.id)
+      ORDER BY e.id DESC LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  const [[{ ano }]] = await db.query('SELECT ano FROM configuracao_evento WHERE id = 1');
+  const atleta = await exigir('POST', '/atletas', {
+    nome: `${MARCA} PRIVADO`, rg: `${MARCA}PRIV`, sexo: equipe.genero === 'FEMININO' ? 'F' : 'M',
+    data_nascimento: `${equipe.idade_maxima ? ano - equipe.idade_maxima : ano - 20}-03-15`, escola_id: equipe.escola_id
+  }, 'cadastrar atleta do teste de privacidade');
+  criados.atletas.push(atleta.id_atleta);
+  await exigir('POST', '/inscricoes', { equipe_id: equipe.id, atleta_id: atleta.id_atleta, numero_camisa: 4 }, 'inscrever no teste de privacidade');
+
+  const semLogin = async (caminho) => {
+    const r = await fetch(`${API}${caminho}`);
+    return { status: r.status, texto: await r.text() };
+  };
+
+  // As três rotas reduzidas: sem login, só nome (e camisa/ids internos)
+  for (const caminho of [`/atletas/escola/${equipe.escola_id}`, `/atletas/equipe/${equipe.escola_id}`, `/inscricoes/equipe/${equipe.id}`]) {
+    const r = await semLogin(caminho);
+    conferir(
+      r.status === 200 && r.texto.includes(`${MARCA} PRIVADO`) && !PESSOAL.test(r.texto) && !r.texto.includes(`${MARCA}PRIV"`),
+      `GET ${caminho.replace(/\d+/, ':id')} sem login: o nome aparece, sem RG, nascimento nem sexo`,
+      `${r.status} ${r.texto.slice(0, 160)}`
+    );
+  }
+
+  // Com login de ADMIN, cadastro e inscrição seguem recebendo sexo e nascimento
+  const admin = await chamar('GET', `/atletas/escola/${equipe.escola_id}`);
+  const doAdmin = (admin.corpo || []).find((a) => a.id === atleta.id_atleta);
+  const elencoAdmin = await chamar('GET', `/inscricoes/equipe/${equipe.id}`);
+  const inscritoAdmin = (elencoAdmin.corpo.atletas || []).find((a) => a.atleta_id === atleta.id_atleta);
+  conferir(
+    Boolean(doAdmin?.data_nascimento && doAdmin?.sexo) && Boolean(inscritoAdmin?.ano_nascimento && inscritoAdmin?.sexo),
+    'com login de ADMIN, atletas e elenco continuam com sexo e nascimento (telas de cadastro e inscrição)',
+    JSON.stringify({ doAdmin, inscritoAdmin })
+  );
+
+  // Elegíveis: só o ADMIN
+  const elegiveisSemLogin = await semLogin(`/equipes/${equipe.id}/atletas-elegiveis`);
+  const elegiveisAdmin = await chamar('GET', `/equipes/${equipe.id}/atletas-elegiveis`);
+  conferir(
+    elegiveisSemLogin.status === 401 && elegiveisAdmin.status === 200,
+    'GET /equipes/:id/atletas-elegiveis: 401 sem login, 200 para o ADMIN',
+    `${elegiveisSemLogin.status} / ${elegiveisAdmin.status}`
+  );
+
+  // Varredura das outras leituras públicas que trazem atleta
+  const [[jogo]] = await db.query('SELECT id, competicao_id FROM jogos ORDER BY id LIMIT 1');
+  const publicas = ['/artilharia/lideres', `/artilharia/competicao/${equipe.competicao_id}`,
+    `/suspensoes/competicao/${equipe.competicao_id}`, `/competicoes/${equipe.competicao_id}`,
+    `/classificacao/competicao/${equipe.competicao_id}`, `/matamata/competicao/${equipe.competicao_id}`,
+    '/agenda', '/dashboard', '/tabela-geral', '/equipes'];
+  if (jogo) publicas.push(`/sumulas/${jogo.id}`, `/suspensoes/jogo/${jogo.id}`, `/agenda/jogos/${jogo.id}`, `/jogos/${jogo.id}`);
+  const vazando = [];
+  for (const caminho of publicas) {
+    const r = await semLogin(caminho);
+    if (r.status !== 200) vazando.push(`${caminho}: HTTP ${r.status}`);
+    else if (PESSOAL.test(r.texto)) vazando.push(`${caminho}: ${r.texto.match(PESSOAL)[0]}`);
+  }
+  conferir(vazando.length === 0, `${publicas.length} leituras públicas sem RG, nascimento nem sexo`, vazando.join(' | '));
 };
 
 // ---------------------------------------------------------------------------

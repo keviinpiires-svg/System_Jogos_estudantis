@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { veDadosPessoais } = require('../middlewares/authMiddleware');
 
 const SEXOS = ['M', 'F'];
 
@@ -102,7 +103,10 @@ const listarAtletasPorEscola = async (req, res) => {
       [escola_id]
     );
 
-    res.status(200).json(atletas);
+    // Sexo e nascimento só para o ADMIN; o público vê id, nome e escola
+    res.status(200).json(veDadosPessoais(req)
+      ? atletas
+      : atletas.map(({ id, nome, escola_id }) => ({ id, nome, escola_id })));
   } catch (erro) {
     console.error(erro);
     res.status(500).json({ erro: 'Erro ao buscar os atletas da escola.' });

@@ -51,4 +51,34 @@ const exigirPerfil = (...perfisPermitidos) => async (req, res, next) => {
   }
 };
 
-module.exports = { verificarToken, exigirPerfil };
+// Leitura pública que mostra MAIS para quem está logado (pendência 19,
+// 20/10/2026: dado pessoal de atleta — nascimento e sexo — só para o ADMIN).
+// Com token válido e conta ativa, deixa o usuário em req.usuario, com o perfil
+// relido do banco; sem token, ou com token vencido, segue anônimo
+// (req.usuario = null) — a leitura pública nunca falha por causa de login.
+const identificarSeLogado = async (req, res, next) => {
+  req.usuario = null;
+  const [tipo, token] = (req.headers.authorization || '').split(' ');
+  if (tipo !== 'Bearer' || !token) return next();
+
+  let dados;
+  try {
+    dados = jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    return next();
+  }
+
+  try {
+    const [[usuario]] = await db.query('SELECT perfil, ativo FROM usuarios WHERE id = ?', [dados.id]);
+    if (usuario && usuario.ativo) req.usuario = { ...dados, perfil: usuario.perfil };
+    next();
+  } catch (erro) {
+    console.error('Erro ao identificar o usuário da leitura:', erro);
+    next();
+  }
+};
+
+// Quem pode ver dado pessoal de atleta (nascimento, sexo): só o ADMIN
+const veDadosPessoais = (req) => req.usuario?.perfil === 'ADMIN';
+
+module.exports = { verificarToken, exigirPerfil, identificarSeLogado, veDadosPessoais };

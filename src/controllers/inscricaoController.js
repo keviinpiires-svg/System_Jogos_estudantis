@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { veDadosPessoais } = require('../middlewares/authMiddleware');
 
 // Decisão do usuário (28/09/2026): o limite conta COMPETIÇÕES coletivas, não
 // modalidades. Futsal Sub 13 + Futsal Sub 15 são duas, mesmo sendo a mesma
@@ -227,7 +228,12 @@ const listarInscritos = async (req, res) => {
       ? `A equipe tem ${plural(atletas.length, 'atleta', 'atletas')} e ${equipe.modalidade_nome} pede pelo menos ${equipe.min_atletas}.`
       : null;
 
-    res.status(200).json({ equipe, atletas, total_inscritos: atletas.length, aviso });
+    // Sexo e ano de nascimento só para o ADMIN; o público vê camisa e nome
+    const elenco = veDadosPessoais(req)
+      ? atletas
+      : atletas.map(({ inscricao_id, numero_camisa, atleta_id, nome }) => ({ inscricao_id, numero_camisa, atleta_id, nome }));
+
+    res.status(200).json({ equipe, atletas: elenco, total_inscritos: atletas.length, aviso });
   } catch (erro) {
     console.error(erro);
     res.status(500).json({ erro: 'Erro ao buscar o elenco da equipe.' });
