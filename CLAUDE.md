@@ -48,7 +48,7 @@ grupos, modelos de súmula).
   desempate em modalidade nenhuma. **Seguem PENDENTES:** as dúvidas de atletismo/xadrez/dama/dominó
   (fatia 11). O empate do baleado no ida e volta foi resolvido em 20/10/2026 (abaixo). **Contas de mesa (chefe, 12/10/2026): uma por local de jogo** (8 locais com o `db/12`);
   hoje a conta PLACAR não é ligada a local nenhum e vê e lança qualquer jogo. A trava de mesa por local
-  será o **`db/13`**.
+  será o **`db/15`** (o `db/13` é o da Conveniada e o `db/14`, o das equipes pela tabela do chefe).
 - **Respostas do chefe de 07/10/2026** (seção 12.1 do contexto, linhas 6, 12, 19, 21, 22 e 23):
   4º e 5º lugar e a revanche na semifinal viraram **definitivos** (sem aviso); a soma geral desempata por
   **mais 1ºs, depois 2ºs e 3ºs** (empate em tudo divide a posição: extensão provisória); **baleado**:
@@ -71,9 +71,11 @@ grupos, modelos de súmula).
   Precisa do `db/11` na produção **antes** do backend que o lê.
 - **Tabela oficial de jogos do chefe (20/10/2026):** o lote 1 (207 jogos de fase de grupos, CSV em
   `docs/importacao/`, **fora do git** pelo `.gitignore`: é a programação real). **Prévia no dev, sem
-  importar:** 174 novas, 33 com erro, 21 com aviso (todos de confronto repetido). Os erros (pendência 18
-  do contexto): "Conveniada" × COVENIADA no cadastro (28 linhas), Handebol M Sub 9 inexistente (1) e
-  duas escolas fora da competição (4). Pronto: `db/12` (três locais, no dev); o importador já usava o
+  importar, com o `db/14` aplicado:** 179 novas, 28 com erro, 21 com aviso (todos de confronto repetido).
+  Os 28 erros são de "Conveniada" × COVENIADA no cadastro, à espera do **`db/13` (ainda não escrito)**.
+  **Decisão (20/10): onde o cadastro e a tabela do chefe divergem, vale a tabela** — o `db/14` trocou
+  duas equipes e criou o Handebol M Sub 9 (51 competições; 1 jogo só, que funciona como final única;
+  pendência 18 do contexto). Pronto: `db/12` (três locais, no dev); o importador já usava o
   grupo das equipes com a coluna Grupo vazia (coberto no `fumaca`); grupos de 4 com 4 jogos não precisam
   de mudança. **"Melhor de dois jogos" corrigido:** o campeão sai da soma direta dos placares, em qualquer
   modalidade; empatada a soma, cobranças no 2º jogo (futsal e handebol) ou o acréscimo de 4 min do
@@ -159,7 +161,8 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - Ordem dos scripts: `00_apagar_tudo` → `01_schema` → `02_carga_base` → `03_importar_grupos` →
   `04_locais` → `05_faltas_basquete` → `06_ajustes_regras_provisorios` → `07_baleados_por_equipe` →
   `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja` → `11_pontos_lancados` →
-  `12_locais_adelieta_ceti`.
+  `12_locais_adelieta_ceti` → (`13`, Conveniada, ainda não escrito) →
+  `14_tabela_do_chefe_equipes`.
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
 - Scripts **sem `COLLATE`**: usam a padrão do servidor. Produção (`utf8mb4_0900_ai_ci`) é
@@ -191,7 +194,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é `13`),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o `13` está reservado para a Conveniada; depois dele, o próximo é o `15`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
@@ -293,6 +296,11 @@ de dados.
 14. **`db/12_locais_adelieta_ceti.sql` (20/10/2026): rodar no `jogos_2026` ANTES de importar a tabela de
     jogos do chefe**, com dump antes. Só dados e idempotente (três locais: Quadra da Adelieta Ramalho,
     Quadra do CETI e Campo Society do CETI). Aplicado no dev; **ainda não validado no MySQL** (em 20/10 a instância 3307 não estava no ar).
+15. **`db/14_tabela_do_chefe_equipes.sql` (20/10/2026): rodar no `jogos_2026` ANTES de importar a tabela de
+    jogos do chefe**, com dump antes. Troca duas equipes e cria o Handebol M Sub 9. **Se uma equipe a remover
+    tiver jogo, súmula, atleta inscrito ou colocação, o script para com erro** (`CHECK`
+    `equipe_a_remover_tem_jogos_sumulas_ou_inscritos`) e não grava nada: aí, conferir os dados antes de
+    decidir. Idempotente. Aplicado no dev; **ainda não validado no MySQL**.
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.
