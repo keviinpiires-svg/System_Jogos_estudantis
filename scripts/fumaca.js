@@ -1367,6 +1367,47 @@ const testarImportacaoDeJogos = async () => {
     `${de_novo.status} ${JSON.stringify(de_novo.corpo.resumo)}`
   );
 
+  // Grupo em branco (a tabela do chefe não traz grupo, 20/10/2026): vale o
+  // grupo das equipes; grupos diferentes e equipe fora da competição são erro.
+  // Só prévia: não grava nada.
+  const [[dois]] = await db.query(
+    `SELECT c.id, m.nome AS modalidade, cat.nome AS categoria, c.genero
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+      WHERE (SELECT COUNT(DISTINCT e.grupo_id) FROM equipes e WHERE e.competicao_id = c.id) >= 2
+      ORDER BY c.id LIMIT 1`
+  );
+  const [doDois] = await db.query(
+    `SELECT esc.nome, g.nome AS grupo FROM equipes e
+       INNER JOIN escolas esc ON esc.id = e.escola_id
+       INNER JOIN grupos g ON g.id = e.grupo_id
+      WHERE e.competicao_id = ? ORDER BY g.nome, e.id`,
+    [dois.id]
+  );
+  const [[fora]] = await db.query(
+    'SELECT nome FROM escolas WHERE id NOT IN (SELECT escola_id FROM equipes WHERE competicao_id = ?) ORDER BY id LIMIT 1',
+    [dois.id]
+  );
+  const [a1, a2] = doDois.filter((e) => e.grupo === doDois[0].grupo);
+  const b1 = doDois.find((e) => e.grupo !== doDois[0].grupo);
+  const semGrupo = (eq1, eq2) => [dois.modalidade, dois.categoria, dois.genero, '', eq1, eq2,
+    '25/11/2026', '05:13', '', '', ''].join(';');
+  const grupoVazio = await enviarCsv('/importacao-jogos/previa', [
+    'Modalidade;Categoria;Gênero;Grupo;Equipe 1;Equipe 2;Data;Hora;Local;Rodada;Árbitro',
+    semGrupo(a1.nome, a2.nome), // 2: mesmo grupo
+    semGrupo(a1.nome, b1.nome), // 3: grupos diferentes
+    semGrupo(fora.nome, a1.nome) // 4: escola fora da competição
+  ].join('\r\n'));
+  const gv = (n) => (grupoVazio.corpo.linhas || []).find((l) => l.linha === n) || { erros: [] };
+  conferir(
+    gv(2).situacao === 'NOVA' && gv(2).grupo === a1.grupo
+      && gv(3).situacao === 'ERRO' && gv(3).erros.some((e) => e.includes('grupos diferentes'))
+      && gv(4).situacao === 'ERRO' && gv(4).erros.some((e) => e.includes('não joga')),
+    'grupo em branco: vale o das equipes; grupos diferentes e equipe fora da competição são erro',
+    JSON.stringify(grupoVazio.corpo.resumo || grupoVazio.corpo)
+  );
+
   const semColuna = await enviarCsv('/importacao-jogos/previa', 'Modalidade;Categoria\r\nFutsal;Sub 8');
   conferir(
     semColuna.status === 400 && (semColuna.corpo.erro || '').includes('Faltam colunas'),
