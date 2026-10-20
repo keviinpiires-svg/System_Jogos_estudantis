@@ -31,9 +31,12 @@ grupos, modelos de súmula).
   sobra** 🔄 (falta técnicos/dirigentes, se entrarem); **11 — atletismo, xadrez, dama e dominó**
   ✅ (12/10/2026: a mesa lança os pontos na tela `/pontos-lancados`; números provisórios, seção 12.1, item 24). A fatia 10 foi executada com
   desvios do roteiro (ver "Histórico") e ainda tem pendências de produção (seção abaixo).
-- **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): as respostas
-  do chefe de 12/10/2026 (abaixo), nos dois repositórios. As de 06 e 07/10 já foram publicadas
-  (backend `63964e4`; frontend até `70385ca`).
+- **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): o trabalho de
+  20/10/2026 (tabela oficial de jogos e "melhor de dois jogos"), nos dois repositórios. As respostas
+  de 12/10 já foram publicadas (backend até `b86a2c9`; frontend até `8d1388a`). **Ordem do push:**
+  `db/12` na produção antes de importar; **frontend e backend juntos, frontend primeiro**: o backend
+  novo tira o `pendente` do baleado, e a tela antiga só mostrava o acréscimo da semifinal e da final
+  com ele; a tela nova funciona com o backend antigo.
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
@@ -42,9 +45,8 @@ grupos, modelos de súmula).
   normais, com aviso quando os jogos diferem. Numa segunda resposta, no mesmo dia: a **semifinal
   com 3 grupos** tem confrontos fixos (1ºA × melhor 2º, 1ºB × 1ºC) e o **3º lugar sem semifinal**
   (melhor 2º pela campanha) vale 6 pontos, ambos definitivos. Não há cobrança genérica de
-  desempate em modalidade nenhuma. **Seguem PENDENTES (12/10/2026):** o empate do baleado no ida e
-  volta com a soma empatada (a súmula avisa e não finaliza), as dúvidas de atletismo/xadrez/dama/dominó
-  (fatia 11). **Contas de mesa (chefe, 12/10/2026): uma por local de jogo** (8 locais com o `db/12`);
+  desempate em modalidade nenhuma. **Seguem PENDENTES:** as dúvidas de atletismo/xadrez/dama/dominó
+  (fatia 11). O empate do baleado no ida e volta foi resolvido em 20/10/2026 (abaixo). **Contas de mesa (chefe, 12/10/2026): uma por local de jogo** (8 locais com o `db/12`);
   hoje a conta PLACAR não é ligada a local nenhum e vê e lança qualquer jogo. A trava de mesa por local
   será o **`db/13`**.
 - **Respostas do chefe de 07/10/2026** (seção 12.1 do contexto, linhas 6, 12, 19, 21, 22 e 23):
@@ -68,12 +70,14 @@ grupos, modelos de súmula).
   combinações ocultas em `regrasProvisorias.pontosLancados`: **padrão adotado sem confirmação do chefe**.
   Precisa do `db/11` na produção **antes** do backend que o lê.
 - **Tabela oficial de jogos do chefe (20/10/2026):** o lote 1 (207 jogos de fase de grupos, CSV em
-  `docs/importacao/`, **fora do git** pelo `.gitignore`: é a programação real) ainda **não está no disco**:
-  a comparação de competições e a prévia esperam o arquivo. Pronto: `db/12` (três locais, no dev); o
-  importador já usava o grupo das equipes com a coluna Grupo vazia (agora coberto no `fumaca`); grupos de
-  4 com 4 jogos não precisam de mudança (a fase fica completa quando os jogos cadastrados terminam).
-  **Erro achado, sem correção:** no ida e volta do **baleado** o campeão pode sair contra a soma dos dois
-  jogos (pendência 8 do contexto). Só o Baleado Feminino Sub 08 tem esse formato.
+  `docs/importacao/`, **fora do git** pelo `.gitignore`: é a programação real). **Prévia no dev, sem
+  importar:** 174 novas, 33 com erro, 21 com aviso (todos de confronto repetido). Os erros (pendência 18
+  do contexto): "Conveniada" × COVENIADA no cadastro (28 linhas), Handebol M Sub 9 inexistente (1) e
+  duas escolas fora da competição (4). Pronto: `db/12` (três locais, no dev); o importador já usava o
+  grupo das equipes com a coluna Grupo vazia (coberto no `fumaca`); grupos de 4 com 4 jogos não precisam
+  de mudança. **"Melhor de dois jogos" corrigido:** o campeão sai da soma direta dos placares, em qualquer
+  modalidade; empatada a soma, cobranças no 2º jogo (futsal e handebol) ou o acréscimo de 4 min do
+  baleado, e a tela de súmula passou a pedir esse desempate (antes não pedia nem no futsal).
 - O banco antigo **`railway`** (18 tabelas do schema antigo, só dados de teste) continua parado e
   intacto no mesmo servidor, como âncora de volta atrás. **Não é o banco do sistema no ar.**
 
@@ -288,7 +292,7 @@ de dados.
     MySQL 8.0.46 (`01`–`11` em banco descartável). O reset do campeonato passa a apagar os pontos lançados.
 14. **`db/12_locais_adelieta_ceti.sql` (20/10/2026): rodar no `jogos_2026` ANTES de importar a tabela de
     jogos do chefe**, com dump antes. Só dados e idempotente (três locais: Quadra da Adelieta Ramalho,
-    Quadra do CETI e Campo Society do CETI). Aplicado no dev; **ainda não validado no MySQL**.
+    Quadra do CETI e Campo Society do CETI). Aplicado no dev; **ainda não validado no MySQL** (em 20/10 a instância 3307 não estava no ar).
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.
