@@ -17,7 +17,7 @@ grupos, modelos de súmula).
 
 ---
 
-## Estado atual (atualizado em 12/10/2026)
+## Estado atual (atualizado em 20/10/2026)
 
 - **A produção JÁ RODA O SISTEMA NOVO desde a noite de 01/10/2026** (virada entre ~20:59 e 21:50).
   Render publica a branch **`feat/novo-escopo`** (deploy `eaa50b6`, "Fatia 10d"), a Vercel também
@@ -44,8 +44,9 @@ grupos, modelos de súmula).
   (melhor 2º pela campanha) vale 6 pontos, ambos definitivos. Não há cobrança genérica de
   desempate em modalidade nenhuma. **Seguem PENDENTES (12/10/2026):** o empate do baleado no ida e
   volta com a soma empatada (a súmula avisa e não finaliza), as dúvidas de atletismo/xadrez/dama/dominó
-  (fatia 11). **Contas de mesa (chefe, 12/10/2026): uma por local de jogo** (5 locais com o `db/10`);
-  hoje a conta PLACAR não é ligada a local nenhum e vê e lança qualquer jogo.
+  (fatia 11). **Contas de mesa (chefe, 12/10/2026): uma por local de jogo** (8 locais com o `db/12`);
+  hoje a conta PLACAR não é ligada a local nenhum e vê e lança qualquer jogo. A trava de mesa por local
+  será o **`db/13`**.
 - **Respostas do chefe de 07/10/2026** (seção 12.1 do contexto, linhas 6, 12, 19, 21, 22 e 23):
   4º e 5º lugar e a revanche na semifinal viraram **definitivos** (sem aviso); a soma geral desempata por
   **mais 1ºs, depois 2ºs e 3ºs** (empate em tudo divide a posição: extensão provisória); **baleado**:
@@ -66,6 +67,13 @@ grupos, modelos de súmula).
   somam na Tabela Geral sem entrar no desempate. Pontos esperados (10 ou 20), teto de 99, categorias e
   combinações ocultas em `regrasProvisorias.pontosLancados`: **padrão adotado sem confirmação do chefe**.
   Precisa do `db/11` na produção **antes** do backend que o lê.
+- **Tabela oficial de jogos do chefe (20/10/2026):** o lote 1 (207 jogos de fase de grupos, CSV em
+  `docs/importacao/`, **fora do git** pelo `.gitignore`: é a programação real) ainda **não está no disco**:
+  a comparação de competições e a prévia esperam o arquivo. Pronto: `db/12` (três locais, no dev); o
+  importador já usava o grupo das equipes com a coluna Grupo vazia (agora coberto no `fumaca`); grupos de
+  4 com 4 jogos não precisam de mudança (a fase fica completa quando os jogos cadastrados terminam).
+  **Erro achado, sem correção:** no ida e volta do **baleado** o campeão pode sair contra a soma dos dois
+  jogos (pendência 8 do contexto). Só o Baleado Feminino Sub 08 tem esse formato.
 - O banco antigo **`railway`** (18 tabelas do schema antigo, só dados de teste) continua parado e
   intacto no mesmo servidor, como âncora de volta atrás. **Não é o banco do sistema no ar.**
 
@@ -146,7 +154,8 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `provas_atletismo`, `resultados_atletismo`. 33 chaves estrangeiras, 16 `CHECK`.
 - Ordem dos scripts: `00_apagar_tudo` → `01_schema` → `02_carga_base` → `03_importar_grupos` →
   `04_locais` → `05_faltas_basquete` → `06_ajustes_regras_provisorios` → `07_baleados_por_equipe` →
-  `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja` → `11_pontos_lancados`.
+  `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja` → `11_pontos_lancados` →
+  `12_locais_adelieta_ceti`.
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
 - Scripts **sem `COLLATE`**: usam a padrão do servidor. Produção (`utf8mb4_0900_ai_ci`) é
@@ -178,7 +187,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é `12`),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é `13`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
@@ -277,6 +286,9 @@ de dados.
 13. **`db/11_pontos_lancados.sql` (12/10/2026): rodar no `jogos_2026` ANTES do push do backend**, com dump
     antes. Sem a tabela, a Tabela Geral (pública) responde 500. Idempotente e só acrescenta; validado no
     MySQL 8.0.46 (`01`–`11` em banco descartável). O reset do campeonato passa a apagar os pontos lançados.
+14. **`db/12_locais_adelieta_ceti.sql` (20/10/2026): rodar no `jogos_2026` ANTES de importar a tabela de
+    jogos do chefe**, com dump antes. Só dados e idempotente (três locais: Quadra da Adelieta Ramalho,
+    Quadra do CETI e Campo Society do CETI). Aplicado no dev; **ainda não validado no MySQL**.
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.
