@@ -16,6 +16,7 @@ DROP TABLE IF EXISTS sumulas;
 DROP TABLE IF EXISTS sumulas_jogadores;
 
 -- Tabelas que existem nos dois schemas ou só no novo
+DROP TABLE IF EXISTS pontos_lancados_historico;
 DROP TABLE IF EXISTS pontos_lancados;
 DROP TABLE IF EXISTS resultados_atletismo;
 DROP TABLE IF EXISTS provas_atletismo;

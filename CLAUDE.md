@@ -17,7 +17,7 @@ grupos, modelos de súmula).
 
 ---
 
-## Estado atual (atualizado em 20/10/2026)
+## Estado atual (atualizado em 21/10/2026)
 
 - **A produção JÁ RODA O SISTEMA NOVO desde a noite de 01/10/2026** (virada entre ~20:59 e 21:50).
   Render publica a branch **`feat/novo-escopo`** (deploy `eaa50b6`, "Fatia 10d"), a Vercel também
@@ -31,14 +31,15 @@ grupos, modelos de súmula).
   sobra** 🔄 (falta técnicos/dirigentes, se entrarem); **11 — atletismo, xadrez, dama e dominó**
   ✅ (12/10/2026: a mesa lança os pontos nas telas `/tabuleiro` e `/atletismo`, as entradas do menu desde 21/10; números provisórios, seção 12.1, item 24). **12 — agenda de jogos** ✅ (20/10/2026: `/agenda` pública). A fatia 10 foi executada com
   desvios do roteiro (ver "Histórico") e ainda tem pendências de produção (seção abaixo).
-- **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): o trabalho de
-  20/10/2026 (tabela oficial de jogos, "melhor de dois jogos" e a Agenda de Jogos), nos dois
-  repositórios. As respostas de 12/10 já foram publicadas (backend até `b86a2c9`; frontend até
-  `8d1388a`). **Ordem do push: backend primeiro, frontend logo em seguida** — a tela `/agenda` chama
-  `GET /api/agenda`, que só existe no backend novo. (No intervalo, a tela antiga não mostra o
-  acréscimo do baleado na semifinal e na final, porque o backend novo tirou o `pendente` dele; antes
-  de 23/11 não há súmula real sendo lançada, então não morde.) Os scripts `12`, `13` e `14` rodam na
-  produção antes de importar a tabela.
+- **Publicado em 20/10/2026:** o trabalho de 20/10 (tabela oficial de jogos, "melhor de dois jogos",
+  Agenda de Jogos, número da tabela, pendência 19) — backend `139e541`, frontend `5368f07`, com os
+  scripts `12` a `15` rodados antes na produção.
+- **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): o lote dos
+  pontos lançados de 21/10/2026, nos dois repositórios (provas do atletismo, aviso ao substituir,
+  grade só com as escolas da folha, atletismo sem Aberto, histórico das correções e toque), e no
+  frontend também o menu "Tabuleiro"/"Atletismo". **Ordem do deploy:** `db/16` e `db/17` no
+  `jogos_2026` (com dump antes), depois o push do backend e, logo em seguida, o do frontend (a tela
+  nova manda `prova_id` e `substituir`, e lê os apelidos e o histórico).
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
@@ -50,8 +51,8 @@ grupos, modelos de súmula).
   desempate em modalidade nenhuma. **Seguem PENDENTES:** as dúvidas de atletismo/xadrez/dama/dominó
   (fatia 11). O empate do baleado no ida e volta foi resolvido em 20/10/2026 (abaixo). **Contas de mesa (chefe, 12/10/2026): uma por local de jogo** (8 locais com o `db/12`);
   hoje a conta PLACAR não é ligada a local nenhum e vê e lança qualquer jogo. A trava de mesa por local
-  será o **`db/16`** (o `db/13` é o da Conveniada, o `db/14` o das equipes pela tabela do chefe e o `db/15` o
-  do número da tabela do chefe).
+  será o **`db/18`** (o `db/13` é o da Conveniada, o `db/14` o das equipes pela tabela do chefe, o `db/15` o
+  do número da tabela do chefe, o `db/16` o das provas do atletismo e o `db/17` o histórico dos pontos lançados).
 - **Respostas do chefe de 07/10/2026** (seção 12.1 do contexto, linhas 6, 12, 19, 21, 22 e 23):
   4º e 5º lugar e a revanche na semifinal viraram **definitivos** (sem aviso); a soma geral desempata por
   **mais 1ºs, depois 2ºs e 3ºs** (empate em tudo divide a posição: extensão provisória); **baleado**:
@@ -72,6 +73,13 @@ grupos, modelos de súmula).
   somam na Tabela Geral sem entrar no desempate. Pontos esperados (10 ou 20), teto de 99, categorias e
   combinações ocultas em `regrasProvisorias.pontosLancados`: **padrão adotado sem confirmação do chefe**.
   Precisa do `db/11` na produção **antes** do backend que o lê.
+  **Lote de 21/10/2026 (commits locais):** no atletismo **cada prova é um lançamento próprio** (Sub 8 e 9:
+  50 m; Sub 11 a 17: salto e 100 m; `pontos_lancados.prova_id`, `db/16`), com aviso acima de 10 por prova,
+  e as provas **somam** na escola; o atletismo **não tem Aberto** (12 combinações; tabuleiro segue com 14).
+  Mudar um valor já gravado pede confirmação ("já tinha X, digitado por Y às HH:MM — substituir?"; sem
+  `substituir: true` o `PUT` responde 422) e grava o valor de antes em `pontos_lancados_historico`
+  (`db/17`), que o ADMIN lê na tela. A grade só tem as escolas da folha, escolhidas por busca de nome
+  ou apelido.
 - **Tabela oficial de jogos do chefe (20/10/2026):** o lote 1 (207 jogos de fase de grupos, CSV em
   `docs/importacao/`, **fora do git** pelo `.gitignore`: é a programação real). **Prévia no dev, sem
   importar, com o `db/13` e o `db/14` aplicados:** **207 novas, 0 erros**, 24 com aviso (todos de
@@ -149,7 +157,7 @@ Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mes
 | tabela-geral | `GET /` (calculada) |
 | agenda | `GET /` e `GET /jogos/:id` — **públicas**, só leitura (tela `/agenda`): a lista inteira numa consulta só (dia, local, hora, competição, fase, escolas, status e placar se encerrado) e o detalhe com os atletas das duas equipes **só com nome e camisa** (nada de RG, nascimento ou sexo: são menores) |
 | ajustes-pontos | `GET /`; `POST /`, `DELETE /:id` (ADMIN; punição de −5 a −10 com motivo) |
-| pontos-lancados | `GET /` (público); `PUT /` (ADMIN ou mesa: grade de pontos de atletismo, xadrez, dama e dominó por categoria e gênero); `DELETE /:modalidade/:categoria_id/:genero` (ADMIN) |
+| pontos-lancados | `GET /` (público, com os apelidos das escolas); `PUT /` (ADMIN ou mesa: pontos de atletismo — por prova, `prova_id` —, xadrez, dama e dominó por categoria e gênero; alterar ou tirar valor gravado exige `substituir: true`, senão 422 com a lista); `GET /historico` (ADMIN: correções de um lançamento); `DELETE /:modalidade/:categoria_id/:genero[?prova_id=]` (ADMIN) |
 | locais / etapas-ensino / dashboard | `GET /` |
 | campeonato | `DELETE /reset` (ADMIN; apaga só o que o evento produz) |
 | `/saude` | fora de `/api`; 200 com banco de pé, **503** sem banco |
@@ -158,7 +166,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 
 ## Banco de dados
 
-- **24 tabelas**: as 23 do schema novo (`db/01_schema.sql`) e `pontos_lancados` (`db/11`). As 23: `configuracao_evento`, `usuarios`, `etapas_ensino`,
+- **25 tabelas**: as 23 do schema novo (`db/01_schema.sql`), `pontos_lancados` (`db/11`, com `prova_id` desde o `db/16`) e `pontos_lancados_historico` (`db/17`). As 23: `configuracao_evento`, `usuarios`, `etapas_ensino`,
   `escolas`, `escola_apelidos`, `modalidades`, `categorias`, `competicoes`, `grupos`, `equipes`,
   `atletas`, `inscricoes_atletas`, `locais_disputa`, `jogos`, `sumula_atletas`, `sumula_equipes`,
   `jogo_sets`, `suspensoes`, `pontuacao_geral`, `colocacoes_finais`, `ajustes_pontos_geral`,
@@ -167,7 +175,8 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `04_locais` → `05_faltas_basquete` → `06_ajustes_regras_provisorios` → `07_baleados_por_equipe` →
   `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja` → `11_pontos_lancados` →
   `12_locais_adelieta_ceti` → `13_escola_conveniada` →
-  `14_tabela_do_chefe_equipes` → `15_numero_tabela`.
+  `14_tabela_do_chefe_equipes` → `15_numero_tabela` → `16_pontos_lancados_por_prova` →
+  `17_pontos_lancados_historico`.
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
 - Scripts **sem `COLLATE`**: usam a padrão do servidor. Produção (`utf8mb4_0900_ai_ci`) é
@@ -205,7 +214,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `16`, a trava de mesa por local),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `18`, a trava de mesa por local),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
@@ -323,6 +332,16 @@ de dados.
     importação respondem 500. Roda uma vez (de novo dá erro 3822 sem mudar nada). Validado no MySQL 8.0.46
     em 20/10/2026 (`00`–`11`, limpeza, `12`–`15` em banco descartável) e aplicado no dev, onde a reimportação
     do CSV com a coluna "Nº Tabela" preencheu 206 dos 207 jogos (um veio em branco de propósito).
+    (Os itens 14 a 17 rodaram na produção antes do deploy de 20/10/2026.)
+18. **`db/16_pontos_lancados_por_prova.sql` e `db/17_pontos_lancados_historico.sql` (21/10/2026): rodar no
+    `jogos_2026` ANTES do push do backend**, nessa ordem, com dump antes. O backend novo lê e grava
+    `pontos_lancados.prova_id` (sem o `16`, a Tabela Geral, pública, responde 500) e grava o histórico ao
+    corrigir (sem o `17`, toda correção falha). Os dois são compatíveis com o backend no ar. O `16` troca o
+    índice único pelo que inclui a prova (coluna gerada `prova_chave`) e **roda uma vez**; o `17` é
+    idempotente. Se a produção já tiver ponto de atletismo lançado, a conferência do `16` mostra quantos
+    ficaram sem prova (esperado 0): aí, decidir antes do deploy. Aplicados no dev e cobertos pelo `fumaca`
+    (140 ok) no banco de fumaça montado com `01`–`17`; **ainda não validados no MySQL 8.0.46 nem no 9**
+    (a instância 3307 estava fora do ar em 21/10).
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.
