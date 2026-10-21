@@ -1798,6 +1798,10 @@ const testarPontosLancados = async () => {
   const abas = (publica.corpo.configuracao?.modalidades || []).map((m) => m.slug).join(',');
   conferir(publica.status === 200 && abas === 'atletismo,xadrez,dama,domino',
     'leitura pública, com as quatro abas na ordem', `${publica.status} ${abas}`);
+  // A busca da escola da folha usa nome e apelido (21/10/2026)
+  const comApelido = publica.corpo.escolas.find((e) => (e.apelidos || []).length > 0);
+  conferir(publica.corpo.escolas.every((e) => Array.isArray(e.apelidos)) && Boolean(comApelido),
+    'as escolas vêm com os apelidos, para a busca da folha', comApelido ? `${comApelido.nome}: ${comApelido.apelidos.join(', ')}` : '');
 
   // Uma categoria e gênero da dama ainda sem lançamento nenhum
   const dama = publica.corpo.configuracao.modalidades.find((m) => m.slug === 'dama');

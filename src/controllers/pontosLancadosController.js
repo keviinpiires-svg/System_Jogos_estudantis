@@ -130,7 +130,16 @@ const listarPontosLancados = async (req, res) => {
         ORDER BY m.ordem, cat.ordem, p.genero, p.prova_id, p.pontos DESC, esc.nome`,
       slug ? [slug] : []
     );
-    const [escolas] = await db.query('SELECT id, nome FROM escolas ORDER BY nome');
+    // Com os apelidos ("J. DIAS", "ADELIETA"...): a tela busca a escola da folha
+    // pelo nome ou por qualquer grafia da tabela de grupos
+    const [escolasComApelidos] = await db.query(
+      `SELECT e.id, e.nome, GROUP_CONCAT(a.apelido ORDER BY a.apelido SEPARATOR '|') AS apelidos
+         FROM escolas e
+         LEFT JOIN escola_apelidos a ON a.escola_id = e.id
+        GROUP BY e.id, e.nome
+        ORDER BY e.nome`
+    );
+    const escolas = escolasComApelidos.map((e) => ({ id: e.id, nome: e.nome, apelidos: e.apelidos ? e.apelidos.split('|') : [] }));
 
     res.status(200).json({
       configuracao: {
