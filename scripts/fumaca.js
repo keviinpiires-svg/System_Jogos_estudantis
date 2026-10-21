@@ -161,6 +161,13 @@ const limpar = async () => {
       WHERE u.email IN (?)`,
     [[EMAIL, EMAIL_MESA]]
   );
+  // O histórico dos pontos lançados (db/17) aponta para os usuários de teste
+  await db.query(
+    `DELETE h FROM pontos_lancados_historico h
+       INNER JOIN usuarios u ON u.id = h.usuario_id OR u.id = h.anterior_por
+      WHERE u.email IN (?)`,
+    [[EMAIL, EMAIL_MESA]]
+  );
   await db.query('DELETE FROM usuarios WHERE email IN (?)', [[EMAIL, EMAIL_MESA]]);
   await db.query('DELETE FROM escola_apelidos WHERE apelido LIKE ?', [`${MARCA}%`]);
 
@@ -1879,6 +1886,18 @@ const testarPontosLancados = async () => {
     `${edicao.status} ${edicao.corpo.erro || ''} ${JSON.stringify(editada)}`
   );
 
+  // Histórico (db/17): a correção guarda o valor de antes; só o ADMIN lê
+  const filtro = `modalidade=dama&categoria_id=${alvo.categoria_id}&genero=${alvo.genero}`;
+  const historicoMesa = await comToken(mesa, 'GET', `/pontos-lancados/historico?${filtro}`);
+  const historico = await comToken(token, 'GET', `/pontos-lancados/historico?${filtro}`);
+  const alteracao = (historico.corpo.historico || []).find((h) => h.acao === 'ALTERACAO' && h.escola_id === e1.id);
+  conferir(
+    historicoMesa.status === 403 && historico.status === 200 && alteracao?.pontos_antes === 8 && alteracao?.pontos_depois === 9
+      && alteracao?.anterior_por_nome?.startsWith('Mesa') && Boolean(alteracao?.usuario_nome) && Boolean(alteracao?.feito_em),
+    'histórico da correção: 8 -> 9, quem tinha digitado (mesa), quem alterou e quando; a mesa não lê (403)',
+    `${historicoMesa.status} / ${historico.status} ${JSON.stringify(alteracao)}`
+  );
+
   const invalida = await comToken(mesa, 'PUT', '/pontos-lancados',
     { modalidade: 'futsal', categoria_id: alvo.categoria_id, genero: alvo.genero, linhas: [], base: [] });
   conferir(invalida.status === 400, 'modalidade fora das quatro -> 400', `saiu ${invalida.status}`);
@@ -1889,6 +1908,10 @@ const testarPontosLancados = async () => {
   const apagaAdmin = await comToken(token, 'DELETE', caminho);
   conferir(apagaAdmin.status === 200 && (await lerRecorte()).length === 0,
     'o ADMIN apaga o lançamento inteiro', `${apagaAdmin.status} ${apagaAdmin.corpo.erro || ''}`);
+  const depoisDeApagar = await comToken(token, 'GET', `/pontos-lancados/historico?${filtro}`);
+  const exclusoes = (depoisDeApagar.corpo.historico || []).filter((h) => h.acao === 'EXCLUSAO_LANCAMENTO');
+  conferir(exclusoes.length === 3 && exclusoes.every((h) => h.pontos_depois === null),
+    'apagar o lançamento inteiro registra cada escola no histórico', `${exclusoes.length} exclusões`);
 };
 
 

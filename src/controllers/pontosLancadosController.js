@@ -13,7 +13,9 @@ const { REGRAS } = require('../config/regrasProvisorias');
 // - Lançar e editar: ADMIN e PLACAR (a mesa). Apagar o lançamento inteiro:
 //   só o ADMIN. Sem trava por local: essas modalidades não têm jogo.
 // - Correção é edição no lugar: a linha guarda quem digitou e quando, e
-//   quem alterou por último e quando. Sem histórico das versões.
+//   quem alterou por último e quando. Cada alteração ou exclusão também vai
+//   para pontos_lancados_historico (db/17), com o valor de antes; o ADMIN
+//   consulta em GET /api/pontos-lancados/historico.
 // - Duas mesas na mesma grade: quem salva manda a "base" (o que abriu). Se o
 //   banco mudou desde então, a API recusa com 409 em vez de apagar o
 //   trabalho do outro em silêncio.
@@ -115,6 +117,18 @@ const resumoDe = (modalidade, combinacao, linhas, prova) => {
       + `${linhas.length} ${linhas.length === 1 ? 'escola' : 'escolas'}, total ${total} pontos`
   };
 };
+
+// Grava no histórico (db/17) o valor de antes de uma alteração ou exclusão,
+// na mesma transação da correção
+const registrarHistorico = (conexao, { atual, recorte, acao, depois, usuario_id }) => conexao.query(
+  `INSERT INTO pontos_lancados_historico
+     (modalidade_id, categoria_id, genero, prova_id, escola_id, acao, pontos_antes, colocacao_antes,
+      anterior_por, anterior_em, pontos_depois, colocacao_depois, usuario_id)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  [recorte.modalidade_id, recorte.categoria_id, recorte.genero, recorte.prova_id, atual.escola_id, acao,
+    atual.pontos, atual.colocacao ?? null, atual.mexido_por_id, atual.mexido_em,
+    depois ? depois.pontos : null, depois ? depois.colocacao : null, usuario_id]
+);
 
 // ---------------------------------------------------------------------------
 // GET /api/pontos-lancados[?modalidade=slug] — público
@@ -270,7 +284,8 @@ const salvarPontosLancados = async (req, res) => {
     const [atuais] = await conexao.query(
       `SELECT p.id, p.escola_id, p.pontos, p.colocacao,
               COALESCE(p.alterado_em, p.criado_em) AS mexido_em,
-              COALESCE(ua.nome, uc.nome) AS mexido_por
+              COALESCE(ua.nome, uc.nome) AS mexido_por,
+              COALESCE(p.alterado_por, p.criado_por) AS mexido_por_id
          FROM pontos_lancados p
          INNER JOIN usuarios uc ON uc.id = p.criado_por
          LEFT JOIN usuarios ua ON ua.id = p.alterado_por
@@ -317,12 +332,14 @@ const salvarPontosLancados = async (req, res) => {
     }
 
     let mudancas = 0;
+    const recorte = { modalidade_id: modalidade.id, categoria_id, genero, prova_id: prova ? prova.id : null };
 
     for (const linha of linhas) {
       const atual = porEscola.get(linha.escola_id);
 
       if (linha.pontos === null) {
         if (atual) {
+          await registrarHistorico(conexao, { atual, recorte, acao: 'EXCLUSAO', depois: null, usuario_id: req.usuario.id });
           await conexao.query('DELETE FROM pontos_lancados WHERE id = ?', [atual.id]);
           mudancas += 1;
         }
@@ -336,6 +353,7 @@ const salvarPontosLancados = async (req, res) => {
         );
         mudancas += 1;
       } else if (atual.pontos !== linha.pontos || (atual.colocacao ?? null) !== linha.colocacao) {
+        await registrarHistorico(conexao, { atual, recorte, acao: 'ALTERACAO', depois: linha, usuario_id: req.usuario.id });
         await conexao.query(
           `UPDATE pontos_lancados
               SET pontos = ?, colocacao = ?, alterado_por = ?, alterado_em = CURRENT_TIMESTAMP
@@ -384,28 +402,80 @@ const apagarLancamento = async (req, res) => {
   const genero = String(req.params.genero || '').toUpperCase();
   const prova_id = req.query.prova_id ? Number(req.query.prova_id) : null;
 
+  let conexao;
   try {
     const configuracao = await carregarConfiguracao(db);
     const alvo = localizarLancamento(configuracao, slug, categoria_id, genero, prova_id);
     if (alvo.erro) return res.status(400).json({ erro: alvo.erro });
     const { modalidade, prova } = alvo;
+    const recorte = { modalidade_id: modalidade.id, categoria_id, genero, prova_id: prova ? prova.id : null };
 
-    const [resultado] = await db.query(
-      'DELETE FROM pontos_lancados WHERE modalidade_id = ? AND categoria_id = ? AND genero = ? AND prova_id <=> ?',
-      [modalidade.id, categoria_id, genero, prova ? prova.id : null]
+    // Numa transação: cada escola apagada vai para o histórico (db/17)
+    conexao = await db.getConnection();
+    await conexao.beginTransaction();
+    const [atuais] = await conexao.query(
+      `SELECT id, escola_id, pontos, colocacao,
+              COALESCE(alterado_em, criado_em) AS mexido_em, COALESCE(alterado_por, criado_por) AS mexido_por_id
+         FROM pontos_lancados
+        WHERE modalidade_id = ? AND categoria_id = ? AND genero = ? AND prova_id <=> ?
+        FOR UPDATE`,
+      [modalidade.id, categoria_id, genero, recorte.prova_id]
     );
-
-    if (resultado.affectedRows === 0) {
+    if (atuais.length === 0) {
+      await conexao.rollback();
       return res.status(404).json({ erro: 'Não há pontos lançados nesta categoria e gênero.' });
     }
+    for (const atual of atuais) {
+      await registrarHistorico(conexao, { atual, recorte, acao: 'EXCLUSAO_LANCAMENTO', depois: null, usuario_id: req.usuario.id });
+    }
+    const [resultado] = await conexao.query('DELETE FROM pontos_lancados WHERE id IN (?)', [atuais.map((a) => a.id)]);
+    await conexao.commit();
 
     res.status(200).json({
       mensagem: `Lançamento apagado: ${resultado.affectedRows} `
         + `${resultado.affectedRows === 1 ? 'escola' : 'escolas'}.`
     });
   } catch (erro) {
+    if (conexao) await conexao.rollback();
     console.error('Erro ao apagar o lançamento de pontos:', erro);
-    res.status(500).json({ erro: 'Erro ao apagar o lançamento.' });
+    res.status(500).json({ erro: 'Erro ao apagar o lançamento. Nada foi apagado.' });
+  } finally {
+    if (conexao) conexao.release();
+  }
+};
+
+// ---------------------------------------------------------------------------
+// GET /api/pontos-lancados/historico?modalidade=&categoria_id=&genero=[&prova_id=]
+// — só ADMIN. As correções daquele lançamento, da mais nova para a mais velha.
+// ---------------------------------------------------------------------------
+const listarHistorico = async (req, res) => {
+  const slug = String(req.query.modalidade || '');
+  const categoria_id = Number(req.query.categoria_id);
+  const genero = String(req.query.genero || '').toUpperCase();
+  const prova_id = req.query.prova_id ? Number(req.query.prova_id) : null;
+
+  try {
+    const configuracao = await carregarConfiguracao(db);
+    const alvo = localizarLancamento(configuracao, slug, categoria_id, genero, prova_id);
+    if (alvo.erro) return res.status(400).json({ erro: alvo.erro });
+    const { modalidade, prova } = alvo;
+
+    const [historico] = await db.query(
+      `SELECT h.id, h.acao, h.escola_id, esc.nome AS escola_nome,
+              h.pontos_antes, h.colocacao_antes, ua.nome AS anterior_por_nome, h.anterior_em,
+              h.pontos_depois, h.colocacao_depois, u.nome AS usuario_nome, h.feito_em
+         FROM pontos_lancados_historico h
+         INNER JOIN escolas esc ON esc.id = h.escola_id
+         INNER JOIN usuarios u ON u.id = h.usuario_id
+         LEFT JOIN usuarios ua ON ua.id = h.anterior_por
+        WHERE h.modalidade_id = ? AND h.categoria_id = ? AND h.genero = ? AND h.prova_id <=> ?
+        ORDER BY h.feito_em DESC, h.id DESC`,
+      [modalidade.id, categoria_id, genero, prova ? prova.id : null]
+    );
+    res.status(200).json({ historico });
+  } catch (erro) {
+    console.error('Erro ao buscar o histórico dos pontos lançados:', erro);
+    res.status(500).json({ erro: 'Erro ao buscar o histórico.' });
   }
 };
 
@@ -413,6 +483,7 @@ module.exports = {
   listarPontosLancados,
   salvarPontosLancados,
   apagarLancamento,
+  listarHistorico,
   // Exportado para a Tabela Geral e para o teste de fumaça
   esperadoDe,
   provasDe
