@@ -254,13 +254,28 @@ const REGRAS = {
     // Gênero null tira os dois. Ex.: ['xadrez', 'Sub 8', null].
     ocultas: [],
 
-    // Pontos esperados por escola em cada lançamento. Passar disso NÃO
-    // bloqueia: a linha fica destacada e a mesa confirma antes de salvar.
-    // Atletismo: Sub 8 e Sub 9 têm uma prova (50 m); da Sub 11 em diante,
-    // duas (salto e 100 m). O Aberto do atletismo segue o padrão de duas
-    // provas, por suposição nossa.
+    // Atletismo por PROVA (21/10/2026, db/16): cada prova é um lançamento
+    // próprio, e a Tabela Geral soma as provas da escola. Regulamento: Sub 8
+    // e Sub 9 só correm 50 m; Sub 11 a Sub 17 fazem salto e 100 m. Os nomes
+    // são os de provas_atletismo (carga base); `rotulo` é o que a tela mostra.
+    provas: {
+      atletismo: {
+        'Sub 8': ['Corrida 50 metros'],
+        'Sub 9': ['Corrida 50 metros'],
+        padrao: ['Salto em distância', 'Corrida 100 metros']
+      }
+    },
+    rotulosDasProvas: {
+      'Corrida 50 metros': '50 m',
+      'Corrida 100 metros': '100 m',
+      'Salto em distância': 'Salto'
+    },
+
+    // Pontos esperados por escola em cada lançamento (no atletismo, em cada
+    // PROVA: 10, ou seja, 20 no total quando a categoria tem duas). Passar
+    // disso NÃO bloqueia: a linha fica destacada e a mesa confirma.
     esperado: {
-      atletismo: { 'Sub 8': 10, 'Sub 9': 10, padrao: 20 },
+      atletismo: { padrao: 10 },
       xadrez: { padrao: 10 },
       dama: { padrao: 10 },
       domino: { padrao: 10 }
@@ -278,8 +293,9 @@ const REGRAS = {
     descricao:
       'Atletismo, xadrez, dama e dominó: a mesa digita os pontos de cada escola por categoria '
       + 'e gênero, conforme a folha do juiz. Os pontos somam na tabela geral, mas não entram no '
-      + 'desempate por 1º, 2º e 3º lugares. Pontos esperados por escola: 10 no atletismo Sub 8 e '
-      + 'Sub 9, 20 nas demais categorias do atletismo e 10 no xadrez, na dama e no dominó.',
+      + 'desempate por 1º, 2º e 3º lugares. No atletismo cada prova é um lançamento próprio (Sub 8 e '
+      + 'Sub 9: 50 m; Sub 11 a Sub 17: salto e 100 m), e as provas somam sozinhas. Pontos esperados '
+      + 'por escola: 10 em cada prova do atletismo e 10 no xadrez, na dama e no dominó.',
     aplicadoEm: 'pontosLancadosController e tabelaGeralController'
   },
 

@@ -577,6 +577,7 @@ const rodar = async () => {
   await testarNumeroTabela();
   await testarPontosLancados();
   await testarPontosLancadosNaTabelaGeral();
+  await testarAtletismoPorProva();
 };
 
 // ---------------------------------------------------------------------------
@@ -1915,6 +1916,64 @@ const testarPontosLancadosNaTabelaGeral = async () => {
   await exigir('DELETE', `/pontos-lancados/xadrez/${alvo.categoria_id}/${alvo.genero}`, null, 'apagar o xadrez');
   const final = daEscola(await exigir('GET', '/tabela-geral', null, 'a tabela geral sem o xadrez'));
   conferir(final.pontos === antes.pontos, 'apagado o lançamento, a soma volta ao que era');
+};
+
+// Atletismo por prova (db/16, 21/10/2026): cada prova é um lançamento
+// próprio, e lançar as duas provas SOMA na Tabela Geral, não substitui.
+const testarAtletismoPorProva = async () => {
+  secao('-- atletismo por prova');
+
+  const leitura = await exigir('GET', '/pontos-lancados?modalidade=atletismo', null, 'ler o atletismo');
+  const atletismo = leitura.configuracao.modalidades.find((m) => m.slug === 'atletismo');
+  const rotulos = (cat) => (atletismo.combinacoes.find((c) => c.categoria_nome === cat)?.provas || []).map((p) => p.rotulo).join(',');
+  conferir(
+    rotulos('Sub 8') === '50 m' && rotulos('Sub 9') === '50 m'
+      && ['Sub 11', 'Sub 13', 'Sub 15', 'Sub 17'].every((c) => rotulos(c) === 'Salto,100 m')
+      && atletismo.combinacoes.every((c) => c.esperado === 10),
+    'provas do regulamento: Sub 8 e 9 só 50 m; Sub 11 a 17 salto e 100 m; 10 pontos esperados por prova'
+  );
+
+  const ocupadas = new Set(leitura.lancamentos.map((l) => `${l.categoria_id}|${l.genero}`));
+  const alvo = atletismo.combinacoes.find((c) => c.provas.length === 2 && !ocupadas.has(`${c.categoria_id}|${c.genero}`));
+  if (!alvo) throw new Error('Não achei categoria livre do atletismo com duas provas.');
+  const [salto, cem] = alvo.provas;
+  const escola = leitura.escolas[1];
+  const recorte = { modalidade: 'atletismo', categoria_id: alvo.categoria_id, genero: alvo.genero };
+  const daEscola = async () => ((await exigir('GET', '/tabela-geral', null, 'a tabela geral')).geral
+    .find((e) => e.escola_id === escola.id) || { pontos: 0, origens: [] });
+  const antes = await daEscola();
+
+  const semProva = await chamar('PUT', '/pontos-lancados', { ...recorte, linhas: [{ escola_id: escola.id, pontos: 10 }], base: [] });
+  const tabuleiroComProva = await chamar('PUT', '/pontos-lancados', {
+    modalidade: 'xadrez', categoria_id: alvo.categoria_id, genero: alvo.genero, prova_id: salto.id,
+    linhas: [{ escola_id: escola.id, pontos: 1 }], base: []
+  });
+  conferir(semProva.status === 400 && tabuleiroComProva.status === 400,
+    'atletismo sem prova -> 400; xadrez com prova -> 400', `${semProva.status} / ${tabuleiroComProva.status}`);
+
+  // A folha do salto e, depois, a dos 100 m: duas linhas, que somam
+  await exigir('PUT', '/pontos-lancados', { ...recorte, prova_id: salto.id, linhas: [{ escola_id: escola.id, pontos: 10, colocacao: 1 }], base: [] }, 'lançar o salto');
+  await exigir('PUT', '/pontos-lancados', { ...recorte, prova_id: cem.id, linhas: [{ escola_id: escola.id, pontos: 8, colocacao: 2 }], base: [] }, 'lançar os 100 m');
+  const [gravadas] = await db.query(
+    `SELECT p.prova_id, p.pontos FROM pontos_lancados p INNER JOIN modalidades m ON m.id = p.modalidade_id
+      WHERE m.slug = 'atletismo' AND p.categoria_id = ? AND p.genero = ? AND p.escola_id = ? ORDER BY p.prova_id`,
+    [alvo.categoria_id, alvo.genero, escola.id]
+  );
+  const depois = await daEscola();
+  const provasNaAbertura = depois.origens.filter((o) => o.lancado && o.modalidade_nome === 'Atletismo').map((o) => `${o.prova}:${o.pontos}`).sort();
+  conferir(
+    gravadas.length === 2 && depois.pontos === antes.pontos + 18
+      && provasNaAbertura.join() === ['100 m:8', 'Salto:10'].join(),
+    'lançar as duas provas SOMA (10 + 8 = 18) e não substitui; a abertura mostra cada prova',
+    `linhas ${JSON.stringify(gravadas)} | antes ${antes.pontos}, depois ${depois.pontos} | ${provasNaAbertura}`
+  );
+
+  // Apagar uma prova não mexe na outra
+  await exigir('DELETE', `/pontos-lancados/atletismo/${alvo.categoria_id}/${alvo.genero}?prova_id=${salto.id}`, null, 'apagar o salto');
+  const soCem = await daEscola();
+  conferir(soCem.pontos === antes.pontos + 8, 'apagar o lançamento do salto deixa os 100 m', `${soCem.pontos}`);
+  await exigir('DELETE', `/pontos-lancados/atletismo/${alvo.categoria_id}/${alvo.genero}?prova_id=${cem.id}`, null, 'apagar os 100 m');
+  conferir((await daEscola()).pontos === antes.pontos, 'apagadas as duas provas, a soma volta ao que era');
 };
 
 // ---------------------------------------------------------------------------

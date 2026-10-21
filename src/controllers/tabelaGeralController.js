@@ -177,12 +177,13 @@ const tabelaGeral = async (req, res) => {
     // A colocação, quando digitada, vai junto só como informação.
     const [lancados] = await db.query(
       `SELECT p.escola_id, esc.nome AS escola_nome, p.pontos, p.colocacao, p.genero,
-              m.nome AS modalidade_nome, cat.nome AS categoria_nome
+              m.nome AS modalidade_nome, cat.nome AS categoria_nome, pr.nome AS prova_nome
          FROM pontos_lancados p
          INNER JOIN escolas esc ON esc.id = p.escola_id
          INNER JOIN modalidades m ON m.id = p.modalidade_id
          INNER JOIN categorias cat ON cat.id = p.categoria_id
-        ORDER BY m.ordem, cat.ordem, p.genero`
+         LEFT JOIN provas_atletismo pr ON pr.id = p.prova_id
+        ORDER BY m.ordem, cat.ordem, p.genero, p.prova_id`
     );
 
     for (const lancado of lancados) {
@@ -194,6 +195,10 @@ const tabelaGeral = async (req, res) => {
         modalidade_nome: lancado.modalidade_nome,
         categoria_nome: lancado.categoria_nome,
         genero: lancado.genero,
+        // Atletismo: cada prova é uma linha (db/16); as provas somam aqui
+        prova: lancado.prova_nome
+          ? (REGRAS.pontosLancados.rotulosDasProvas?.[lancado.prova_nome] || lancado.prova_nome)
+          : null,
         colocacao: lancado.colocacao,
         pontos: lancado.pontos
       });

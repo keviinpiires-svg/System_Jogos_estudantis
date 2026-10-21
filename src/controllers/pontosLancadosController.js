@@ -6,7 +6,8 @@ const { REGRAS } = require('../config/regrasProvisorias');
 //
 // Essas modalidades funcionam fora do sistema: o juiz entrega a folha e a
 // mesa digita os pontos de cada escola, por modalidade × categoria × gênero
-// (um "lançamento"). Os pontos somam na Tabela Geral.
+// (um "lançamento") e, no atletismo, também por PROVA (db/16): cada folha
+// de prova é um lançamento próprio, e a Tabela Geral soma as provas sozinha.
 //
 // - Leitura pública: a escola confere de onde veio a própria soma.
 // - Lançar e editar: ADMIN e PLACAR (a mesa). Apagar o lançamento inteiro:
@@ -31,6 +32,13 @@ const esperadoDe = (slug, categoriaNome) => {
   return tabela[categoriaNome] ?? tabela.padrao ?? REGRA.tetoAbsoluto;
 };
 
+// Provas da combinação (só o atletismo tem): nomes de provas_atletismo
+const provasDe = (slug, categoriaNome) => {
+  const tabela = (REGRA.provas || {})[slug];
+  if (!tabela) return [];
+  return tabela[categoriaNome] || tabela.padrao || [];
+};
+
 const oculta = (slug, categoriaNome, genero) => REGRA.ocultas.some(([s, c, g]) =>
   s === slug && c === categoriaNome && (g === null || g === undefined || g === genero));
 
@@ -44,6 +52,7 @@ const carregarConfiguracao = async (conexao) => {
     'SELECT id, nome FROM categorias WHERE nome IN (?)',
     [REGRA.categorias]
   );
+  const [provas] = await conexao.query('SELECT id, nome FROM provas_atletismo');
 
   return REGRA.modalidades
     .map((slug) => modalidades.find((m) => m.slug === slug))
@@ -59,7 +68,12 @@ const carregarConfiguracao = async (conexao) => {
             categoria_id: categoria.id,
             categoria_nome: categoria.nome,
             genero,
-            esperado: esperadoDe(modalidade.slug, categoria.nome)
+            esperado: esperadoDe(modalidade.slug, categoria.nome),
+            // Vazio no xadrez, na dama e no dominó; no atletismo, as provas da categoria
+            provas: provasDe(modalidade.slug, categoria.nome)
+              .map((nome) => provas.find((p) => p.nome === nome))
+              .filter(Boolean)
+              .map((p) => ({ id: p.id, nome: p.nome, rotulo: REGRA.rotulosDasProvas?.[p.nome] || p.nome }))
           })))
     }));
 };
@@ -67,6 +81,7 @@ const carregarConfiguracao = async (conexao) => {
 const SELECT_LANCAMENTOS = `
   SELECT p.id, m.slug AS modalidade, m.nome AS modalidade_nome,
          p.categoria_id, cat.nome AS categoria_nome, p.genero,
+         p.prova_id, pr.nome AS prova_nome,
          p.escola_id, esc.nome AS escola_nome, p.pontos, p.colocacao,
          p.criado_em, uc.nome AS criado_por_nome,
          p.alterado_em, ua.nome AS alterado_por_nome
@@ -75,7 +90,8 @@ const SELECT_LANCAMENTOS = `
     INNER JOIN categorias cat ON cat.id = p.categoria_id
     INNER JOIN escolas esc ON esc.id = p.escola_id
     INNER JOIN usuarios uc ON uc.id = p.criado_por
-    LEFT JOIN usuarios ua ON ua.id = p.alterado_por`;
+    LEFT JOIN usuarios ua ON ua.id = p.alterado_por
+    LEFT JOIN provas_atletismo pr ON pr.id = p.prova_id`;
 
 // O que importa para saber se a grade mudou: pontos e colocação por escola
 const assinatura = (linhas) => linhas
@@ -89,12 +105,13 @@ const inteiroOuNulo = (valor) => {
   return Number.isInteger(numero) ? numero : undefined;
 };
 
-const resumoDe = (modalidade, combinacao, linhas) => {
+const resumoDe = (modalidade, combinacao, linhas, prova) => {
   const total = linhas.reduce((soma, l) => soma + l.pontos, 0);
   return {
     escolas: linhas.length,
     total,
-    texto: `${modalidade.nome} ${combinacao.categoria_nome} ${GENEROS[combinacao.genero]}: `
+    texto: `${modalidade.nome} ${combinacao.categoria_nome} ${GENEROS[combinacao.genero]}`
+      + `${prova ? ` — ${prova.rotulo}` : ''}: `
       + `${linhas.length} ${linhas.length === 1 ? 'escola' : 'escolas'}, total ${total} pontos`
   };
 };
@@ -110,7 +127,7 @@ const listarPontosLancados = async (req, res) => {
     const [lancamentos] = await db.query(
       `${SELECT_LANCAMENTOS}
         ${slug ? 'WHERE m.slug = ?' : ''}
-        ORDER BY m.ordem, cat.ordem, p.genero, p.pontos DESC, esc.nome`,
+        ORDER BY m.ordem, cat.ordem, p.genero, p.prova_id, p.pontos DESC, esc.nome`,
       slug ? [slug] : []
     );
     const [escolas] = await db.query('SELECT id, nome FROM escolas ORDER BY nome');
@@ -134,7 +151,7 @@ const listarPontosLancados = async (req, res) => {
 };
 
 // Acha a modalidade e a combinação pedidas na configuração, ou diz o erro
-const localizarLancamento = (configuracao, slug, categoria_id, genero) => {
+const localizarLancamento = (configuracao, slug, categoria_id, genero, prova_id = null) => {
   const modalidade = configuracao.find((m) => m.slug === slug);
   if (!modalidade) {
     return { erro: `Modalidade inválida: use ${REGRA.modalidades.join(', ')}.` };
@@ -144,13 +161,25 @@ const localizarLancamento = (configuracao, slug, categoria_id, genero) => {
   if (!combinacao) {
     return { erro: `${modalidade.nome} não tem essa categoria e gênero para lançar pontos.` };
   }
-  return { modalidade, combinacao };
+  if (combinacao.provas.length === 0) {
+    if (prova_id) return { erro: `${modalidade.nome} não tem provas: lance sem escolher prova.` };
+    return { modalidade, combinacao, prova: null };
+  }
+  const prova = combinacao.provas.find((p) => p.id === prova_id);
+  if (!prova) {
+    return {
+      erro: `Escolha a prova de ${modalidade.nome} ${combinacao.categoria_nome}: `
+        + `${combinacao.provas.map((p) => p.rotulo).join(' ou ')}.`
+    };
+  }
+  return { modalidade, combinacao, prova };
 };
 
 // ---------------------------------------------------------------------------
 // PUT /api/pontos-lancados — ADMIN e PLACAR
-// Corpo: { modalidade, categoria_id, genero, linhas: [{ escola_id, pontos,
-// colocacao }], base: [...as linhas como estavam ao abrir], confirmado }.
+// Corpo: { modalidade, categoria_id, genero, prova_id (só no atletismo),
+// linhas: [{ escola_id, pontos, colocacao }], base: [...as linhas como estavam
+// ao abrir], confirmado }.
 // Pontos em branco (null) tiram a escola do lançamento. Escola que não vem
 // em `linhas` fica como está.
 // ---------------------------------------------------------------------------
@@ -158,6 +187,7 @@ const salvarPontosLancados = async (req, res) => {
   const slug = String(req.body.modalidade || '');
   const categoria_id = Number(req.body.categoria_id);
   const genero = String(req.body.genero || '').toUpperCase();
+  const prova_id = req.body.prova_id ? Number(req.body.prova_id) : null;
   const enviadas = Array.isArray(req.body.linhas) ? req.body.linhas : null;
   const base = Array.isArray(req.body.base) ? req.body.base : null;
   const confirmado = req.body.confirmado === true;
@@ -198,9 +228,9 @@ const salvarPontosLancados = async (req, res) => {
   let conexao;
   try {
     const configuracao = await carregarConfiguracao(db);
-    const alvo = localizarLancamento(configuracao, slug, categoria_id, genero);
+    const alvo = localizarLancamento(configuracao, slug, categoria_id, genero, prova_id);
     if (alvo.erro) return res.status(400).json({ erro: alvo.erro });
-    const { modalidade, combinacao } = alvo;
+    const { modalidade, combinacao, prova } = alvo;
 
     // Acima do esperado: a mesa precisa confirmar (a tela já pergunta)
     const acima = linhas.filter((l) => l.pontos !== null && l.pontos > combinacao.esperado);
@@ -234,9 +264,9 @@ const salvarPontosLancados = async (req, res) => {
          FROM pontos_lancados p
          INNER JOIN usuarios uc ON uc.id = p.criado_por
          LEFT JOIN usuarios ua ON ua.id = p.alterado_por
-        WHERE p.modalidade_id = ? AND p.categoria_id = ? AND p.genero = ?
+        WHERE p.modalidade_id = ? AND p.categoria_id = ? AND p.genero = ? AND p.prova_id <=> ?
         FOR UPDATE`,
-      [modalidade.id, categoria_id, genero]
+      [modalidade.id, categoria_id, genero, prova ? prova.id : null]
     );
 
     if (assinatura(atuais) !== assinatura(base.filter((l) => l.pontos !== null && l.pontos !== undefined))) {
@@ -263,9 +293,10 @@ const salvarPontosLancados = async (req, res) => {
       } else if (!atual) {
         await conexao.query(
           `INSERT INTO pontos_lancados
-             (modalidade_id, categoria_id, genero, escola_id, pontos, colocacao, criado_por)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [modalidade.id, categoria_id, genero, linha.escola_id, linha.pontos, linha.colocacao, req.usuario.id]
+             (modalidade_id, categoria_id, genero, prova_id, escola_id, pontos, colocacao, criado_por)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [modalidade.id, categoria_id, genero, prova ? prova.id : null, linha.escola_id, linha.pontos,
+            linha.colocacao, req.usuario.id]
         );
         mudancas += 1;
       } else if (atual.pontos !== linha.pontos || (atual.colocacao ?? null) !== linha.colocacao) {
@@ -283,11 +314,11 @@ const salvarPontosLancados = async (req, res) => {
 
     const [lancamento] = await db.query(
       `${SELECT_LANCAMENTOS}
-        WHERE p.modalidade_id = ? AND p.categoria_id = ? AND p.genero = ?
+        WHERE p.modalidade_id = ? AND p.categoria_id = ? AND p.genero = ? AND p.prova_id <=> ?
         ORDER BY p.pontos DESC, esc.nome`,
-      [modalidade.id, categoria_id, genero]
+      [modalidade.id, categoria_id, genero, prova ? prova.id : null]
     );
-    const resumo = resumoDe(modalidade, combinacao, lancamento);
+    const resumo = resumoDe(modalidade, combinacao, lancamento, prova);
 
     res.status(200).json({
       mensagem: mudancas
@@ -307,22 +338,25 @@ const salvarPontosLancados = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
-// DELETE /api/pontos-lancados/:modalidade/:categoria_id/:genero — só ADMIN
-// Apaga o lançamento inteiro daquela categoria e gênero.
+// DELETE /api/pontos-lancados/:modalidade/:categoria_id/:genero[?prova_id=]
+// — só ADMIN. Apaga o lançamento inteiro daquela categoria e gênero (no
+// atletismo, daquela prova: prova_id é obrigatório).
 // ---------------------------------------------------------------------------
 const apagarLancamento = async (req, res) => {
   const slug = String(req.params.modalidade || '');
   const categoria_id = Number(req.params.categoria_id);
   const genero = String(req.params.genero || '').toUpperCase();
+  const prova_id = req.query.prova_id ? Number(req.query.prova_id) : null;
 
   try {
     const configuracao = await carregarConfiguracao(db);
-    const modalidade = configuracao.find((m) => m.slug === slug);
-    if (!modalidade) return res.status(400).json({ erro: 'Modalidade inválida.' });
+    const alvo = localizarLancamento(configuracao, slug, categoria_id, genero, prova_id);
+    if (alvo.erro) return res.status(400).json({ erro: alvo.erro });
+    const { modalidade, prova } = alvo;
 
     const [resultado] = await db.query(
-      'DELETE FROM pontos_lancados WHERE modalidade_id = ? AND categoria_id = ? AND genero = ?',
-      [modalidade.id, categoria_id, genero]
+      'DELETE FROM pontos_lancados WHERE modalidade_id = ? AND categoria_id = ? AND genero = ? AND prova_id <=> ?',
+      [modalidade.id, categoria_id, genero, prova ? prova.id : null]
     );
 
     if (resultado.affectedRows === 0) {
@@ -344,5 +378,6 @@ module.exports = {
   salvarPontosLancados,
   apagarLancamento,
   // Exportado para a Tabela Geral e para o teste de fumaça
-  esperadoDe
+  esperadoDe,
+  provasDe
 };
