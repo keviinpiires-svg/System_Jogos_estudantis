@@ -179,7 +179,8 @@ const localizarLancamento = (configuracao, slug, categoria_id, genero, prova_id 
 // PUT /api/pontos-lancados — ADMIN e PLACAR
 // Corpo: { modalidade, categoria_id, genero, prova_id (só no atletismo),
 // linhas: [{ escola_id, pontos, colocacao }], base: [...as linhas como estavam
-// ao abrir], confirmado }.
+// ao abrir], confirmado, substituir }. 422: acima do esperado (confirmado) ou
+// valor já gravado que muda ou sai (substituir).
 // Pontos em branco (null) tiram a escola do lançamento. Escola que não vem
 // em `linhas` fica como está.
 // ---------------------------------------------------------------------------
@@ -280,6 +281,32 @@ const salvarPontosLancados = async (req, res) => {
     }
 
     const porEscola = new Map(atuais.map((a) => [a.escola_id, a]));
+
+    // Sobrescrever ou apagar um valor já gravado só com confirmação explícita
+    // (substituir: true): a tela mostra "já tinha X, digitado por Y às HH:MM"
+    // na revisão, e só então manda gravar (21/10/2026)
+    const substituicoes = linhas
+      .map((linha) => ({ linha, atual: porEscola.get(linha.escola_id) }))
+      .filter(({ linha, atual }) => atual && (atual.pontos !== linha.pontos || (atual.colocacao ?? null) !== linha.colocacao));
+    if (substituicoes.length && req.body.substituir !== true) {
+      await conexao.rollback();
+      const [nomes] = await db.query('SELECT id, nome FROM escolas WHERE id IN (?)', [substituicoes.map((s) => s.linha.escola_id)]);
+      return res.status(422).json({
+        erro: `${substituicoes.length === 1 ? 'Uma escola já tinha' : `${substituicoes.length} escolas já tinham`} `
+          + 'pontos neste lançamento. Confira e confirme a substituição para salvar.',
+        substituicoes: substituicoes.map(({ linha, atual }) => ({
+          escola_id: linha.escola_id,
+          escola_nome: nomes.find((n) => n.id === linha.escola_id)?.nome || '',
+          pontos_antes: atual.pontos,
+          colocacao_antes: atual.colocacao ?? null,
+          pontos_depois: linha.pontos,
+          colocacao_depois: linha.colocacao,
+          por: atual.mexido_por,
+          em: atual.mexido_em
+        }))
+      });
+    }
+
     let mudancas = 0;
 
     for (const linha of linhas) {

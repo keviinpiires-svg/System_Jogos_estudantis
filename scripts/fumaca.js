@@ -1857,7 +1857,16 @@ const testarPontosLancados = async () => {
 
   linhas = await lerRecorte();
   const baseAtual = linhas.map(({ escola_id, pontos, colocacao }) => ({ escola_id, pontos, colocacao }));
-  const edicao = await salvar(token, [{ escola_id: e1.id, pontos: 9, colocacao: 1 }], baseAtual);
+  // Sobrescrever sem confirmar: 422 com o que seria substituído (21/10/2026)
+  const semConfirmar = await salvar(token, [{ escola_id: e1.id, pontos: 9, colocacao: 1 }], baseAtual);
+  const sub = semConfirmar.corpo.substituicoes?.[0];
+  conferir(
+    semConfirmar.status === 422 && sub?.escola_id === e1.id && sub?.pontos_antes === 8 && sub?.pontos_depois === 9
+      && sub?.por && sub?.em && (await lerRecorte()).find((l) => l.escola_id === e1.id).pontos === 8,
+    'sobrescrever sem confirmar -> 422 com "já tinha 8, digitado por…, quando", e nada muda',
+    `${semConfirmar.status} ${JSON.stringify(sub)}`
+  );
+  const edicao = await salvar(token, [{ escola_id: e1.id, pontos: 9, colocacao: 1 }], baseAtual, { substituir: true });
   const editada = (await lerRecorte()).find((l) => l.escola_id === e1.id);
   conferir(
     edicao.status === 200 && editada.pontos === 9 && editada.criado_por === EMAIL_MESA
