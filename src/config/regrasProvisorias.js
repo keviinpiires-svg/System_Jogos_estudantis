@@ -252,7 +252,9 @@ const REGRAS = {
 
     // Combinação que não existe sai da tela: [slug, categoria, gênero].
     // Gênero null tira os dois. Ex.: ['xadrez', 'Sub 8', null].
-    ocultas: [],
+    // 21/10/2026: o atletismo não tem Aberto (o regulamento só fala de Sub 8 a
+    // Sub 17); xadrez, dama e dominó mantêm as 14 combinações.
+    ocultas: [['atletismo', 'Aberto', null]],
 
     // Atletismo por PROVA (21/10/2026, db/16): cada prova é um lançamento
     // próprio, e a Tabela Geral soma as provas da escola. Regulamento: Sub 8

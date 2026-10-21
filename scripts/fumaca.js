@@ -1945,6 +1945,13 @@ const testarAtletismoPorProva = async () => {
       && atletismo.combinacoes.every((c) => c.esperado === 10),
     'provas do regulamento: Sub 8 e 9 só 50 m; Sub 11 a 17 salto e 100 m; 10 pontos esperados por prova'
   );
+  const porModalidade = Object.fromEntries(leitura.configuracao.modalidades.map((m) => [m.slug, m.combinacoes]));
+  conferir(
+    !porModalidade.atletismo.some((c) => c.categoria_nome === 'Aberto') && porModalidade.atletismo.length === 12
+      && ['xadrez', 'dama', 'domino'].every((slug) => porModalidade[slug]?.length === 14),
+    'atletismo sem o Aberto (12 combinações); xadrez, dama e dominó com as 14',
+    Object.entries(porModalidade).map(([k, v]) => `${k}:${v.length}`).join(' ')
+  );
 
   const ocupadas = new Set(leitura.lancamentos.map((l) => `${l.categoria_id}|${l.genero}`));
   const alvo = atletismo.combinacoes.find((c) => c.provas.length === 2 && !ocupadas.has(`${c.categoria_id}|${c.genero}`));
