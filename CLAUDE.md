@@ -29,7 +29,7 @@ grupos, modelos de súmula).
   o usuário pedir e sem testar antes no banco de dev.
 - Fatias (numeração oficial na seção 9 do contexto): 1–7, 9 e 10 ✅; **8 — tabela geral e o que
   sobra** 🔄 (falta técnicos/dirigentes, se entrarem); **11 — atletismo, xadrez, dama e dominó**
-  ✅ (12/10/2026: a mesa lança os pontos na tela `/pontos-lancados`; números provisórios, seção 12.1, item 24). **12 — agenda de jogos** ✅ (20/10/2026: `/agenda` pública). A fatia 10 foi executada com
+  ✅ (12/10/2026: a mesa lança os pontos nas telas `/tabuleiro` e `/atletismo`, as entradas do menu desde 21/10; números provisórios, seção 12.1, item 24). **12 — agenda de jogos** ✅ (20/10/2026: `/agenda` pública). A fatia 10 foi executada com
   desvios do roteiro (ver "Histórico") e ainda tem pendências de produção (seção abaixo).
 - **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): o trabalho de
   20/10/2026 (tabela oficial de jogos, "melhor de dois jogos" e a Agenda de Jogos), nos dois
@@ -68,7 +68,7 @@ grupos, modelos de súmula).
   **vôlei**: 3 sets de 21, **o 3º inclusive**, com 2 de vantagem e sem teto (o código já fazia assim).
   Nenhum script de banco.
 - **Pontos lançados (12/10/2026, fatia 11):** atletismo, xadrez, dama e dominó funcionam fora do sistema;
-  a mesa (ou o ADMIN) digita os pontos de cada escola por categoria e gênero em `/pontos-lancados`, e eles
+  a mesa (ou o ADMIN) digita os pontos de cada escola por categoria e gênero em `/tabuleiro` (xadrez, dama e dominó) e `/atletismo`, e eles
   somam na Tabela Geral sem entrar no desempate. Pontos esperados (10 ou 20), teto de 99, categorias e
   combinações ocultas em `regrasProvisorias.pontosLancados`: **padrão adotado sem confirmação do chefe**.
   Precisa do `db/11` na produção **antes** do backend que o lê.
