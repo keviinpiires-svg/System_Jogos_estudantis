@@ -5,3 +5,9 @@ docs/referencias/conferencia/
 
 # Programação real de jogos (CSV do chefe para importar): não versionar
 docs/importacao/
+
+# Configuração local de agentes e ferramentas (não versionar)
+.agents/
+.claude/skills/
+.mcp.json
+AGENTS.md
