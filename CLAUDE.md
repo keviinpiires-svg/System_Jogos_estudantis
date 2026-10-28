@@ -40,9 +40,12 @@ grupos, modelos de súmula).
   "Cadastrar Time" saiu do menu (`2cc0925`; a página e a rota `/cadastro` continuam).
 - **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): a
   **importação de atletas por CSV** (28/10/2026, nos dois repositórios; `docs/IMPORTACAO_ATLETAS.md`)
-  e a extração das regras do atleta para `src/config/elegibilidade.js`. **Sem script de banco.**
-  Ordem do deploy: push do backend e, logo em seguida, o do frontend (a tela nova chama
-  `/api/importar-atletas`).
+  e a extração das regras do atleta para `src/config/elegibilidade.js`; a **trava de mesa por local**
+  (`db/18`, `docs/CONTAS_DE_MESA.md`) e o **"Reiniciar Campeonato" desligado em produção** (403 sem
+  `PERMITIR_REINICIAR=true`). **Ordem do deploy:** dump, `db/18` no `jogos_2026` (idempotente; o backend
+  novo lê `usuarios.local_id` em toda escrita — sem a coluna, toda escrita dá 500), push do backend e,
+  logo em seguida, o do frontend (a tela nova chama `/api/importar-atletas` e `/api/eu`). Depois, criar
+  uma conta PLACAR por local em `/usuarios`.
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
@@ -53,9 +56,9 @@ grupos, modelos de súmula).
   (melhor 2º pela campanha) vale 6 pontos, ambos definitivos. Não há cobrança genérica de
   desempate em modalidade nenhuma. **Seguem PENDENTES:** as dúvidas de atletismo/xadrez/dama/dominó
   (fatia 11). O empate do baleado no ida e volta foi resolvido em 20/10/2026 (abaixo). **Contas de mesa (chefe, 12/10/2026): uma por local de jogo** (8 locais com o `db/12`);
-  hoje a conta PLACAR não é ligada a local nenhum e vê e lança qualquer jogo. A trava de mesa por local
-  será o **`db/18`** (o `db/13` é o da Conveniada, o `db/14` o das equipes pela tabela do chefe, o `db/15` o
-  do número da tabela do chefe, o `db/16` o das provas do atletismo e o `db/17` o histórico dos pontos lançados).
+  a **trava de mesa por local** é o **`db/18`** (28/10/2026, commit local): `usuarios.local_id`, e a mesa
+  com local só inicia e lança súmula de jogo daquele local (ver "Contas de mesa" abaixo e
+  `docs/CONTAS_DE_MESA.md`). Sem o `db/18` na produção, o backend novo não sobe as escritas.
 - **Respostas do chefe de 07/10/2026** (seção 12.1 do contexto, linhas 6, 12, 19, 21, 22 e 23):
   4º e 5º lugar e a revanche na semifinal viraram **definitivos** (sem aviso); a soma geral desempata por
   **mais 1ºs, depois 2ºs e 3ºs** (empate em tudo divide a posição: extensão provisória); **baleado**:
@@ -142,21 +145,22 @@ db/                       scripts SQL versionados e numerados
 
 ## API (prefixo `/api`)
 
-Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mesaOuAdmin` = `ADMIN` ou `PLACAR`.
+Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mesaDoLocalOuAdmin` = `ADMIN`, ou
+`PLACAR` **no jogo do local da conta** (`travarMesaPorLocal`, `db/18`; PLACAR sem local = sem trava).
 
 | Recurso | Rotas |
 |---|---|
-| auth | `POST /login` (com rate limit) |
+| auth | `POST /login` (com rate limit; devolve `local_id`/`local_nome` da mesa); `GET /eu` (logado: a sessão relida do banco — perfil e local —, a tela atualiza sem novo login) |
 | usuarios | `GET/POST /`, `PUT /:id`, `PUT /:id/senha` — tudo ADMIN (não se apaga: desativa) |
 | escolas | `GET /`; `POST /`, `PUT /:id` (ADMIN) |
 | modalidades / competicoes | `GET /modalidades`; `GET /competicoes`, `GET /competicoes/:id` |
 | equipes | `GET /`; `GET /:id/atletas-elegiveis` (ADMIN — traz sexo e ano de nascimento) |
 | atletas | `GET /escola/:escola_id` (pública: anônimo recebe só id, nome e escola; o ADMIN também sexo e nascimento); `POST`, `GET/PUT/DELETE /:id` (ADMIN) |
 | inscricoes | `GET /equipe/:equipe_id` (pública: anônimo recebe só camisa e nome; o ADMIN também sexo e ano); `POST /`, `DELETE /:id` (ADMIN) |
-| jogos | `GET /`, `GET /:id`; `POST`, `PUT /:id`, `PUT /:id/wo`, `DELETE /:id` (ADMIN); `PUT /:id/iniciar` (mesa) |
+| jogos | `GET /`, `GET /:id`; `POST`, `PUT /:id`, `PUT /:id/wo`, `DELETE /:id` (ADMIN); `PUT /:id/iniciar` (mesa do local do jogo, ou ADMIN) |
 | importar-atletas | `POST /previa` e `POST /confirmar` (ADMIN; corpo `text/csv`; `?escola_id=` quando a planilha não tem a coluna Escola; `?apenas_ok=true` para gravar só as OK quando há erro, senão 422): atletas e inscrições por CSV, prévia OK/AVISO/ERRO sem gravar e confirmar numa transação única (tudo ou nada). RG já cadastrado é pulado e o atleta existente nunca muda. Ver `docs/IMPORTACAO_ATLETAS.md` e o exemplo fictício `docs/importacao/exemplo_atletas_ficticio.csv` (o único arquivo versionado dessa pasta) |
 | importacao-jogos | `POST /previa` e `POST /` (ADMIN; corpo `text/csv`): jogos da fase de grupos por CSV, prévia sem gravar e importação idempotente numa transação; modelo em `docs/modelo_importacao_jogos.csv`. Coluna **opcional "Nº Tabela"** (número do jogo na tabela do chefe, `db/15`): célula vazia aceita, número repetido no arquivo ou já usado no banco é erro, e reimportar só preenche o número de jogo que já existe e está sem — sem mudar mais nada nem trocar número gravado |
-| sumulas | `GET /:jogo_id`; `POST /` (mesa ou ADMIN) — a súmula é a **única fonte do placar** |
+| sumulas | `GET /:jogo_id`; `POST /` (mesa do local do jogo, ou ADMIN; 403 "Esta mesa é do local X; este jogo é do local Y") — a súmula é a **única fonte do placar** |
 | classificacao | `GET /competicao/:id` (calculada dos jogos, nunca gravada) |
 | matamata | `GET /competicao/:id`; `POST /competicao/:id/gerar`, `DELETE /competicao/:id/:fase` (ADMIN) |
 | suspensoes | `GET /competicao/:id`, `GET /jogo/:id` (calculadas das súmulas) |
@@ -166,8 +170,8 @@ Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mes
 | ajustes-pontos | `GET /`; `POST /`, `DELETE /:id` (ADMIN; punição de −5 a −10 com motivo) |
 | pontos-lancados | `GET /` (público, com os apelidos das escolas); `PUT /` (ADMIN ou mesa: pontos de atletismo — por prova, `prova_id` —, xadrez, dama e dominó por categoria e gênero; alterar ou tirar valor gravado exige `substituir: true`, senão 422 com a lista); `GET /historico` (ADMIN: correções de um lançamento); `DELETE /:modalidade/:categoria_id/:genero[?prova_id=]` (ADMIN) |
 | locais / etapas-ensino / dashboard | `GET /` |
-| campeonato | `DELETE /reset` (ADMIN; apaga só o que o evento produz) |
-| `/saude` | fora de `/api`; 200 com banco de pé, **503** sem banco |
+| campeonato | `DELETE /reset` (ADMIN; apaga só o que o evento produz; exige `{ "confirmacao": "REINICIAR" }`). **Com `NODE_ENV=production`, 403**, a não ser com `PERMITIR_REINICIAR=true` no servidor (ligue só na hora e tire depois) |
+| `/saude` | fora de `/api`; 200 com banco de pé, **503** sem banco; `reiniciar_permitido` (sim/não) diz à tela se mostra o botão de reiniciar |
 
 Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro` direto ao usuário.
 
@@ -183,7 +187,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja` → `11_pontos_lancados` →
   `12_locais_adelieta_ceti` → `13_escola_conveniada` →
   `14_tabela_do_chefe_equipes` → `15_numero_tabela` → `16_pontos_lancados_por_prova` →
-  `17_pontos_lancados_historico`.
+  `17_pontos_lancados_historico` → `18_usuarios_local` → `19_tabela_nova_equipes`.
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
 - Scripts **sem `COLLATE`**: usam a padrão do servidor. Produção (`utf8mb4_0900_ai_ci`) é
@@ -210,7 +214,8 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 
 `PORT` (Render injeta; não definir na nuvem) · `DATABASE_URL` **ou** `DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME`
 · `DB_SSL` · `DB_POOL_LIMIT` · **`JWT_SECRET`** (obrigatória; sem ela não sobe) · **`CORS_ORIGIN`**
-(obrigatória com `NODE_ENV=production`; vírgula separa domínios) · `FUSO_EVENTO` · `NODE_ENV`.
+(obrigatória com `NODE_ENV=production`; vírgula separa domínios) · `FUSO_EVENTO` · `NODE_ENV` ·
+`PERMITIR_REINICIAR` (só `true` libera o "Reiniciar Campeonato" em produção; **não definir** no Render).
 
 ## Regras de trabalho
 
@@ -221,7 +226,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `18`, a trava de mesa por local),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `20`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
@@ -235,6 +240,10 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - Todo `catch` de controller faz `console.error('<contexto>:', erro)` antes de responder 500: é o que
   aparece nos logs do Render.
 - Perfis: `ADMIN` (cadastra, pune, gerencia usuários) e `PLACAR` (mesa: só inicia jogo e lança súmula).
+- **Contas de mesa (db/18):** uma conta PLACAR por local, com `usuarios.local_id`. A trava é um middleware
+  só (`travarMesaPorLocal`, em `authMiddleware.js`) nas escritas de jogo que a mesa alcança (`PUT
+  /jogos/:id/iniciar` e `POST /sumulas`); o local é relido do banco pelo `exigirPerfil`, então trocar o
+  local vale na hora. ADMIN nunca é travado; Tabuleiro e Atletismo não têm local. Ver `docs/CONTAS_DE_MESA.md`.
   `exigirPerfil` relê o perfil do banco a cada escrita.
 
 ## Como depurar um erro em produção
@@ -297,8 +306,10 @@ de dados.
    (script 06: 1 grupo, 2 classificados, 0 melhores segundos, próxima fase FINAL, turno único),
    `SELECT COUNT(*) FROM configuracao_evento` (esperado 1) e a lista de usuários (sem a coluna `senha`).
 6. **Contas:** já existem **1 ADMIN** (criado na virada) e **1 conta PLACAR** (mesa), criada depois
-   pela tela `/usuarios`. Faltam os ADMIN **Felipe** e **Aelson** e as **demais contas de mesa**.
-   Criar pela tela `/usuarios`.
+   pela tela `/usuarios`. Faltam os ADMIN **Felipe** e **Aelson** e as **demais contas de mesa**:
+   **uma por local** (8 locais), criada pela tela `/usuarios` com o local escolhido, depois do `db/18`
+   e do backend novo. Passo a passo em `docs/CONTAS_DE_MESA.md`. A conta PLACAR que já existe fica
+   **sem local** (sem trava) até o ADMIN escolher o local dela; a tela avisa.
 7. **Ping em `/saude`** (5 em 5 min) ou plano pago do Render.
 8. O banco antigo `railway` ainda tem a conta de teste `admin@sge.com` (senha padrão antiga): remover o banco
    (ou a conta) quando a volta atrás deixar de ser necessária.
