@@ -767,10 +767,12 @@ const importarJogos = async (req, res) => {
 module.exports = {
   previaImportacao,
   importarJogos,
-  // Exportados para o teste de fumaça
+  // Exportados para o teste de fumaça e para a importação de atletas
   lerCsv,
   lerData,
   lerHora,
   normalizar,
+  normalizarCategoria,
+  APELIDOS_MODALIDADE,
   COLUNAS
 };

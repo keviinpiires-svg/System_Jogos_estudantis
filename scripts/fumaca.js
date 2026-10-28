@@ -38,6 +38,10 @@ const SENHA = 'fumaca-senha-longa';
 // escolha automática falhasse, eles ficam de fora.
 const COMPETICAO_PROTEGIDA = 41;
 
+// Gatilho temporário que faz o INSERT de um atleta falhar no meio da
+// importação, para provar que nada fica gravado (testarImportacaoDeAtletas)
+const GATILHO_DE_FALHA = 'fumaca_falha_importacao';
+
 const criados = { jogos: [], inscricoes: [], atletas: [], ajustes: [], usuario: null };
 
 let passou = 0;
@@ -170,6 +174,7 @@ const limpar = async () => {
   );
   await db.query('DELETE FROM usuarios WHERE email IN (?)', [[EMAIL, EMAIL_MESA]]);
   await db.query('DELETE FROM escola_apelidos WHERE apelido LIKE ?', [`${MARCA}%`]);
+  await db.query(`DROP TRIGGER IF EXISTS ${GATILHO_DE_FALHA}`);
 
   criados.inscricoes = [];
   criados.atletas = [];
@@ -585,6 +590,7 @@ const rodar = async () => {
   await testarPontosLancados();
   await testarPontosLancadosNaTabelaGeral();
   await testarAtletismoPorProva();
+  await testarImportacaoDeAtletas();
 };
 
 // ---------------------------------------------------------------------------
@@ -2017,6 +2023,187 @@ const testarAtletismoPorProva = async () => {
   conferir(soCem.pontos === antes.pontos + 8, 'apagar o lançamento do salto deixa os 100 m', `${soCem.pontos}`);
   await exigir('DELETE', `/pontos-lancados/atletismo/${alvo.categoria_id}/${alvo.genero}?prova_id=${cem.id}`, null, 'apagar os 100 m');
   conferir((await daEscola()).pontos === antes.pontos, 'apagadas as duas provas, a soma volta ao que era');
+};
+
+// ---------------------------------------------------------------------------
+// Importação de atletas por CSV (28/10/2026) — pela API, com a planilha
+// fictícia de docs/importacao (RGs com a marca do teste)
+// ---------------------------------------------------------------------------
+// Prévia linha a linha sem gravar, confirmar só com as linhas OK, tudo ou nada
+// quando o banco falha no meio, reimportação que pula quem já existe sem
+// alterar ninguém, a escola escolhida na tela e o 403 para quem não é ADMIN.
+const testarImportacaoDeAtletas = async () => {
+  secao('-- importação de atletas por CSV');
+
+  // A planilha fictícia, com os RGs marcados (a limpeza apaga por "FUMACA%")
+  // e o BOM que o Excel põe no começo do arquivo
+  const fs = require('fs');
+  const path = require('path');
+  const original = fs.readFileSync(path.join(__dirname, '..', 'docs', 'importacao', 'exemplo_atletas_ficticio.csv'), 'utf8');
+  const marcarRg = (linha, i) => {
+    if (i === 0 || !linha.trim()) return linha;
+    const campos = linha.split(';');
+    if (campos[2].trim()) campos[2] = `${MARCA}${campos[2]}`;
+    return campos.join(';');
+  };
+  const planilha = `\uFEFF${original.split(/\r?\n/).map(marcarRg).join('\n')}`;
+
+  const enviar = async (acao, csv, query = '', tok = token) => {
+    const resposta = await fetch(`${API}/importar-atletas/${acao}${query}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/csv', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+      body: csv
+    });
+    return { status: resposta.status, corpo: await resposta.json().catch(() => ({})) };
+  };
+  // Só os RGs da planilha: o resto do passeio também cria atletas com a marca
+  const contarMarcados = async () => (await db.query(
+    `SELECT (SELECT COUNT(*) FROM atletas WHERE rg LIKE ?) AS atletas,
+            (SELECT COUNT(*) FROM inscricoes_atletas i INNER JOIN atletas a ON a.id = i.atleta_id
+              WHERE a.rg LIKE ?) AS inscricoes`,
+    [`${MARCA}FIC%`, `${MARCA}FIC%`]
+  ))[0][0];
+
+  // A linha 14 testa o teto do elenco: a equipe do ACM no Handebol M Sub 8 precisa estar vazia
+  const [[acm]] = await db.query(
+    `SELECT e.id, (SELECT COUNT(*) FROM inscricoes_atletas i WHERE i.equipe_id = e.id) AS inscritos
+       FROM equipes e
+       INNER JOIN escolas es ON es.id = e.escola_id
+       INNER JOIN competicoes c ON c.id = e.competicao_id
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+      WHERE es.nome = 'ACM' AND m.slug = 'handebol' AND cat.nome = 'Sub 8' AND c.genero = 'MASCULINO'`
+  );
+  if (!acm || Number(acm.inscritos) !== 0) {
+    throw new Error('A planilha fictícia precisa da equipe do ACM no Handebol M Sub 8 sem inscritos.');
+  }
+
+  // Sem login: 401. Mesa (PLACAR): 403.
+  await db.query(
+    `INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, 'PLACAR')
+     ON DUPLICATE KEY UPDATE perfil = 'PLACAR', ativo = 1`,
+    [`Mesa (${MARCA})`, EMAIL_MESA, bcrypt.hashSync(SENHA, 10)]
+  );
+  const mesa = (await exigir('POST', '/login', { email: EMAIL_MESA, senha: SENHA }, 'login da mesa')).token;
+  const semLogin = await enviar('previa', planilha, '', null);
+  const daMesa = await enviar('previa', planilha, '', mesa);
+  const mesaConfirma = await enviar('confirmar', planilha, '?apenas_ok=true', mesa);
+  conferir(semLogin.status === 401 && daMesa.status === 403 && mesaConfirma.status === 403,
+    'importar atletas: 401 sem login e 403 para a mesa (prévia e confirmar)',
+    `${semLogin.status} / ${daMesa.status} / ${mesaConfirma.status}`);
+
+  // Prévia: os casos da planilha, sem gravar nada
+  const previa = await enviar('previa', planilha);
+  const r = previa.corpo.resumo || {};
+  conferir(previa.status === 200 && r.linhas === 31 && r.ok === 20 && r.avisos === 1 && r.erros === 10
+    && r.atletas_novos === 18,
+  'prévia (com BOM): 31 linhas, 20 OK, 1 aviso, 10 erros, 18 atletas novos', JSON.stringify(r));
+
+  const linha = (n) => (previa.corpo.linhas || []).find((l) => l.linha === n) || { erros: [], avisos: [] };
+  const motivo = (n) => [...linha(n).erros, ...linha(n).avisos].join(' ');
+  const casos = [
+    [2, 'OK', /^$/, 'categoria pela idade (Handebol Sub 8)'],
+    [14, 'ERRO', /máximo permitido em Handebol/, 'limite de atletas da equipe estourado'],
+    [16, 'OK', /^$/, 'categoria escolhida acima da idade (Baleado Sub 11)'],
+    [17, 'AVISO', /Repete a linha 15/, 'mesmo atleta na mesma competição: entra uma vez'],
+    [20, 'ERRO', /2 competições coletivas/, 'terceira competição coletiva'],
+    [21, 'ERRO', /não encontrada/, 'escola errada'],
+    [22, 'ERRO', /aceita nascidos em 2017/, 'idade fora da categoria'],
+    [23, 'ERRO', /Modalidade "Peteca" não encontrada/, 'modalidade inexistente'],
+    [24, 'ERRO', /Gênero "X" inválido/, 'gênero inválido'],
+    [25, 'ERRO', /Nascimento "31\/02\/2016" inválido/, 'nascimento inválido'],
+    [26, 'ERRO', /RG vazio/, 'RG vazio'],
+    [27, 'ERRO', /não tem equipe em Futsal Sub 9 Feminino/, 'escola sem equipe na competição'],
+    [28, 'ERRO', /Mesmo RG da linha 18 com nome diferente/, 'mesmo RG com dados diferentes'],
+    [29, 'OK', /^$/, 'vôlei misto pela idade'],
+    [32, 'OK', /^$/, 'escola e modalidade em minúsculas, RG com espaço, data AAAA-MM-DD']
+  ];
+  const errados = casos.filter(([n, situacao, padrao]) => linha(n).situacao !== situacao || !padrao.test(motivo(n)));
+  conferir(errados.length === 0, 'prévia: cada caso da planilha com a situação e o motivo certos',
+    errados.map(([n]) => `linha ${n}: ${linha(n).situacao} ${motivo(n)}`).join(' | '));
+  conferir(linha(29).competicao === 'Vôlei Sub 15 Misto' && linha(2).categoria_pela_idade && !linha(16).categoria_pela_idade,
+    'prévia: o vôlei cai na competição mista, e a categoria pela idade vem marcada', `${linha(29).competicao}`);
+  const aposPrevia = await contarMarcados();
+  conferir(Number(aposPrevia.atletas) === 0 && Number(aposPrevia.inscricoes) === 0, 'a prévia não grava nada');
+
+  // Planilha de uma escola só (sem a coluna Escola): a escola vem da tela
+  const [[joseDias]] = await db.query("SELECT id FROM escolas WHERE nome = 'JOSE DIAS'");
+  const semColuna = original.split(/\r?\n/).filter((l, i) => i === 0 || /^José Dias;/.test(l))
+    .map((l, i) => marcarRg(l, i).split(';').slice(1).join(';')).join('\n');
+  const semEscola = await enviar('previa', semColuna);
+  const comEscola = await enviar('previa', semColuna, `?escola_id=${joseDias.id}`);
+  conferir(semEscola.status === 400 && /escolha a escola/.test(semEscola.corpo.erro || '')
+    && comEscola.status === 200 && comEscola.corpo.sem_coluna_escola === true
+    && comEscola.corpo.resumo.ok === 2 && comEscola.corpo.resumo.avisos === 1,
+  'sem a coluna Escola: 400 sem escolher, e com a escola da tela a prévia sai (2 OK, 1 aviso)',
+  `${semEscola.status} ${semEscola.corpo.erro || ''} / ${comEscola.status} ${JSON.stringify(comEscola.corpo.resumo)}`);
+
+  // Com linha em ERRO, confirmar sem "apenas_ok" é recusado e não grava
+  const semEscolher = await enviar('confirmar', planilha);
+  conferir(semEscolher.status === 422 && Number((await contarMarcados()).atletas) === 0,
+    'confirmar com erros e sem "só as linhas OK": 422 e nada gravado', `${semEscolher.status} ${semEscolher.corpo.erro || ''}`);
+
+  // Tudo ou nada: um gatilho faz o INSERT do atleta da linha 31 falhar,
+  // depois de 16 atletas já inseridos na mesma transação
+  await db.query(`DROP TRIGGER IF EXISTS ${GATILHO_DE_FALHA}`);
+  await db.query(
+    `CREATE TRIGGER ${GATILHO_DE_FALHA} BEFORE INSERT ON atletas FOR EACH ROW
+     BEGIN
+       IF NEW.rg = 'FUMACAFIC1101' THEN
+         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'falha proposital do teste de fumaca';
+       END IF;
+     END`
+  );
+  let falhaNoMeio;
+  try {
+    falhaNoMeio = await enviar('confirmar', planilha, '?apenas_ok=true');
+  } finally {
+    await db.query(`DROP TRIGGER IF EXISTS ${GATILHO_DE_FALHA}`);
+  }
+  const aposFalha = await contarMarcados();
+  conferir(falhaNoMeio.status === 500 && /Nada foi gravado/.test(falhaNoMeio.corpo.erro || '')
+    && Number(aposFalha.atletas) === 0 && Number(aposFalha.inscricoes) === 0,
+  'falha no banco no meio do confirmar: 500 e NADA gravado (tudo ou nada)',
+  `${falhaNoMeio.status} ${falhaNoMeio.corpo.erro || ''} ${JSON.stringify(aposFalha)}`);
+
+  // Confirmar só as linhas OK
+  const confirmado = await enviar('confirmar', planilha, '?apenas_ok=true');
+  const f = confirmado.corpo.final || {};
+  const gravados = await contarMarcados();
+  const [[elencoAcm]] = await db.query('SELECT COUNT(*) AS n FROM inscricoes_atletas WHERE equipe_id = ?', [acm.id]);
+  conferir(confirmado.status === 201 && f.criados === 18 && f.inscricoes === 20 && f.pulados === 1 && f.com_erro === 10
+    && Number(gravados.atletas) === 18 && Number(gravados.inscricoes) === 20 && Number(elencoAcm.n) === 12,
+  'confirmar só as OK: 18 atletas criados, 20 inscrições, 1 pulada, 10 com erro; o ACM fica com 12',
+  `${confirmado.status} ${JSON.stringify(f)} ${JSON.stringify(gravados)} ACM ${elencoAcm.n}`);
+
+  const [[ana]] = await db.query("SELECT nome, sexo, data_nascimento FROM atletas WHERE rg = 'FUMACAFIC0101'");
+  conferir(ana && ana.nome === 'Ana Ficticia Lima' && ana.sexo === 'F' && ana.data_nascimento === '2017-05-10',
+    'o atleta gravado tem nome, sexo e nascimento da planilha (RG normalizado)', JSON.stringify(ana));
+
+  // Reimportar o mesmo arquivo: quem já existe vira "já cadastrado", 0 criados
+  const reimportado = await enviar('confirmar', planilha, '?apenas_ok=true');
+  const r2 = reimportado.corpo.final || {};
+  const jaCadastrados = (reimportado.corpo.linhas || []).filter((l) => /RG já cadastrado/.test(l.avisos.join(' ')));
+  conferir(reimportado.status === 200 && r2.criados === 0 && r2.inscricoes === 0 && jaCadastrados.length === 23
+    && Number((await contarMarcados()).atletas) === 18,
+  'reimportar o mesmo arquivo: 0 criados, 23 linhas "RG já cadastrado", nada muda',
+  `${reimportado.status} ${JSON.stringify(r2)} já cadastrados: ${jaCadastrados.length}`);
+
+  // RG já cadastrado com outros dados: pula e não altera o atleta existente
+  const alterada = ['Escola;Nome;RG;Nascimento;Gênero;Modalidade;Categoria',
+    `ACM;Ana Nome Trocado;${MARCA}FIC-0101;01/01/2018;F;Handebol;`].join('\n');
+  const tentativa = await enviar('confirmar', alterada, '?apenas_ok=true');
+  const [[anaDepois]] = await db.query("SELECT nome, escola_id, data_nascimento FROM atletas WHERE rg = 'FUMACAFIC0101'");
+  conferir(tentativa.corpo.linhas?.[0]?.situacao === 'AVISO' && tentativa.corpo.final?.criados === 0
+    && anaDepois.nome === 'Ana Ficticia Lima' && anaDepois.data_nascimento === '2017-05-10' && anaDepois.escola_id === joseDias.id,
+  'RG já cadastrado com outro nome, escola e nascimento: linha pulada e o atleta existente não muda',
+  JSON.stringify(anaDepois));
+
+  // A lista pública da escola não mostra RG nem nascimento dos importados
+  const publica = await comToken(null, 'GET', `/atletas/escola/${joseDias.id}`);
+  const importada = (publica.corpo || []).find((a) => a.nome === 'Ana Ficticia Lima');
+  conferir(publica.status === 200 && importada && !('rg' in importada) && !('data_nascimento' in importada) && !('sexo' in importada),
+    'lista pública da escola: o atleta importado aparece só com id, nome e escola', JSON.stringify(importada));
 };
 
 // ---------------------------------------------------------------------------

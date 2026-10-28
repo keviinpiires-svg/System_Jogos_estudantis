@@ -58,6 +58,7 @@ const escolaRoutes = require('./src/routes/escolaRoutes');
 
 const jogoRoutes = require('./src/routes/jogoRoutes');
 const importacaoJogosRoutes = require('./src/routes/importacaoJogosRoutes');
+const importacaoAtletasRoutes = require('./src/routes/importacaoAtletasRoutes');
 const sumulaRoutes = require('./src/routes/sumulaRoutes');
 const mataMataRoutes = require('./src/routes/mataMataRoutes');
 const classificacaoRoutes = require('./src/routes/classificacaoRoutes');
@@ -93,6 +94,7 @@ app.use('/api/escolas', escolaRoutes);
 app.use('/api/jogos', jogoRoutes);
 app.use('/api/agenda', agendaRoutes);
 app.use('/api/importacao-jogos', importacaoJogosRoutes);
+app.use('/api/importar-atletas', importacaoAtletasRoutes);
 app.use('/api/atletas', atletaRoutes);
 app.use('/api/locais', localRoutes);
 app.use('/api/etapas-ensino', etapaEnsinoRoutes);
