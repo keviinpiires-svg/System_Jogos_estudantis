@@ -32,6 +32,7 @@ const API = process.env.FUMACA_API || 'http://localhost:3000/api';
 const MARCA = 'FUMACA';
 const EMAIL = 'fumaca@local';
 const EMAIL_MESA = 'fumaca-mesa@local';
+const EMAIL_MESA_LOCAL = 'fumaca-mesa-local@local';
 const SENHA = 'fumaca-senha-longa';
 
 // Jogos e competição que o dono do projeto usa para testar à mão. Mesmo que a
@@ -163,16 +164,16 @@ const limpar = async () => {
     `DELETE p FROM pontos_lancados p
        INNER JOIN usuarios u ON u.id = p.criado_por OR u.id = p.alterado_por
       WHERE u.email IN (?)`,
-    [[EMAIL, EMAIL_MESA]]
+    [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL]]
   );
   // O histórico dos pontos lançados (db/17) aponta para os usuários de teste
   await db.query(
     `DELETE h FROM pontos_lancados_historico h
        INNER JOIN usuarios u ON u.id = h.usuario_id OR u.id = h.anterior_por
       WHERE u.email IN (?)`,
-    [[EMAIL, EMAIL_MESA]]
+    [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL]]
   );
-  await db.query('DELETE FROM usuarios WHERE email IN (?)', [[EMAIL, EMAIL_MESA]]);
+  await db.query('DELETE FROM usuarios WHERE email IN (?)', [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL]]);
   await db.query('DELETE FROM escola_apelidos WHERE apelido LIKE ?', [`${MARCA}%`]);
   await db.query(`DROP TRIGGER IF EXISTS ${GATILHO_DE_FALHA}`);
 
@@ -591,6 +592,8 @@ const rodar = async () => {
   await testarPontosLancadosNaTabelaGeral();
   await testarAtletismoPorProva();
   await testarImportacaoDeAtletas();
+  await testarTravaDeMesaPorLocal();
+  await testarReiniciarCampeonato();
 };
 
 // ---------------------------------------------------------------------------
@@ -2204,6 +2207,184 @@ const testarImportacaoDeAtletas = async () => {
   const importada = (publica.corpo || []).find((a) => a.nome === 'Ana Ficticia Lima');
   conferir(publica.status === 200 && importada && !('rg' in importada) && !('data_nascimento' in importada) && !('sexo' in importada),
     'lista pública da escola: o atleta importado aparece só com id, nome e escola', JSON.stringify(importada));
+};
+
+// ---------------------------------------------------------------------------
+// Trava de mesa por local (db/18, 28/10/2026) — pela API
+// ---------------------------------------------------------------------------
+// A mesa (PLACAR) com local só inicia jogo e lança súmula de jogo daquele
+// local; sem local, sem trava; o ADMIN é livre; Tabuleiro e Atletismo seguem
+// abertos; trocar o local da conta vale na hora, sem novo login.
+const testarTravaDeMesaPorLocal = async () => {
+  secao('-- trava de mesa por local (db/18)');
+
+  const [[comp]] = await db.query(
+    `SELECT c.id, e1.id AS e1, e2.id AS e2
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN equipes e1 ON e1.competicao_id = c.id
+       INNER JOIN equipes e2 ON e2.competicao_id = c.id AND e2.grupo_id = e1.grupo_id AND e2.id > e1.id
+      WHERE m.tipo_placar = 'GOLS' AND c.turno = 'UNICO' AND c.id <> ?
+        AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
+      ORDER BY c.id LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) throw new Error('Não achei uma competição livre para o teste da trava por local.');
+  const [locais] = await db.query('SELECT id, nome FROM locais_disputa ORDER BY id LIMIT 2');
+  const [localA, localB] = locais;
+
+  const agendar = async (local, hora) => {
+    const jogo = await exigir('POST', '/jogos', {
+      competicao_id: comp.id, equipe_1_id: comp.e1, equipe_2_id: comp.e2, fase: 'GRUPOS',
+      ...(local ? { data_hora: `2026-11-27T${hora}`, local_id: local.id } : {})
+    }, `agendar jogo da trava (${local ? local.nome : 'sem local'})`);
+    criados.jogos.push(jogo.id_jogo);
+    return jogo.id_jogo;
+  };
+  const jogoA = await agendar(localA, '06:11');
+  const jogoB = await agendar(localB, '06:13');
+  const jogoSemLocal = await agendar(null);
+  const jogoA2 = await agendar(localA, '06:31');
+
+  // A mesa: conta PLACAR do local A, criada pela tela de usuários (ADMIN)
+  const criada = await exigir('POST', '/usuarios',
+    { nome: `Mesa local (${MARCA})`, email: EMAIL_MESA_LOCAL, senha: SENHA, perfil: 'PLACAR', local_id: localA.id },
+    'criar a mesa do local A');
+  const mesa = (await exigir('POST', '/login', { email: EMAIL_MESA_LOCAL, senha: SENHA }, 'login da mesa')).token;
+
+  const lista = await exigir('GET', '/usuarios', null, 'listar usuários');
+  const daLista = lista.find((u) => u.id === criada.id_usuario);
+  conferir(daLista?.local_id === localA.id && daLista?.local_nome === localA.nome,
+    'a lista de usuários mostra o local da mesa', JSON.stringify(daLista));
+
+  const sumula = (jogo_id) => ({
+    jogo_id, finalizar: false,
+    equipes: [{ equipe_id: comp.e1, atletas: [] }, { equipe_id: comp.e2, atletas: [] }]
+  });
+  const iniciar = (tok, id) => comToken(tok, 'PUT', `/jogos/${id}/iniciar`);
+  const lancar = (tok, id) => comToken(tok, 'POST', '/sumulas', sumula(id));
+
+  // Local A: lança no A; barrada no B e no jogo sem local, nas duas escritas
+  const iniciaA = await iniciar(mesa, jogoA);
+  const lancaA = await lancar(mesa, jogoA);
+  conferir(iniciaA.status === 200 && lancaA.status < 300,
+    'mesa do local A: inicia e lança súmula no jogo do A', `${iniciaA.status} / ${lancaA.status} ${lancaA.corpo.erro || ''}`);
+
+  const iniciaB = await iniciar(mesa, jogoB);
+  const lancaB = await lancar(mesa, jogoB);
+  const mensagemCerta = new RegExp(`Esta mesa é do local ${localA.nome}; este jogo é do local ${localB.nome}`);
+  conferir(iniciaB.status === 403 && lancaB.status === 403
+    && mensagemCerta.test(iniciaB.corpo.erro || '') && mensagemCerta.test(lancaB.corpo.erro || ''),
+  'mesa do local A no jogo do B: 403 em iniciar e em lançar súmula, com os dois locais na mensagem',
+  `${iniciaB.status} ${iniciaB.corpo.erro || ''} / ${lancaB.status}`);
+
+  const iniciaSemLocal = await iniciar(mesa, jogoSemLocal);
+  conferir(iniciaSemLocal.status === 403 && /ainda sem local definido/.test(iniciaSemLocal.corpo.erro || ''),
+    'mesa com local num jogo ainda sem local: 403', `${iniciaSemLocal.status} ${iniciaSemLocal.corpo.erro || ''}`);
+
+  const [[statusB]] = await db.query('SELECT status FROM jogos WHERE id = ?', [jogoB]);
+  conferir(statusB.status === 'AGENDADO', 'o jogo do B não foi tocado pela mesa barrada', statusB.status);
+
+  // Leituras seguem livres para a mesa
+  const leitura = await comToken(mesa, 'GET', `/sumulas/${jogoB}`);
+  conferir(leitura.status === 200, 'a mesa lê a súmula de jogo de outro local (leitura livre)', `${leitura.status}`);
+
+  // Jogo inexistente: o 404 de sempre, não a trava
+  const inexistente = await iniciar(mesa, 99999999);
+  conferir(inexistente.status === 404, 'jogo inexistente: 404 do controller, não 403', `${inexistente.status}`);
+
+  // Tabuleiro (pontos lançados) não tem local: aberto à mesa com local
+  const [[dama]] = await db.query(
+    `SELECT cat.id AS categoria_id FROM categorias cat
+      WHERE NOT EXISTS (SELECT 1 FROM pontos_lancados p INNER JOIN modalidades m ON m.id = p.modalidade_id
+                         WHERE m.slug = 'dama' AND p.categoria_id = cat.id AND p.genero = 'FEMININO')
+        AND cat.idade_maxima IS NOT NULL ORDER BY cat.idade_maxima DESC LIMIT 1`
+  );
+  const [[escola]] = await db.query('SELECT id FROM escolas ORDER BY id LIMIT 1');
+  const tabuleiro = await comToken(mesa, 'PUT', '/pontos-lancados', {
+    modalidade: 'dama', categoria_id: dama.categoria_id, genero: 'FEMININO',
+    linhas: [{ escola_id: escola.id, pontos: 5 }], base: []
+  });
+  conferir(tabuleiro.status === 200, 'mesa com local lança no Tabuleiro (sem trava de local)',
+    `${tabuleiro.status} ${tabuleiro.corpo.erro || ''}`);
+
+  // ADMIN: livre em qualquer local
+  const adminB = await iniciar(token, jogoB);
+  const adminLancaB = await lancar(token, jogoB);
+  conferir(adminB.status === 200 && adminLancaB.status < 300, 'ADMIN inicia e lança em qualquer local',
+    `${adminB.status} / ${adminLancaB.status}`);
+
+  // Trocar o local da conta vale na hora, com o mesmo token
+  await exigir('PUT', `/usuarios/${criada.id_usuario}`, { local_id: localB.id }, 'mudar a mesa para o local B');
+  const agoraB = await lancar(mesa, jogoB);
+  const agoraA = await iniciar(mesa, jogoA2);
+  const sessao = await comToken(mesa, 'GET', '/eu');
+  conferir(agoraB.status < 300 && agoraA.status === 403 && sessao.corpo.local_id === localB.id
+    && sessao.corpo.local_nome === localB.nome,
+  'mudar o local da conta vale sem novo login: lança no B, barrada no A, e /api/eu já mostra o B',
+  `${agoraB.status} / ${agoraA.status} / ${JSON.stringify(sessao.corpo)}`);
+
+  // Sem local: sem trava
+  await exigir('PUT', `/usuarios/${criada.id_usuario}`, { local_id: null }, 'tirar o local da mesa');
+  const semTrava = await iniciar(mesa, jogoSemLocal);
+  const semTravaA = await iniciar(mesa, jogoA2);
+  conferir(semTrava.status === 200 && semTravaA.status === 200,
+    'mesa sem local: sem trava (inicia o jogo sem local e o do A)', `${semTrava.status} / ${semTravaA.status}`);
+
+  // Validações da conta: local inexistente recusado; ADMIN nunca guarda local
+  const localRuim = await comToken(token, 'PUT', `/usuarios/${criada.id_usuario}`, { local_id: 99999999 });
+  await exigir('PUT', `/usuarios/${criada.id_usuario}`, { perfil: 'ADMIN', local_id: localA.id }, 'promover a ADMIN');
+  const [[promovida]] = await db.query('SELECT perfil, local_id FROM usuarios WHERE id = ?', [criada.id_usuario]);
+  conferir(localRuim.status === 400 && promovida.perfil === 'ADMIN' && promovida.local_id === null,
+    'local inexistente: 400; virando ADMIN, a conta fica sem local', `${localRuim.status} ${JSON.stringify(promovida)}`);
+};
+
+// ---------------------------------------------------------------------------
+// Reiniciar Campeonato em produção (28/10/2026)
+// ---------------------------------------------------------------------------
+// Com NODE_ENV=production o reset é 403, a não ser com PERMITIR_REINICIAR=true.
+// O controller é chamado direto, com o ambiente trocado só durante o teste;
+// sem a palavra de confirmação, nada é apagado em caso nenhum.
+const testarReiniciarCampeonato = async () => {
+  secao('-- reiniciar campeonato em produção');
+  const { resetarCampeonato, reinicioPermitido } = require('../src/controllers/campeonatoController');
+
+  const chamar = async () => {
+    let status = 200;
+    let corpo = null;
+    const res = { status(s) { status = s; return this; }, json(c) { corpo = c; return this; } };
+    await resetarCampeonato({ body: {}, usuario: { perfil: 'ADMIN' } }, res);
+    return { status, corpo };
+  };
+
+  const ambiente = { NODE_ENV: process.env.NODE_ENV, PERMITIR_REINICIAR: process.env.PERMITIR_REINICIAR };
+  try {
+    process.env.NODE_ENV = 'production';
+    delete process.env.PERMITIR_REINICIAR;
+    const bloqueado = await chamar();
+    const flagBloqueado = reinicioPermitido();
+
+    process.env.PERMITIR_REINICIAR = 'true';
+    const liberado = await chamar();
+    const flagLiberado = reinicioPermitido();
+
+    conferir(bloqueado.status === 403 && /desligado em produção/.test(bloqueado.corpo?.erro || '') && flagBloqueado === false,
+      'produção sem PERMITIR_REINICIAR: 403 e a flag diz "não permitido"', `${bloqueado.status} ${bloqueado.corpo?.erro || ''}`);
+    conferir(liberado.status === 400 && /REINICIAR/.test(liberado.corpo?.erro || '') && flagLiberado === true,
+      'produção com PERMITIR_REINICIAR=true: passa a trava e cai na confirmação digitada (400 sem a palavra)',
+      `${liberado.status} ${liberado.corpo?.erro || ''}`);
+  } finally {
+    if (ambiente.NODE_ENV === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = ambiente.NODE_ENV;
+    if (ambiente.PERMITIR_REINICIAR === undefined) delete process.env.PERMITIR_REINICIAR;
+    else process.env.PERMITIR_REINICIAR = ambiente.PERMITIR_REINICIAR;
+  }
+
+  // Na API de desenvolvimento: /saude diz que pode, e a rota exige a palavra
+  const saude = await (await fetch(API.replace(/\/api$/, '/saude'))).json();
+  const semPalavra = await comToken(token, 'DELETE', '/campeonato/reset', {});
+  conferir(saude.reiniciar_permitido === true && semPalavra.status === 400,
+    'em desenvolvimento: /saude diz reiniciar_permitido=true, e sem a palavra digitada a rota recusa (400)',
+    `${JSON.stringify(saude)} / ${semPalavra.status}`);
 };
 
 // ---------------------------------------------------------------------------
