@@ -4,7 +4,8 @@
 --
 -- APAGA (dados que o evento produz):
 --   jogos, sumula_equipes, sumula_atletas, jogo_sets, colocacoes_finais,
---   pontos_lancados, ajustes_pontos_geral, suspensoes e resultados_atletismo
+--   pontos_lancados, pontos_lancados_historico (db/17, desde 28/10/2026),
+--   ajustes_pontos_geral, suspensoes e resultados_atletismo
 --   (este último está sem uso desde 12/10/2026, mas aponta para atletas e
 --   precisa sair antes deles na parte opcional).
 -- MANTÉM (estrutura e cadastros):
@@ -75,6 +76,7 @@ DELETE FROM jogo_sets;
 DELETE FROM suspensoes;
 DELETE FROM colocacoes_finais;
 DELETE FROM ajustes_pontos_geral;
+DELETE FROM pontos_lancados_historico;
 DELETE FROM pontos_lancados;
 DELETE FROM resultados_atletismo;
 DELETE FROM jogos;
@@ -89,6 +91,7 @@ ALTER TABLE jogo_sets            AUTO_INCREMENT = 1;
 ALTER TABLE suspensoes           AUTO_INCREMENT = 1;
 ALTER TABLE colocacoes_finais    AUTO_INCREMENT = 1;
 ALTER TABLE ajustes_pontos_geral AUTO_INCREMENT = 1;
+ALTER TABLE pontos_lancados_historico AUTO_INCREMENT = 1;
 ALTER TABLE pontos_lancados      AUTO_INCREMENT = 1;
 ALTER TABLE resultados_atletismo AUTO_INCREMENT = 1;
 ALTER TABLE jogos                AUTO_INCREMENT = 1;
