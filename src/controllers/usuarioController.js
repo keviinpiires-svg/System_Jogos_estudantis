@@ -9,11 +9,25 @@ const CUSTO_HASH = 10;
 // "Kevin@x.com" e "kevin@x.com" virem duas contas.
 const normalizarEmail = (s) => (s || '').trim().toLowerCase();
 
+// Local da mesa (db/18): undefined = não mexer; vazio ou null = sem local;
+// número = precisa existir em locais_disputa. Devolve { local_id } ou { erro }.
+const lerLocal = async (valor) => {
+  if (valor === undefined) return {};
+  if (valor === null || valor === '') return { local_id: null };
+  const local_id = Number(valor);
+  if (!Number.isInteger(local_id) || local_id <= 0) return { erro: 'Local inválido.' };
+  const [[local]] = await db.query('SELECT id FROM locais_disputa WHERE id = ?', [local_id]);
+  return local ? { local_id } : { erro: 'O local informado não existe.' };
+};
+
 // A senha (hash) nunca sai destas consultas.
 const listarUsuarios = async (req, res) => {
   try {
     const [usuarios] = await db.query(
-      'SELECT id, nome, email, perfil, ativo, criado_em FROM usuarios ORDER BY nome'
+      `SELECT u.id, u.nome, u.email, u.perfil, u.ativo, u.criado_em, u.local_id, l.nome AS local_nome
+         FROM usuarios u
+         LEFT JOIN locais_disputa l ON l.id = u.local_id
+        ORDER BY u.nome`
     );
     res.status(200).json(usuarios);
   } catch (erro) {
@@ -41,11 +55,15 @@ const criarUsuario = async (req, res) => {
   }
 
   try {
+    const local = await lerLocal(req.body.local_id);
+    if (local.erro) return res.status(400).json({ erro: local.erro });
+
     const hash = await bcrypt.hash(senha, CUSTO_HASH);
 
+    // Só a mesa tem local; o ADMIN nunca é travado
     const [resultado] = await db.query(
-      'INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, ?)',
-      [nome, email, hash, perfil]
+      'INSERT INTO usuarios (nome, email, senha, perfil, local_id) VALUES (?, ?, ?, ?, ?)',
+      [nome, email, hash, perfil, perfil === 'PLACAR' ? local.local_id ?? null : null]
     );
 
     res.status(201).json({ mensagem: 'Usuário criado com sucesso!', id_usuario: resultado.insertId });
@@ -115,13 +133,28 @@ const atualizarUsuario = async (req, res) => {
     valores.push(req.body.ativo ? 1 : 0);
   }
 
-  if (campos.length === 0) {
-    return res.status(400).json({ erro: 'Informe ao menos um campo para alterar.' });
-  }
-
-  valores.push(id);
-
   try {
+    // Local da mesa (db/18). Quem vira ou já é ADMIN fica sem local.
+    const local = await lerLocal(req.body.local_id);
+    if (local.erro) return res.status(400).json({ erro: local.erro });
+
+    const perfilNovo = alterarPerfil ? (req.body.perfil || '').trim().toUpperCase() : null;
+    if (perfilNovo === 'ADMIN') {
+      campos.push('local_id = NULL');
+    } else if (local.local_id !== undefined) {
+      const [[atual]] = await db.query('SELECT perfil FROM usuarios WHERE id = ?', [id]);
+      if ((perfilNovo || atual?.perfil) === 'PLACAR') {
+        campos.push('local_id = ?');
+        valores.push(local.local_id);
+      }
+    }
+
+    if (campos.length === 0) {
+      return res.status(400).json({ erro: 'Informe ao menos um campo para alterar.' });
+    }
+
+    valores.push(id);
+
     const [resultado] = await db.query(
       `UPDATE usuarios SET ${campos.join(', ')} WHERE id = ?`,
       valores
