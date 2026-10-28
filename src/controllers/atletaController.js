@@ -1,37 +1,6 @@
 const db = require('../config/db');
 const { veDadosPessoais } = require('../middlewares/authMiddleware');
-
-const SEXOS = ['M', 'F'];
-
-// O RG é o que impede o mesmo aluno de entrar duas vezes, e o índice UNIQUE
-// compara texto literal: "12.345.678-9" e "123456789" seriam dois atletas
-// diferentes. Guardar só letras e números, em maiúsculas, faz as duas grafias
-// colidirem como deveriam.
-const normalizarRg = (s) => (s || '').replace(/[^0-9A-Za-z]/g, '').toUpperCase();
-
-const normalizarNome = (s) => (s || '').trim().replace(/\s+/g, ' ');
-
-// Só AAAA-MM-DD, e a data precisa existir: o construtor Date transforma
-// 2011-02-30 em 2011-03-02 sem reclamar, e o erro passaria despercebido.
-const dataValida = (s) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s || '')) return false;
-  const data = new Date(`${s}T00:00:00Z`);
-  return !Number.isNaN(data.getTime()) && data.toISOString().slice(0, 10) === s;
-};
-
-// A idade em si não é conferida aqui: ela só faz sentido contra a categoria da
-// competição, e isso acontece na inscrição.
-const validarAtleta = ({ nome, rg, data_nascimento, sexo, escola_id }) => {
-  if (!nome) return 'Informe o nome do atleta.';
-  if (!rg) return 'O RG é obrigatório para inscrever o atleta.';
-  if (!dataValida(data_nascimento)) return 'Informe a data de nascimento no formato AAAA-MM-DD.';
-  if (data_nascimento > new Date().toISOString().slice(0, 10)) {
-    return 'A data de nascimento não pode estar no futuro.';
-  }
-  if (!SEXOS.includes(sexo)) return 'Informe o sexo do atleta (M ou F).';
-  if (!Number.isInteger(escola_id) || escola_id <= 0) return 'Informe a escola do atleta.';
-  return null;
-};
+const { normalizarRg, normalizarNome, validarAtleta } = require('../config/elegibilidade');
 
 const lerCorpo = (corpo) => ({
   nome: normalizarNome(corpo.nome),

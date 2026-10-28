@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { anoMinimoDaCategoria } = require('../config/elegibilidade');
 
 // Equipes filtradas por escola e/ou competição, com o que a tela de inscrição
 // precisa para decidir: a competição a que pertencem, o grupo, quantos atletas
@@ -104,7 +105,7 @@ const listarElegiveis = async (req, res) => {
     if (equipe.idade_maxima !== null) {
       const [[evento]] = await db.query('SELECT ano FROM configuracao_evento WHERE id = 1');
       condicoes.push('YEAR(a.data_nascimento) >= ?');
-      valores.push(evento.ano - equipe.idade_maxima);
+      valores.push(anoMinimoDaCategoria(evento.ano, equipe.idade_maxima));
     }
 
     const [elegiveis] = await db.query(

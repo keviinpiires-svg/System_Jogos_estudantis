@@ -1,23 +1,9 @@
 const db = require('../config/db');
 const { veDadosPessoais } = require('../middlewares/authMiddleware');
-
-// Decisão do usuário (28/09/2026): o limite conta COMPETIÇÕES coletivas, não
-// modalidades. Futsal Sub 13 + Futsal Sub 15 são duas, mesmo sendo a mesma
-// modalidade. Atletismo é INDIVIDUAL e não entra na conta.
-const LIMITE_COMPETICOES_COLETIVAS = 2;
+const { plural, motivoDeInelegibilidade } = require('../config/elegibilidade');
 
 const CAMISA_MINIMA = 1;
 const CAMISA_MAXIMA = 99;
-
-// "competição masculino" soa errado: o adjetivo concorda com competição.
-const ADJETIVO_GENERO = { MASCULINO: 'masculina', FEMININO: 'feminina', MISTO: 'mista' };
-
-const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
-
-const sexoCombina = (genero, sexo) => {
-  if (genero === 'MISTO') return true;
-  return genero === 'MASCULINO' ? sexo === 'M' : sexo === 'F';
-};
 
 // Inscreve o atleta numa equipe (escola dentro de uma competição).
 // O escola_id vem do próprio atleta: as chaves estrangeiras compostas de
@@ -89,62 +75,31 @@ const inscreverAtleta = async (req, res) => {
       return res.status(400).json({ erro: 'Este atleta é de outra escola e não pode entrar nesta equipe.' });
     }
 
-    // 2. Sexo do atleta x gênero da competição (MISTO aceita os dois)
-    if (!sexoCombina(competicao.genero, atleta.sexo)) {
-      await conexao.rollback();
-      return res.status(400).json({
-        erro: `${competicao.modalidade_nome} ${competicao.categoria_nome} é uma competição ${ADJETIVO_GENERO[competicao.genero]} e não aceita este atleta.`
-      });
-    }
-
-    // 3. Idade pela categoria: Sub N aceita quem nasceu em (ano do evento - N)
-    // ou depois. Aberto tem idade_maxima nula e não limita.
-    if (competicao.idade_maxima !== null) {
-      const [[evento]] = await conexao.query('SELECT ano FROM configuracao_evento WHERE id = 1');
-      const anoMinimo = evento.ano - competicao.idade_maxima;
-
-      if (atleta.ano_nascimento < anoMinimo) {
-        await conexao.rollback();
-        return res.status(400).json({
-          erro: `${competicao.categoria_nome} aceita nascidos em ${anoMinimo} ou depois. ${atleta.nome} nasceu em ${atleta.ano_nascimento}.`
-        });
-      }
-    }
-
-    // 4. No máximo 2 competições de modalidade COLETIVA por atleta.
-    // A competição de destino sai da conta: se ele já estiver inscrito nela,
+    // 2 a 5. Sexo x gênero, idade pela categoria, no máximo 2 competições
+    // coletivas e teto do elenco (src/config/elegibilidade.js). A competição
+    // de destino sai da conta das coletivas: se ele já estiver inscrito nela,
     // quem barra é o índice UNIQUE, com mensagem própria.
-    if (competicao.modalidade_tipo === 'COLETIVO') {
-      const [[{ coletivas }]] = await conexao.query(
-        `SELECT COUNT(DISTINCT c.id) AS coletivas
-         FROM inscricoes_atletas i
-         INNER JOIN equipes e ON e.id = i.equipe_id
-         INNER JOIN competicoes c ON c.id = e.competicao_id
-         INNER JOIN modalidades m ON m.id = c.modalidade_id
-         WHERE i.atleta_id = ? AND m.tipo = 'COLETIVO' AND c.id <> ?`,
-        [atleta_id, competicao.id]
-      );
-
-      if (coletivas >= LIMITE_COMPETICOES_COLETIVAS) {
-        await conexao.rollback();
-        return res.status(409).json({
-          erro: `${atleta.nome} já está em ${plural(coletivas, 'competição coletiva', 'competições coletivas')}, o máximo permitido pelo regulamento.`
-        });
-      }
-    }
-
-    // 5. Teto de atletas da modalidade (modalidades.max_atletas: 14, e 12 no
-    //    handebol e no baleado desde 07/10/2026). Nulo = sem limite (atletismo).
+    const [[evento]] = await conexao.query('SELECT ano FROM configuracao_evento WHERE id = 1');
+    const [[{ coletivas }]] = await conexao.query(
+      `SELECT COUNT(DISTINCT c.id) AS coletivas
+       FROM inscricoes_atletas i
+       INNER JOIN equipes e ON e.id = i.equipe_id
+       INNER JOIN competicoes c ON c.id = e.competicao_id
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       WHERE i.atleta_id = ? AND m.tipo = 'COLETIVO' AND c.id <> ?`,
+      [atleta_id, competicao.id]
+    );
     const [[{ inscritos }]] = await conexao.query(
       'SELECT COUNT(*) AS inscritos FROM inscricoes_atletas WHERE equipe_id = ?',
       [equipe_id]
     );
 
-    if (competicao.max_atletas !== null && inscritos >= competicao.max_atletas) {
+    const recusa = motivoDeInelegibilidade({
+      competicao, atleta, anoDoEvento: evento.ano, coletivas, inscritos
+    });
+    if (recusa) {
       await conexao.rollback();
-      return res.status(409).json({
-        erro: `Esta equipe já tem ${plural(inscritos, 'atleta', 'atletas')}, o máximo permitido em ${competicao.modalidade_nome}.`
-      });
+      return res.status(recusa.status).json({ erro: recusa.erro });
     }
 
     const [resultado] = await conexao.query(
