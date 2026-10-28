@@ -17,7 +17,7 @@ grupos, modelos de súmula).
 
 ---
 
-## Estado atual (atualizado em 21/10/2026)
+## Estado atual (atualizado em 28/10/2026)
 
 - **A produção JÁ RODA O SISTEMA NOVO desde a noite de 01/10/2026** (virada entre ~20:59 e 21:50).
   Render publica a branch **`feat/novo-escopo`** (deploy `eaa50b6`, "Fatia 10d"), a Vercel também
@@ -34,12 +34,15 @@ grupos, modelos de súmula).
 - **Publicado em 20/10/2026:** o trabalho de 20/10 (tabela oficial de jogos, "melhor de dois jogos",
   Agenda de Jogos, número da tabela, pendência 19) — backend `139e541`, frontend `5368f07`, com os
   scripts `12` a `15` rodados antes na produção.
-- **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): o lote dos
-  pontos lançados de 21/10/2026, nos dois repositórios (provas do atletismo, aviso ao substituir,
-  grade só com as escolas da folha, atletismo sem Aberto, histórico das correções e toque), e no
-  frontend também o menu "Tabuleiro"/"Atletismo". **Ordem do deploy:** `db/16` e `db/17` no
-  `jogos_2026` (com dump antes), depois o push do backend e, logo em seguida, o do frontend (a tela
-  nova manda `prova_id` e `substituir`, e lê os apelidos e o histórico).
+- **Publicado em 28/10/2026:** na produção rodaram `db/16`, `db/17`, a limpeza parte 1, o `db/19` e
+  a importação da **tabela nova do chefe** (240 jogos de grupo, renumerada; 240 equipes); depois o
+  lote dos pontos lançados de 21/10 — backend `691892f`, frontend `0d877c5` — e, no frontend,
+  "Cadastrar Time" saiu do menu (`2cc0925`; a página e a rota `/cadastro` continuam).
+- **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): a
+  **importação de atletas por CSV** (28/10/2026, nos dois repositórios; `docs/IMPORTACAO_ATLETAS.md`)
+  e a extração das regras do atleta para `src/config/elegibilidade.js`. **Sem script de banco.**
+  Ordem do deploy: push do backend e, logo em seguida, o do frontend (a tela nova chama
+  `/api/importar-atletas`).
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
@@ -127,6 +130,9 @@ src/config/evento.js      fuso do evento (FUSO_EVENTO, padrão America/Bahia) e 
 src/config/regrasProvisorias.js   decisões provisórias de regra (seção 12.1 do contexto)
 src/config/chavesMataMata.js      cruzamentos do mata-mata por formato
 src/config/folhasSumula.js        desenho da súmula por modalidade (validação + tela)
+src/config/elegibilidade.js       regras do atleta e da inscrição (RG, nascimento, sexo × gênero,
+                                  idade × categoria, 2 coletivas, teto do elenco): cadastro,
+                                  inscrição e importação de atletas usam só daqui
 src/controllers/*         um controller por recurso
 src/routes/*              um arquivo de rotas por recurso
 src/middlewares/authMiddleware.js verificarToken + exigirPerfil(...perfis)
@@ -148,6 +154,7 @@ Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mes
 | atletas | `GET /escola/:escola_id` (pública: anônimo recebe só id, nome e escola; o ADMIN também sexo e nascimento); `POST`, `GET/PUT/DELETE /:id` (ADMIN) |
 | inscricoes | `GET /equipe/:equipe_id` (pública: anônimo recebe só camisa e nome; o ADMIN também sexo e ano); `POST /`, `DELETE /:id` (ADMIN) |
 | jogos | `GET /`, `GET /:id`; `POST`, `PUT /:id`, `PUT /:id/wo`, `DELETE /:id` (ADMIN); `PUT /:id/iniciar` (mesa) |
+| importar-atletas | `POST /previa` e `POST /confirmar` (ADMIN; corpo `text/csv`; `?escola_id=` quando a planilha não tem a coluna Escola; `?apenas_ok=true` para gravar só as OK quando há erro, senão 422): atletas e inscrições por CSV, prévia OK/AVISO/ERRO sem gravar e confirmar numa transação única (tudo ou nada). RG já cadastrado é pulado e o atleta existente nunca muda. Ver `docs/IMPORTACAO_ATLETAS.md` e o exemplo fictício `docs/importacao/exemplo_atletas_ficticio.csv` (o único arquivo versionado dessa pasta) |
 | importacao-jogos | `POST /previa` e `POST /` (ADMIN; corpo `text/csv`): jogos da fase de grupos por CSV, prévia sem gravar e importação idempotente numa transação; modelo em `docs/modelo_importacao_jogos.csv`. Coluna **opcional "Nº Tabela"** (número do jogo na tabela do chefe, `db/15`): célula vazia aceita, número repetido no arquivo ou já usado no banco é erro, e reimportar só preenche o número de jogo que já existe e está sem — sem mudar mais nada nem trocar número gravado |
 | sumulas | `GET /:jogo_id`; `POST /` (mesa ou ADMIN) — a súmula é a **única fonte do placar** |
 | classificacao | `GET /competicao/:id` (calculada dos jogos, nunca gravada) |
