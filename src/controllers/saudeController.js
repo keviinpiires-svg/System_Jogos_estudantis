@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { reinicioPermitido } = require('./campeonatoController');
 
 // Health check do serviço.
 //
@@ -12,14 +13,16 @@ const db = require('../config/db');
 // por isso o 503, que faz o deploy ruim ser recusado em vez de entrar no ar.
 //
 // A rota é pública: não devolve host, versão, nome de banco nem variável de
-// ambiente. Só se está de pé.
+// ambiente. Só se está de pé — e se o "Reiniciar Campeonato" está permitido
+// aqui (um sim ou não), para a tela esconder o botão quando não está.
 const verificarSaude = async (req, res) => {
   try {
     await db.query('SELECT 1');
     res.json({
       status: 'ok',
       banco: 'ok',
-      emPeHaSegundos: Math.round(process.uptime())
+      emPeHaSegundos: Math.round(process.uptime()),
+      reiniciar_permitido: reinicioPermitido()
     });
   } catch (erro) {
     console.error('Health check: o banco não respondeu.', erro.message);

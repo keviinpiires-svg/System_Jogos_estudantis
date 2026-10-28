@@ -21,9 +21,22 @@ const TABELAS_EM_ORDEM = [
   'jogos'
 ];
 
+// Em produção o reinício fica desligado: apagaria os jogos e as súmulas do
+// evento de verdade. Só liga com PERMITIR_REINICIAR=true no servidor. Em
+// desenvolvimento segue como sempre. O /saude conta à tela se está permitido.
+const reinicioPermitido = () => process.env.NODE_ENV !== 'production'
+  || process.env.PERMITIR_REINICIAR === 'true';
+
 // Zera os jogos e as súmulas do campeonato, preservando a base importada,
 // os atletas, as inscrições e os cadastros fixos.
 const resetarCampeonato = async (req, res) => {
+  if (!reinicioPermitido()) {
+    return res.status(403).json({
+      erro: 'Reiniciar o campeonato está desligado em produção. Para liberar, defina '
+        + 'PERMITIR_REINICIAR=true no servidor (e tire depois).'
+    });
+  }
+
   const { confirmacao } = req.body;
 
   if (confirmacao !== 'REINICIAR') {
@@ -66,4 +79,4 @@ const resetarCampeonato = async (req, res) => {
   }
 };
 
-module.exports = { resetarCampeonato };
+module.exports = { resetarCampeonato, reinicioPermitido };
