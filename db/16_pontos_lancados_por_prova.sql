@@ -14,13 +14,19 @@
 --   num índice único (o tabuleiro poderia repetir a escola), ele usa a
 --   coluna calculada prova_chave = COALESCE(prova_id, 0).
 --
--- Compatível com o que está gravado: as linhas existentes ficam com
--- prova_id NULL. Na produção não há nenhuma (a limpeza zerou a tabela); a
--- conferência abaixo conta linhas de atletismo sem prova, e o esperado é 0.
+-- As linhas existentes ficam com prova_id NULL. No xadrez, na dama e no
+-- dominó é o certo; no ATLETISMO não: o backend novo soma essas linhas na
+-- Tabela Geral, mas a tela não as mostra em prova nenhuma (a mesa não vê nem
+-- corrige, e lançar a prova por cima conta em dobro). A conferência abaixo
+-- conta essas linhas: o esperado é 0. Se der mais que 0, decidir antes do
+-- deploy do backend novo. ANTES de rodar na produção, conte (só leitura):
+--   SELECT COUNT(*) FROM pontos_lancados p JOIN modalidades m
+--     ON m.id = p.modalidade_id WHERE m.slug = 'atletismo';
 -- Compatível com o backend que está no ar (ele não lê a coluna; o índice
 -- novo é mais permissivo só para o atletismo, que ele lança sem prova).
 --
--- RODA UMA VEZ: de novo, falha sem mudar nada (coluna duplicada).
+-- RODA UMA VEZ: de novo, falha sem mudar nada (MySQL 8.0.46: erro 1091, o
+-- índice antigo já não existe; o ALTER inteiro é recusado).
 -- Rode depois do 15. A trava de mesa por local passa a ser o 18 (o 17 é o
 -- histórico das correções dos pontos lançados).
 -- =====================================================================

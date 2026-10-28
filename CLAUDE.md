@@ -340,8 +340,13 @@ de dados.
     índice único pelo que inclui a prova (coluna gerada `prova_chave`) e **roda uma vez**; o `17` é
     idempotente. Se a produção já tiver ponto de atletismo lançado, a conferência do `16` mostra quantos
     ficaram sem prova (esperado 0): aí, decidir antes do deploy. Aplicados no dev e cobertos pelo `fumaca`
-    (140 ok) no banco de fumaça montado com `01`–`17`; **ainda não validados no MySQL 8.0.46 nem no 9**
-    (a instância 3307 estava fora do ar em 21/10).
+    (140 ok) no banco de fumaça montado com `01`–`17`; **validados no MySQL 8.0.46 em 21/10/2026** (cadeia
+    `00`–`17` com dados em todas as tabelas; e `16`/`17` sobre um banco no estado da produção, com o backend
+    no ar seguindo funcionando, inclusive o `fumaca` dele). Ainda não passaram por um MySQL 9.
+    ⚠️ **Pontos de atletismo já gravados ficam sem prova** depois do `16`: o backend novo os soma na Tabela
+    Geral, mas a tela não os mostra. **Antes do `16`, contar os pontos de atletismo na produção** (consulta
+    no cabeçalho do script, só leitura); se houver algum, decidir antes do deploy.
+    ⚠️ **O `db/00_apagar_tudo.sql` não tem trava**: roda em qualquer banco, inclusive o `jogos_2026`.
 
 <!-- deepspace:workspace-instructions:begin -->
 Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.

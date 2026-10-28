@@ -2021,6 +2021,16 @@ const testarAtletismoPorProva = async () => {
 
 // ---------------------------------------------------------------------------
 (async () => {
+  // A trava vem antes de tudo e, se recusar, o script sai sem nenhuma
+  // consulta. Antes ela rodava dentro do passeio, e o catch abaixo seguia para
+  // a limpeza: os DELETE rodavam no banco que a trava tinha recusado (21/10/2026).
+  try {
+    conferirQueEhDesenvolvimento();
+  } catch (erro) {
+    console.error(`Recusado: ${erro.message}`);
+    process.exit(1);
+  }
+
   let erroDoPasseio = null;
 
   try {
