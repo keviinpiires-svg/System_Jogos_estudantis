@@ -1,0 +1,102 @@
+# Banco de dados — SGE Jogos Estudantis 2026
+
+**A produção (Railway) roda MySQL 9.7.2** (conferido em 05/10/2026). Os scripts foram validados numa
+instância local de **MySQL 9.4.0** — ver `VALIDACAO_MYSQL9.md` — e rodaram na produção na virada de
+01/10/2026. Rodam igualmente em MySQL 8.0.16+ (conferido no 8.0.46: o schema sai idêntico)
+e em MariaDB 10.4+, que é o que o XAMPP traz. Abaixo do MySQL 8.0.16 **não**: as regras `CHECK` são
+ignoradas em silêncio.
+
+Os scripts **não fixam collation**: usam a padrão do servidor. Em MySQL 8 e 9 isso dá
+`utf8mb4_0900_ai_ci`, igual à produção — que é **insensível a acento**, então "JOSÉ DIAS" e
+"JOSE DIAS" contam como o mesmo nome nos índices únicos. O MariaDB do XAMPP usa
+`utf8mb4_general_ci`, que **não** é: um banco de desenvolvimento em MariaDB aceita um par que a
+produção recusa. Para saber a versão do seu servidor, rode `SELECT VERSION();`.
+
+## Arquivos
+
+| Arquivo | O que faz |
+|---|---|
+| `00_apagar_tudo.sql` | **Apaga todas as tabelas e dados** (antigas e novas). |
+| `01_schema.sql` | Cria as 23 tabelas do schema novo, com chaves estrangeiras e restrições. |
+| `02_carga_base.sql` | Dados fixos: configuração do evento, etapas de ensino, categorias, modalidades, pontuação da tabela geral e provas de atletismo. |
+| `03_importar_grupos.sql` | Gerado da tabela de grupos: 18 escolas (+ grafias alternativas), 50 competições com a regra de classificação, 77 grupos e 240 equipes. Confira antes em `docs/CONFERENCIA_COMPETICOES.md`. |
+| `04_locais.sql` | Locais de disputa (ginásios, quadras e campos). Rode uma vez, depois do 03. |
+| `05_faltas_basquete.sql` | Migração: coluna `faltas` (0 a 5) em `sumula_atletas`, para as faltas individuais do basquete. Aplicada no `jogos_estudantis_dev` em 29/09/2026 e na produção (`jogos_2026`) na virada de 01/10/2026. Num banco novo entra na sequência, logo depois do `04` — conferido. |
+| `06_ajustes_regras_provisorios.sql` | Ajusta a linha do Handebol Masculino Aberto (turno único, 1º e 2º à final). Aplicado no desenvolvimento e na produção (virada de 01/10/2026). |
+| `07_baleados_por_equipe.sql` | Migração: coluna `baleados` (0 a 10, com `CHECK`) em `sumula_equipes`, para o contador de baleados por equipe da súmula oficial do baleado. Desde 12/10/2026 (chefe) a coluna guarda as **adversárias que a equipe eliminou**, e o placar da equipe é o próprio contador; antes guardava as atletas da própria equipe baleadas. A troca é só no código: linhas gravadas antes guardam o sentido antigo e não foram migradas. Aplicada no `jogos_estudantis_dev` em 06/10/2026, **validada no MySQL 9.4.0** (instância local da porta 3308: `01`–`07` em banco descartável, 0 e 10 aceitos, 11 recusado pelo `CHECK`) e **aplicada na produção (`jogos_2026`) em 06/10/2026, com dump antes**. Num banco novo entra depois do `06`: o backend lê a coluna, e sem ela a leitura de qualquer súmula falha. |
+| `08_baleado_acrescimo_final.sql` | Migração: coluna `baleou_primeiro_equipe_id` (nula, chave estrangeira composta com `competicao_id`) em `jogos`, para registrar quem baleou primeiro no acréscimo de 4 minutos do baleado empatado — na final (chefe, 07/10/2026) e, desde 12/10/2026, também na semifinal, sem mudança de banco. Aplicada no `jogos_estudantis_dev` e **validada no MySQL 8.0.46 em 07/10/2026** (`01`–`09` em banco descartável); e **falta na produção** — rodar antes do backend que grava a coluna. |
+| `09_elenco_handebol_baleado.sql` | Dados: `modalidades.max_atletas = 12` no handebol e no baleado (era 14; chefe, 07/10/2026). Não apaga inscrição; a conferência lista equipes que já passem de 12. Aplicada no `jogos_estudantis_dev` e **validada no MySQL 8.0.46 em 07/10/2026** (`01`–`09` em banco descartável); e **falta na produção.** |
+| `10_locais_cebc_ceja.sql` | Dados, **idempotente**: locais "Quadra do CEBC" e "Quadra do CEJA" (chefe, 12/10/2026: uma mesa por local). Cada um só entra se ainda não houver um com o mesmo nome; a Quadra do CEJA já vem do `04`, então num banco com o `04` só a do CEBC entra (de 4 para 5 locais). Sem tela para cadastrar local: `GET /api/locais` é só leitura. Aplicado no `jogos_estudantis_dev` e **validado no MySQL 8.0.46 em 12/10/2026** (`01`–`10` em banco descartável, rodado duas vezes sem duplicar); **falta na produção**. Não depende de backend novo. |
+| `11_pontos_lancados.sql` | Migração, **idempotente**: cadastra Xadrez, Dama e Dominó em `modalidades` e cria `pontos_lancados` — os pontos que a mesa digita para atletismo, xadrez, dama e dominó, que funcionam fora do sistema (chefe, 12/10/2026). Uma linha por escola em cada modalidade × categoria × gênero (índice único), pontos de 0 a 99 (`CHECK`), colocação opcional, quem digitou e quem alterou por último (chaves estrangeiras para `usuarios`). Aplicada no `jogos_estudantis_dev` e **validada no MySQL 8.0.46 em 12/10/2026** (`01`–`11` em banco descartável, rodado duas vezes; teto, colocação, gênero, linha repetida e usuário inexistente recusados); **falta na produção** — rodar **antes** do backend que lê a tabela (sem ela a Tabela Geral responde 500). O `00_apagar_tudo.sql` derruba a tabela nova. |
+| `12_locais_adelieta_ceti.sql` | Dados, **idempotente**, no padrão do `10`: locais "Quadra da Adelieta Ramalho", "Quadra do CETI" e "Campo Society do CETI", que a tabela oficial de jogos do chefe usa (20/10/2026). Cada um só entra se ainda não houver um com o mesmo nome; sem `INSERT IGNORE`. Aplicado no `jogos_estudantis_dev` em 20/10/2026 (rodado duas vezes: 3 locais na primeira, nenhum na segunda; 8 locais no total). **Validado no MySQL 8.0.46 em 20/10/2026** (`01`–`14` em banco descartável, modo estrito) e **falta na produção**, onde deve rodar antes de importar a tabela de jogos. A trava de mesa por local, antes planejada como `12`, passa a ser o `16`. |
+| `13_escola_conveniada.sql` | Dados, **idempotente**: a escola "COVENIADA" (id 7 na carga) passa a se chamar **"Conveniada"**, como na tabela oficial de jogos do chefe (20/10/2026: vale a tabela), e "COVENIADA" fica guardada em `escola_apelidos`. O id não muda, então equipes, atletas e inscrições seguem iguais. Rodado de novo, não muda nada (a grafia nova tem uma letra a mais, e nem a collation da produção confunde as duas). Aplicado no `jogos_estudantis_dev` e **validado no MySQL 8.0.46 em 20/10/2026** (`01`–`14` em banco descartável). **Falta na produção**, antes de importar a tabela de jogos. |
+| `14_tabela_do_chefe_equipes.sql` | Dados, **idempotente**: equipes e competição pela tabela oficial de jogos do chefe (20/10/2026; onde o cadastro e a tabela divergem, vale a tabela). Baleado F Sub 17: sai LUCIA ROCHA, entra JOSENILDO LEITE; Handebol F Sub 17: sai CETI, entra CEBC (as que entram vão para o grupo das que ficam); **Handebol M Sub 9** nasce no formato das competições de 2 escolas (1 grupo, `IDA_E_VOLTA`, sem mata-mata), com ADELIETA RAMALHO e FRANCISCO AMORIM — são 51 competições depois dele. **Trava:** antes de qualquer escrita, se uma equipe a remover tiver jogo, súmula, atleta inscrito ou colocação, o `CHECK` de uma tabela temporária recusa (`equipe_a_remover_tem_jogos_sumulas_ou_inscritos`; erro 3819 no MySQL, 4025 no MariaDB) e nada é gravado. Aplicado no `jogos_estudantis_dev` em 20/10/2026 (as duas equipes que saíram estavam vazias; trava testada com um jogo temporário; rodado de novo sem mudar nada). **Validado no MySQL 8.0.46 em 20/10/2026** (`01`–`14` em banco descartável, modo estrito): rodado duas vezes sem diferença, e a trava parou com o erro 3819 sem apagar nenhuma equipe. **Falta na produção**, onde deve rodar antes de importar a tabela. A trava de mesa por local passa a ser o 16. |
+| `15_numero_tabela.sql` | Migração: coluna **`jogos.numero_tabela`** (`SMALLINT UNSIGNED`, nula), o número do jogo na tabela oficial do chefe (global, 1 a 338), com **índice único** (`uq_jogos_numero_tabela`; vários nulos permitidos) e `CHECK` contra o 0. Quem preenche é a importação por CSV, pela coluna opcional "Nº Tabela". **Roda uma vez**: de novo, falha sem mudar nada (3822 no MySQL, 1060 no MariaDB). Aplicado no `jogos_estudantis_dev` e **validado no MySQL 8.0.46 em 20/10/2026** (`00`–`11`, limpeza, `12`–`15`: índice recusa número repetido com 1062, `CHECK` recusa o 0 com 3819). **Falta na produção, antes do backend que lê a coluna.** |
+| `16_pontos_lancados_por_prova.sql` | Migração: coluna **`pontos_lancados.prova_id`** (nula, chave estrangeira para `provas_atletismo`) e a coluna gerada `prova_chave` (`COALESCE(prova_id, 0)`, `STORED`), para o atletismo ter **um lançamento por prova** (21/10/2026: Sub 8 e 9, 50 m; Sub 11 a 17, salto e 100 m), somando na escola. O índice único `uq_pontos_lancados` dá lugar ao `uq_pontos_lancados_prova` (modalidade, categoria, gênero, `prova_chave`, escola): xadrez, dama e dominó seguem com uma linha por escola (prova nula). **Roda uma vez** (de novo, o MySQL recusa o `ALTER` inteiro com o erro 1091 e nada muda). A conferência conta pontos de atletismo sem prova (esperado 0). **Validado no MySQL 8.0.46 em 21/10/2026:** cadeia `00`–`17` em banco descartável com dados em todas as 25 tabelas (índice recusa prova repetida e tabuleiro repetido com 1062, prova inexistente com 1452) e `fumaca` do backend novo (140 ok); e, num banco no estado da produção (`00`–`15`) com pontos de atletismo já lançados pelo backend no ar, o `16` rodou, a segunda vez falhou sem mudar nada, o backend no ar seguiu funcionando (leitura, correção, lançamento, exclusão e o `fumaca` dele, 130 ok). ⚠️ **Mas os pontos de atletismo já gravados ficam sem prova** (a conferência deu 3): o backend novo os soma na Tabela Geral e a tela não os mostra. Antes de rodar na produção, contar os pontos de atletismo lá (consulta no cabeçalho do script); com 0, não morde. Aplicado no `jogos_estudantis_dev` em 21/10/2026. **Falta no MySQL 9 e na produção, antes do backend que lê a coluna** (sem ela, a Tabela Geral responde 500). A trava de mesa por local passa a ser o `18`. |
+| `17_pontos_lancados_historico.sql` | Migração, **idempotente**: tabela **`pontos_lancados_historico`** — cada correção (`ALTERACAO`), escola tirada do lançamento (`EXCLUSAO`) ou lançamento apagado pelo ADMIN (`EXCLUSAO_LANCAMENTO`), com pontos e colocação de antes, quem os tinha digitado e quando, o valor novo, quem mudou e quando (chaves estrangeiras para modalidade, categoria, prova, escola e usuários; sem chave para `pontos_lancados`, para o histórico sobreviver à exclusão). O backend grava na mesma transação da correção; o reset do campeonato e o `00` apagam a tabela. Aplicado no `jogos_estudantis_dev` em 21/10/2026 (rodado duas vezes) e coberto pelo `fumaca`; **validado no MySQL 8.0.46 em 21/10/2026** (rodado duas vezes sobre o banco migrado, 6 chaves estrangeiras; usuário inexistente recusado com 1452, ação fora da lista com 1265; o backend no ar não escreve nela). **Falta no MySQL 9 e na produção, antes do backend que grava nela**. |
+| `18_usuarios_local.sql` | Migração, **idempotente** (MySQL 8 e MariaDB): coluna **`usuarios.local_id`** (nula, índice `ix_usuarios_local`, chave estrangeira `fk_usuarios_local` para `locais_disputa`, RESTRICT). Cada parte só entra se faltar (consulta ao `information_schema` + `PREPARE`/`EXECUTE`, porque o MySQL 8 não tem `ADD COLUMN IF NOT EXISTS`); rodado de novo, só avisa "já existe". É a **trava de mesa por local**: conta PLACAR com local só inicia e lança súmula de jogo daquele local; sem local, sem trava; ADMIN nunca travado (ver `docs/CONTAS_DE_MESA.md`). Compatível com o backend que está no ar (não lê a coluna); o backend novo lê em toda escrita: **rode ANTES do push dele**. Aplicado no `jogos_estudantis_dev` em 28/10/2026 (duas vezes) e **validado no MySQL 8.0.46 em 28/10/2026** (cadeia `01`–`19` em banco descartável, 2ª execução sem mudança, `fumaca` 168 ok). **Falta no MySQL 9 e na produção.** |
+| `19_tabela_nova_equipes.sql` | Dados, **idempotente**: equipes pela **tabela nova de jogos do chefe** (28/10/2026, renumerada, 240 jogos de grupo; vale a tabela). Entram LUCIA ROCHA no Baleado F Sub 17 e CETI no Handebol F Sub 17; saem, se existirem, JOSENILDO LEITE (Baleado F Sub 17 e M Sub 11), FRANCISCO AMORIM e PORTAL DO SABER (Futsal F Sub 9), CEBC (Futsal M Sub 9), FRANCISCO AMORIM (Handebol M Sub 8), CETI e LUCIA ROCHA (Handebol F Aberto, que fica sem equipes e sem jogos: a Tabela Geral a pula por "menos de duas equipes inscritas") e EMILIANO ZAPATA (Futebol Society M Sub 15: só constava na tabela de grupos; os grupos A e B ficam com 3). Seguem 51 competições, com 240 equipes (eram 242), e as 51 batem com a tabela de jogos. **Trava** igual à do `14` (erro 3819 no MySQL, 4025 no MariaDB): os jogos do lote 1 ocupam as equipes que saem, então **rode antes a parte 1 de `scripts/sql/limpar_dados_de_teste.sql`**. O 18 fica reservado para a trava de mesa por local. Aplicado no `jogos_estudantis_dev` em 28/10/2026 (242 → 240 equipes; tabela nova importada: 240 novas, 0 erros) e **validado no MySQL 8.0.46 em 28/10/2026** (`00`–`17` + lote 1 em banco descartável: a trava parou com 3819 pelos jogos e, noutro teste, por um atleta inscrito, sem gravar nada; depois da limpeza foi de 242 a 240 equipes, a 2ª vez não mudou nada, a tabela nova importou 240 sem erro e reimportada deu 240 existentes; cadeia `01`–`19` com o `fumaca`, 140 ok). Falta no MySQL 9 e na produção. |
+| `schema_producao_baseline.sql` | Registro de como a produção estava em 28/09/2026. **Não execute.** |
+
+Escolas, competições, grupos e equipes **não** estão na carga base: vêm de `03_importar_grupos.sql` (a partir de `docs/referencias/tabela_de_grupos.md`).
+
+## Como aplicar
+
+**Sempre primeiro num banco de desenvolvimento** (MySQL local ou um banco de teste), nunca direto na produção.
+
+1. Crie um banco vazio, por exemplo: `CREATE DATABASE jogos_estudantis_dev CHARACTER SET utf8mb4;` (sem `COLLATE`).
+2. Rode, nesta ordem: `00_apagar_tudo.sql` → `01_schema.sql` → `02_carga_base.sql` → `03_importar_grupos.sql`.
+3. Confira: `SHOW TABLES;` deve listar 23 tabelas.
+
+Na produção (Railway), o schema novo já está no banco `jogos_2026` desde 01/10/2026 (ver `docs/MIGRACAO_PRODUCAO.md`). **A Railway não tem backup automático neste plano**: antes de qualquer script lá, faça um `mysqldump` e confira o arquivo.
+
+## Criar os usuários
+
+A carga base não cria usuários, para não versionar senha. Gere o hash da senha com o `bcryptjs` do próprio projeto:
+
+```bash
+node -e "console.log(require('bcryptjs').hashSync('SENHA_AQUI', 10))"
+```
+
+E insira (um por administrador; perfil `PLACAR` para quem só lança súmula):
+
+```sql
+INSERT INTO usuarios (nome, email, senha, perfil)
+VALUES ('Felipe', 'email@exemplo.com', '<hash gerado>', 'ADMIN');
+```
+
+## Regras de integridade
+
+O próprio banco garante (chaves compostas):
+- as equipes e o grupo de um jogo pertencem à competição do jogo;
+- o grupo de uma equipe pertence à competição da equipe;
+- o atleta inscrito numa equipe é da mesma escola da equipe;
+- só entra na súmula quem está inscrito na equipe;
+- RG único, e-mail de usuário único, número da camisa único na equipe, número do jogo único por competição.
+
+Fica no código do backend (dentro de transação):
+- máximo de 14 atletas por equipe (`modalidades.max_atletas`); abaixo do mínimo, só aviso;
+- idade: `YEAR(data_nascimento) >= configuracao_evento.ano - categorias.idade_maxima` (Aberto sem limite);
+- sexo do atleta × gênero da competição (`MISTO` aceita os dois);
+- no máximo **2 competições coletivas** por atleta — conta competições de modalidade `COLETIVO`, não modalidades: Futsal Sub 13 e Futsal Sub 15 são duas. Atletismo é `INDIVIDUAL` e não entra na conta;
+- a equipe lançada na súmula é uma das duas do jogo;
+- suspensões por cartão (calculadas a partir de `sumula_atletas`).
+
+## Renumerar jogos ao excluir
+
+A ordem ascendente evita conflito com o índice único durante a atualização:
+
+```sql
+DELETE FROM jogos WHERE id = ?;
+UPDATE jogos SET numero_jogo = numero_jogo - 1
+WHERE competicao_id = ? AND numero_jogo > ?
+ORDER BY numero_jogo ASC;
+```
+
+## Nota sobre a validação
+
+Este schema foi conferido por script (tabelas, colunas, tipos e alvos das chaves estrangeiras) e **executado com sucesso no banco de desenvolvimento `jogos_estudantis_dev` em 28/09/2026**, com a carga base e a importação dos grupos.
+
+Em **01/10/2026** (fatia 10) a sequência inteira `00`–`06` foi rodada **do zero em MySQL 9.4.0** (a Railway roda MySQL 9.7.2), com todas as conferências de contagem, as restrições testadas uma a uma e o `npm run fumaca` passando. O relatório está em **`VALIDACAO_MYSQL9.md`**. Foi a primeira vez que o `05` aplicou sobre um `01` recém-criado, e funcionou.
+
+**Aplicado na produção (Railway) em 01/10/2026**, na fatia 10: o banco novo `jogos_2026` nasceu **ao lado** do antigo, que segue parado com o schema do `schema_producao_baseline.sql`. Rodaram os scripts `01`–`06`; o `00` foi pulado porque o banco estava vazio. **Não há backup automático** na Railway neste plano; os dumps são manuais e ficam fora do repositório.

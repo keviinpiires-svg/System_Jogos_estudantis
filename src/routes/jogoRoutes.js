@@ -1,15 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const jogoController = require('../controllers/jogoController');
-const verificarToken = require('../middlewares/authMiddleware');
+const { verificarToken, exigirPerfil, travarMesaPorLocal } = require('../middlewares/authMiddleware');
 
-// 1. Rotas estáticas (não recebem parâmetros) ficam em cima
-router.post('/agendar', verificarToken, jogoController.agendarJogo);
+const somenteAdmin = [verificarToken, exigirPerfil('ADMIN')];
+// Iniciar a partida é trabalho de mesa, então o perfil de placar também pode,
+// mas só no jogo do local dela (db/18)
+const mesaDoLocalOuAdmin = [verificarToken, exigirPerfil('ADMIN', 'PLACAR'), travarMesaPorLocal((req) => req.params.id)];
+
+// Agendar e listar. Filtros do GET: competicao_id, fase, status.
+router.post('/', somenteAdmin, jogoController.agendarJogo);
 router.get('/', jogoController.listarJogos);
 
-// 2. Rotas dinâmicas (que recebem /:id) ficam embaixo
+// Rotas por id
 router.get('/:id', jogoController.buscarPorId);
-router.put('/finalizar/:id', verificarToken, jogoController.finalizarJogo);
-router.delete('/:id', verificarToken, jogoController.excluirJogo);
+router.put('/:id', somenteAdmin, jogoController.atualizarJogo);
+router.put('/:id/iniciar', mesaDoLocalOuAdmin, jogoController.iniciarJogo);
+router.put('/:id/wo', somenteAdmin, jogoController.declararWO);
+router.delete('/:id', somenteAdmin, jogoController.excluirJogo);
 
 module.exports = router;
