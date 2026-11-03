@@ -3,7 +3,7 @@ const { reinicioPermitido } = require('./campeonatoController');
 
 // Health check do serviço.
 //
-// Duas funções durante o evento (23 a 28/11/2026):
+// Duas funções durante o evento (18 a 21/11/2026):
 //   * o Render consulta esta rota para saber se o deploy subiu de pé;
 //   * um ping de 5 em 5 minutos a chama para o serviço não dormir e a mesa não
 //     esperar um minuto pela primeira requisição do dia.

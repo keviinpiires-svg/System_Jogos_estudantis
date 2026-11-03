@@ -375,7 +375,7 @@ const rodar = async () => {
 
     for (let i = 0; i < doGrupo.length; i++) {
       for (let j = i + 1; j < doGrupo.length; j++) {
-        const jogo = await agendar(doGrupo[i].id, doGrupo[j].id, 'GRUPOS', '2026-11-23T09:00');
+        const jogo = await agendar(doGrupo[i].id, doGrupo[j].id, 'GRUPOS', '2026-11-18T09:00');
         await lancar(jogo, doGrupo[i].id, 3, doGrupo[j].id, 1);
       }
     }
@@ -902,7 +902,7 @@ const testarAgenda = async () => {
   await exigir('POST', '/inscricoes', { equipe_id: comp.e1, atleta_id: atleta.id_atleta, numero_camisa: 10 }, 'inscrever na agenda');
   const jogo = await exigir('POST', '/jogos', {
     competicao_id: comp.id, equipe_1_id: comp.e1, equipe_2_id: comp.e2, fase: 'GRUPOS',
-    data_hora: '2026-11-25T05:41', local_id: local.id
+    data_hora: '2026-11-20T05:41', local_id: local.id
   }, 'agendar jogo da agenda');
   criados.jogos.push(jogo.id_jogo);
 
@@ -911,7 +911,7 @@ const testarAgenda = async () => {
   const corpoLista = await lista.text();
   const doJogo = lista.ok ? JSON.parse(corpoLista).find((j) => j.id === jogo.id_jogo) : null;
   conferir(
-    lista.status === 200 && doJogo?.data === '2026-11-25' && doJogo?.hora === '05:41'
+    lista.status === 200 && doJogo?.data === '2026-11-20' && doJogo?.hora === '05:41'
       && doJogo?.local?.nome === local.nome && doJogo?.status === 'AGENDADO' && doJogo?.placar === null,
     'GET /agenda sem login: o jogo com dia e hora de parede, local e status, sem placar antes de encerrar',
     `${lista.status} ${JSON.stringify(doJogo)}`
@@ -1536,7 +1536,7 @@ const testarNumeroTabela = async () => {
   const n = (k) => 9000 + Number(maior) + k; // números que o banco ainda não usa (o MAX volta como texto)
   const CAB = 'Modalidade;Categoria;Gênero;Grupo;Equipe 1;Equipe 2;Data;Hora;Local;Rodada;Árbitro;Nº Tabela';
   const linhaCsv = (a, b, hora, numero) => [comp.modalidade, comp.categoria, comp.genero, '', eq[a].nome, eq[b].nome,
-    '26/11/2026', hora, '', '', '', numero].join(';');
+    '21/11/2026', hora, '', '', '', numero].join(';');
   const meus = async () => (await db.query(
     'SELECT id, numero_tabela, data_hora, local_id, rodada, arbitro_1, numero_jogo FROM jogos WHERE competicao_id = ? ORDER BY data_hora',
     [comp.id]
@@ -1664,14 +1664,14 @@ const testarImportacaoDeJogos = async () => {
 
   const csv = [
     'Modalidade;Categoria;Gênero;Grupo;Equipe 1;Equipe 2;Data;Hora;Local;Rodada;Árbitro',
-    base(torto(e1.nome), e2.nome, '24/11/2026', '05:13', locais[0].nome, { grupo: `Grupo ${comp.grupo}`, rodada: 1, arbitro: `${MARCA} árbitro` }), // 2
-    base(e1.nome, e3.nome, '23/11/2026', '05:13', locais[0].nome, { modalidade: comp.modalidade.toUpperCase() }), // 3
-    base(e2.nome, e3.nome, '24/11/2026', '05h13', locais[0].nome), // 4: e2 e local no mesmo horário da linha 2
-    base(e2.nome, e1.nome, '24/11/2026', '05:13', locais[0].nome), // 5: repete a linha 2
+    base(torto(e1.nome), e2.nome, '19/11/2026', '05:13', locais[0].nome, { grupo: `Grupo ${comp.grupo}`, rodada: 1, arbitro: `${MARCA} árbitro` }), // 2
+    base(e1.nome, e3.nome, '18/11/2026', '05:13', locais[0].nome, { modalidade: comp.modalidade.toUpperCase() }), // 3
+    base(e2.nome, e3.nome, '19/11/2026', '05h13', locais[0].nome), // 4: e2 e local no mesmo horário da linha 2
+    base(e2.nome, e1.nome, '19/11/2026', '05:13', locais[0].nome), // 5: repete a linha 2
     base(e1.nome, e2.nome, '30/11/2026', '05:13', locais[1].nome), // 6: fora do evento, confronto repetido
-    base('ESCOLA QUE NAO EXISTE', e1.nome, '25/11/2026', '05:13', ''), // 7
-    base(`${MARCA} ambígua`, e1.nome, '25/11/2026', '05:13', ''), // 8
-    base(e1.nome, e3.nome, '25/11/2026', '05:13', 'Quadra Inexistente') // 9
+    base('ESCOLA QUE NAO EXISTE', e1.nome, '20/11/2026', '05:13', ''), // 7
+    base(`${MARCA} ambígua`, e1.nome, '20/11/2026', '05:13', ''), // 8
+    base(e1.nome, e3.nome, '20/11/2026', '05:13', 'Quadra Inexistente') // 9
   ].join('\r\n');
 
   const contarJogos = async () => (await db.query('SELECT COUNT(*) AS n FROM jogos WHERE competicao_id = ?', [comp.id]))[0][0].n;
@@ -1707,7 +1707,7 @@ const testarImportacaoDeJogos = async () => {
     );
     conferir(
       temAviso(linha(previa, 6), 'fora do evento') && temAviso(linha(previa, 6), 'Confronto repetido'),
-      'aviso: data fora de 23 a 28/11 e confronto repetido no grupo'
+      'aviso: data fora de 18 a 21/11 e confronto repetido no grupo'
     );
     conferir(
       linha(previa, 7).situacao === 'ERRO' && linha(previa, 7).erros[0].includes('não encontrada')
@@ -1724,7 +1724,7 @@ const testarImportacaoDeJogos = async () => {
   );
   criados.jogos.push(...gravados.map((j) => j.id));
   conferir(
-    importacao.status === 201 && gravados.length === 4 && gravados[0].data_hora.startsWith('2026-11-23')
+    importacao.status === 201 && gravados.length === 4 && gravados[0].data_hora.startsWith('2026-11-18')
       && gravados[1].arbitro_1 === `${MARCA} árbitro` && gravados[1].rodada === 1,
     'importação: grava as 4 novas, numeradas por data, com árbitro e rodada',
     `${importacao.status} ${importacao.corpo.erro || ''} ${JSON.stringify(gravados)}`
@@ -1764,7 +1764,7 @@ const testarImportacaoDeJogos = async () => {
   const [a1, a2] = doDois.filter((e) => e.grupo === doDois[0].grupo);
   const b1 = doDois.find((e) => e.grupo !== doDois[0].grupo);
   const semGrupo = (eq1, eq2) => [dois.modalidade, dois.categoria, dois.genero, '', eq1, eq2,
-    '25/11/2026', '05:13', '', '', ''].join(';');
+    '20/11/2026', '05:13', '', '', ''].join(';');
   const grupoVazio = await enviarCsv('/importacao-jogos/previa', [
     'Modalidade;Categoria;Gênero;Grupo;Equipe 1;Equipe 2;Data;Hora;Local;Rodada;Árbitro',
     semGrupo(a1.nome, a2.nome), // 2: mesmo grupo
@@ -2236,7 +2236,7 @@ const testarTravaDeMesaPorLocal = async () => {
   const agendar = async (local, hora) => {
     const jogo = await exigir('POST', '/jogos', {
       competicao_id: comp.id, equipe_1_id: comp.e1, equipe_2_id: comp.e2, fase: 'GRUPOS',
-      ...(local ? { data_hora: `2026-11-27T${hora}`, local_id: local.id } : {})
+      ...(local ? { data_hora: `2026-11-21T${hora}`, local_id: local.id } : {})
     }, `agendar jogo da trava (${local ? local.nome : 'sem local'})`);
     criados.jogos.push(jogo.id_jogo);
     return jogo.id_jogo;

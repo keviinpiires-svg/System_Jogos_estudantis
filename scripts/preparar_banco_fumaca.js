@@ -1,6 +1,6 @@
 // Recria, do zero, o banco próprio do teste de fumaça (padrão: jogos_fumaca_dev)
 // com os scripts db/01 a db/19, no mesmo servidor do
-// banco de desenvolvimento.
+// banco de desenvolvimento, e com o período do evento do db/20 (18 a 21/11).
 //
 // Por quê: o fumaca procura competições sem jogos para testar. Com a tabela
 // oficial de jogos importada no jogos_estudantis_dev (20/10/2026), quase todas
@@ -11,6 +11,11 @@
 //   npm run fumaca:banco                          (recria o jogos_fumaca_dev)
 //   PORT=3001 DB_NAME=jogos_fumaca_dev npm start  (API de teste nesse banco)
 //   DB_NAME=jogos_fumaca_dev FUMACA_API=http://localhost:3001/api npm run fumaca
+//
+// O db/20 não entra inteiro: ele mexe nos jogos da tabela oficial e confere
+// os 237 jogos, que aqui não existem (a conferência dele recusaria). Do db/20
+// vem só o período do evento, para a importação avisar "fora do evento" com as
+// mesmas datas do dev e da produção.
 //
 // Trava: só apaga e recria banco cujo nome tenha "fumaca" E "dev" — nunca o
 // jogos_estudantis_dev, nem a produção.
@@ -51,11 +56,16 @@ const comandos = (texto) => texto.replace(/--.*$/gm, '').split(';').map((c) => c
       for (const comando of comandos(texto)) await conexao.query(comando);
     }
 
+    // Do db/20, só o período do evento (ver o cabeçalho)
+    await conexao.query(
+      "UPDATE configuracao_evento SET data_inicio = '2026-11-18', data_fim = '2026-11-21' WHERE id = 1"
+    );
+
     const [[contagem]] = await conexao.query(
       `SELECT (SELECT COUNT(*) FROM competicoes) AS competicoes, (SELECT COUNT(*) FROM equipes) AS equipes,
               (SELECT COUNT(*) FROM locais_disputa) AS locais, (SELECT COUNT(*) FROM jogos) AS jogos`
     );
-    console.log(`${BANCO} recriado com db/01 a db/19:`, JSON.stringify(contagem));
+    console.log(`${BANCO} recriado com db/01 a db/19 e o período do db/20:`, JSON.stringify(contagem));
   } catch (erro) {
     console.error(`Falha ao montar ${BANCO}:`, erro.code || '', erro.sqlMessage || erro.message);
     process.exitCode = 1;

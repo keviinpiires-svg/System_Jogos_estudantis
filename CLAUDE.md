@@ -1,7 +1,7 @@
 # System_jogos — backend do SGE Jogos Estudantis 2026
 
 API do **Sistema de Gestão Esportiva** dos Jogos Estudantis 2026 (Barra do Choça/BA,
-**23 a 28 de novembro de 2026**): escolas, atletas, competições, grupos, jogos, súmulas,
+**18 a 21 de novembro de 2026**): escolas, atletas, competições, grupos, jogos, súmulas,
 classificação, mata-mata, suspensões e tabela geral.
 
 Frontend no repositório separado **`F:\web-jogos`** (React + Vite, Vercel).
@@ -38,14 +38,17 @@ grupos, modelos de súmula).
   a importação da **tabela nova do chefe** (240 jogos de grupo, renumerada; 240 equipes); depois o
   lote dos pontos lançados de 21/10 — backend `691892f`, frontend `0d877c5` — e, no frontend,
   "Cadastrar Time" saiu do menu (`2cc0925`; a página e a rota `/cadastro` continuam).
-- **Commits locais ainda NÃO publicados** (confira `git log origin/feat/novo-escopo..`): a
-  **importação de atletas por CSV** (28/10/2026, nos dois repositórios; `docs/IMPORTACAO_ATLETAS.md`)
-  e a extração das regras do atleta para `src/config/elegibilidade.js`; a **trava de mesa por local**
-  (`db/18`, `docs/CONTAS_DE_MESA.md`) e o **"Reiniciar Campeonato" desligado em produção** (403 sem
-  `PERMITIR_REINICIAR=true`). **Ordem do deploy:** dump, `db/18` no `jogos_2026` (idempotente; o backend
-  novo lê `usuarios.local_id` em toda escrita — sem a coluna, toda escrita dá 500), push do backend e,
-  logo em seguida, o do frontend (a tela nova chama `/api/importar-atletas` e `/api/eu`). Depois, criar
-  uma conta PLACAR por local em `/usuarios`.
+- **Publicado depois de 28/10/2026:** a importação de atletas por CSV, a trava de mesa por local
+  (`db/18`) e o "Reiniciar Campeonato" desligado em produção — backend `d73cd8d`, frontend `db8e15c`.
+  Falta confirmar, pelo login de ADMIN, que o `db/18` rodou no `jogos_2026`, e criar uma conta PLACAR
+  por local em `/usuarios`.
+- **Evento mudou para 18 a 21/11/2026 (03/11/2026, commits locais NÃO publicados):** `db/20_datas_18a21_e_ajustes.sql`
+  (jogos −7 dias, saem os jogos 34, 143 e 208 e as equipes do FRANCISCO AMORIM no Baleado M e no Futsal M
+  Sub 8, jogo 203 com JOSE DIAS, jogo 35 às 17:10, `numero_tabela` renumerado pelo mapa
+  `docs/importacao/mapa_jogos_18a21.csv`, período do evento 18 a 21/11; 237 jogos), a Agenda com os dias
+  novos e o `fumaca` dentro do período novo. Aplicado no dev. **Ordem na produção:** dump, `db/20` no
+  `jogos_2026` (as conferências dele desfazem tudo se a produção não estiver igual ao dev), e o push do
+  frontend (a Agenda abre no dia certo); o backend não depende do `db/20`.
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
@@ -187,7 +190,9 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja` → `11_pontos_lancados` →
   `12_locais_adelieta_ceti` → `13_escola_conveniada` →
   `14_tabela_do_chefe_equipes` → `15_numero_tabela` → `16_pontos_lancados_por_prova` →
-  `17_pontos_lancados_historico` → `18_usuarios_local` → `19_tabela_nova_equipes`.
+  `17_pontos_lancados_historico` → `18_usuarios_local` → `19_tabela_nova_equipes` → `20_datas_18a21_e_ajustes`
+  (este último não entra no banco de fumaça: ele confere os 237 jogos da tabela; o `fumaca:banco` aplica
+  dele só o período do evento).
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
 - Scripts **sem `COLLATE`**: usam a padrão do servidor. Produção (`utf8mb4_0900_ai_ci`) é
@@ -205,7 +210,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `DATABASE_URL`). **Rode antes de dar uma fatia por pronta.** Não há testes de unidade.
   **Desde 20/10/2026 ele roda num banco próprio**, porque o `jogos_estudantis_dev` tem a tabela de jogos
   importada e o teste precisa de competições sem jogos:
-  `npm run fumaca:banco` (recria o `jogos_fumaca_dev` com `db/01`–`db/14`; só apaga banco com "fumaca"
+  `npm run fumaca:banco` (recria o `jogos_fumaca_dev` com `db/01`–`db/19` e o período do `db/20`; só apaga banco com "fumaca"
   e "dev" no nome) → `PORT=3001 DB_NAME=jogos_fumaca_dev npm start` (API de teste, sem derrubar a 3000) →
   `DB_NAME=jogos_fumaca_dev FUMACA_API=http://localhost:3001/api npm run fumaca`. O `DB_NAME` no ambiente
   vence o do `.env`, que usa `DB_*`.
@@ -226,7 +231,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `20`),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `21`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca

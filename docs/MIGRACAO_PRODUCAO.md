@@ -40,7 +40,7 @@ ser a única rede.
       fora deste documento.
 - [ ] Você sabe a **URL exata do frontend na Vercel** — ela vira o `CORS_ORIGIN`, caractere por caractere.
 
-**Quando fazer:** com folga, **semanas antes de 23/11**, nunca na véspera. Veja "Ponto sem retorno".
+**Quando fazer:** com folga, **semanas antes de 18/11**, nunca na véspera. Veja "Ponto sem retorno".
 
 **Cliente MySQL local.** Os comandos abaixo usam o cliente instalado para a validação, que conversa
 com o MySQL 9 da Railway sem problema:
@@ -285,7 +285,7 @@ Enquanto ninguém lançou **súmula de jogo real** no sistema novo, voltar não 
 A partir da primeira súmula de verdade, o banco novo tem informação que o antigo não tem, e voltar
 significa **perdê-la**. Daí em diante, problema se resolve corrigindo para frente, não voltando.
 
-Por isso a virada é com folga: dias de uso real antes de 23/11, para que qualquer defeito apareça
+Por isso a virada é com folga: dias de uso real antes de 18/11, para que qualquer defeito apareça
 enquanto voltar atrás ainda é barato.
 
 ---
