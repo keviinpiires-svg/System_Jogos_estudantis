@@ -40,8 +40,9 @@ grupos, modelos de súmula).
   "Cadastrar Time" saiu do menu (`2cc0925`; a página e a rota `/cadastro` continuam).
 - **Publicado depois de 28/10/2026:** a importação de atletas por CSV, a trava de mesa por local
   (`db/18`) e o "Reiniciar Campeonato" desligado em produção — backend `d73cd8d`, frontend `db8e15c`.
-  Falta confirmar, pelo login de ADMIN, que o `db/18` rodou no `jogos_2026`, e criar uma conta PLACAR
-  por local em `/usuarios`.
+  `db/18` e `db/19` **rodados e conferidos no `jogos_2026` em 04/11/2026** (coluna `usuarios.local_id`, índice
+  e chave estrangeira presentes; equipes do `db/19` no lugar). Existem 8 contas PLACAR ativas, uma por local
+  (8 locais), todas com local, e 2 ADMIN.
 - **Evento mudou para 18 a 21/11/2026 (03/11/2026; scripts e código no GitHub desde 04/11/2026):** `db/20_datas_18a21_e_ajustes.sql`
   (jogos −7 dias, saem os jogos 34, 143 e 208 e as equipes do FRANCISCO AMORIM no Baleado M e no Futsal M
   Sub 8, jogo 203 com JOSE DIAS, jogo 35 às 17:10, `numero_tabela` renumerado pelo mapa
@@ -323,11 +324,8 @@ de dados.
 5. Conferir no `jogos_2026`: coluna `sumula_atletas.faltas` (script 05), `competicoes` id 24
    (script 06: 1 grupo, 2 classificados, 0 melhores segundos, próxima fase FINAL, turno único),
    `SELECT COUNT(*) FROM configuracao_evento` (esperado 1) e a lista de usuários (sem a coluna `senha`).
-6. **Contas:** já existem **1 ADMIN** (criado na virada) e **1 conta PLACAR** (mesa), criada depois
-   pela tela `/usuarios`. Faltam os ADMIN **Felipe** e **Aelson** e as **demais contas de mesa**:
-   **uma por local** (8 locais), criada pela tela `/usuarios` com o local escolhido, depois do `db/18`
-   e do backend novo. Passo a passo em `docs/CONTAS_DE_MESA.md`. A conta PLACAR que já existe fica
-   **sem local** (sem trava) até o ADMIN escolher o local dela; a tela avisa.
+6. **Contas (conferido em 04/11/2026):** existem **2 ADMIN** e **8 contas PLACAR ativas, cada uma com um
+   local diferente (8 de 8 locais)**, depois do `db/18`. Passo a passo em `docs/CONTAS_DE_MESA.md`.
 7. **Ping em `/saude`** (5 em 5 min) ou plano pago do Render.
 8. O banco antigo `railway` ainda tem a conta de teste `admin@sge.com` (senha padrão antiga): remover o banco
    (ou a conta) quando a volta atrás deixar de ser necessária.
