@@ -69,7 +69,7 @@ grupos, modelos de súmula).
   **mais 1ºs, depois 2ºs e 3ºs** (empate em tudo divide a posição: extensão provisória); **baleado**:
   empate vale na fase de grupos e, na **final**, acréscimo de 4 min com vitória de quem baleia primeiro
   (`jogos.baleou_primeiro_equipe_id`, `db/08`) — semifinal e ida e volta empatados seguem pendentes;
-  **handebol e baleado com elenco de 12** (`db/09`) e folhas de 12 linhas; **grade do vôlei de 1 a 30**
+  **handebol e baleado com elenco de 12** (`db/09`; o regulamento escrito diz 14, mas vale a resposta do chefe; mínimo 10 só aviso; sem `db/22`) e folhas de 12 linhas; **grade do vôlei de 1 a 30**
   (o set segue em 21 até o chefe responder); atletismo, xadrez, dama e dominó: o juiz traz a súmula
   pronta e o sistema só lançará o resultado (plano na fatia 11, sem implementar).
 - **Respostas do chefe de 12/10/2026** (seção 12.1 do contexto, linhas 20, 22 e 23): a **semifinal do

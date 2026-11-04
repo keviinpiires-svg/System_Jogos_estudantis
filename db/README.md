@@ -77,7 +77,7 @@ O próprio banco garante (chaves compostas):
 - RG único, e-mail de usuário único, número da camisa único na equipe, número do jogo único por competição.
 
 Fica no código do backend (dentro de transação):
-- máximo de 14 atletas por equipe (`modalidades.max_atletas`); abaixo do mínimo, só aviso;
+- máximo de 14 atletas por equipe (`modalidades.max_atletas`), **12 no handebol e no baleado** (`db/09`: o regulamento escrito diz 14, mas vale a resposta do chefe de 07/10/2026); abaixo do mínimo (10 nessas duas), só aviso;
 - idade: `YEAR(data_nascimento) >= configuracao_evento.ano - categorias.idade_maxima` (Aberto sem limite);
 - sexo do atleta × gênero da competição (`MISTO` aceita os dois);
 - no máximo **2 competições coletivas** por atleta — conta competições de modalidade `COLETIVO`, não modalidades: Futsal Sub 13 e Futsal Sub 15 são duas. Atletismo é `INDIVIDUAL` e não entra na conta;

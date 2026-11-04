@@ -98,7 +98,8 @@ const motivoDeInelegibilidade = ({ competicao, atleta, anoDoEvento, coletivas, i
   }
 
   // Teto da modalidade (modalidades.max_atletas: 14, e 12 no handebol e no
-  // baleado desde 07/10/2026). Nulo = sem limite (atletismo).
+  // baleado desde 07/10/2026: o regulamento escrito diz 14, mas vale a resposta
+  // do chefe; db/09). Nulo = sem limite (atletismo).
   if (competicao.max_atletas !== null && competicao.max_atletas !== undefined && inscritos >= competicao.max_atletas) {
     return {
       status: 409,
