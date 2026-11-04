@@ -55,7 +55,7 @@ grupos, modelos de súmula).
   (1) **súmulas em branco em lote**, tela `/imprimir-sumulas` (ADMIN e PLACAR; dia + local, caixa de
   seleção por jogo, uma folha A4 por jogo) e o botão "Súmulas em branco" na Agenda só para quem está
   logado; (2) **handebol e baleado com elenco e folha de 12 linhas** (o regulamento escrito diz 14, mas
-  vale a resposta do chefe de 07/10/2026; mínimo 10 só aviso; **não haverá `db/22` para mudar o teto**) e
+  vale a resposta do chefe de 07/10/2026; mínimo 10 só aviso; **o teto de 12 não muda no banco**) e
   todas as folhas medidas para caberem em uma A4 (linha de 5,4 mm no futsal, society e basquete; 5,8 mm
   no handebol e no baleado); (3) **coluna opcional "Exceção" no importador de atletas** (`SIM` dispensa só
   a idade da categoria e o máximo de 2 coletivas, linha vira AVISO "exceção autorizada" e entra, log
@@ -63,6 +63,8 @@ grupos, modelos de súmula).
   (Davi Gomes Pereira, ACM, 3ª modalidade coletiva no Handebol M Sub 8, exceção do chefe; o importador
   pula RG já cadastrado, por isso foi por script): **rodado e conferido no `jogos_2026` pelo usuário em
   04/11/2026**. Também em 04/11/2026 foram **importados os atletas de 7 escolas** (ACM, Francisco Amorim, Lucia Rocha, Manoel Ramos, Marlene Santana, Portal do Saber e Teodulo Leite); os **28 alunos do ACM sem RG** usam o **código provisório `ACM-SRG-001` a `ACM-SRG-028`** (guardado normalizado como `ACMSRG001` etc.), a trocar pelo RG real em **Listar Atletas** (`/lista-atletas`, edição do ADMIN).
+- **04/11/2026, depois:** **`db/23_basquete_f_sub17_dois_jogos.sql`** (Basquete Feminino Sub 17, competição 48: passa a ter só **CEJA e CEBC** e **2 jogos** — nº 102 vira CEJA x CEBC e nº 209 vira CEBC x CEJA; o jogo nº 217 e a equipe CETI saem; data, hora e local não mudam; o `numero_tabela` não é renumerado e fica uma lacuna no 217; 236 jogos no banco): **rodado e conferido no `jogos_2026` pelo usuário em 04/11/2026**.
+  **A regra de disputa dessa competição NÃO mudou:** segue "grupo único, 2 classificados, próxima fase FINAL, turno único", e **falta o chefe decidir se vira "melhor de dois jogos"** (turno `IDA_E_VOLTA`, 0 classificados, sem fase seguinte, como as outras de 2 equipes e 2 jogos: o campeão sai da soma dos dois placares). Sem a mudança, o sistema oferece uma final entre as mesmas duas equipes. Como o `db/20` e o `db/21` conferem 237 jogos, não devem ser rodados de novo depois do `db/23`.
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
@@ -205,7 +207,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `12_locais_adelieta_ceti` → `13_escola_conveniada` →
   `14_tabela_do_chefe_equipes` → `15_numero_tabela` → `16_pontos_lancados_por_prova` →
   `17_pontos_lancados_historico` → `18_usuarios_local` → `19_tabela_nova_equipes` → `20_datas_18a21_e_ajustes` →
-  `21_troca_numeros_27_29` → `22_davi_gomes_3a_modalidade` (o `20`, o `21` e o `22` não entram no banco de fumaça: conferem os 237 jogos da tabela;
+  `21_troca_numeros_27_29` → `22_davi_gomes_3a_modalidade` → `23_basquete_f_sub17_dois_jogos` (o `20` a `23` não entram no banco de fumaça: conferem os 237 jogos da tabela;
   o `fumaca:banco` aplica do `20` só o período do evento).
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
@@ -245,7 +247,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `23`),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `24`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
