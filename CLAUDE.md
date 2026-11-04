@@ -46,9 +46,11 @@ grupos, modelos de súmula).
   (jogos −7 dias, saem os jogos 34, 143 e 208 e as equipes do FRANCISCO AMORIM no Baleado M e no Futsal M
   Sub 8, jogo 203 com JOSE DIAS, jogo 35 às 17:10, `numero_tabela` renumerado pelo mapa
   `docs/importacao/mapa_jogos_18a21.csv`, período do evento 18 a 21/11; 237 jogos), a Agenda com os dias
-  novos e o `fumaca` dentro do período novo. Aplicado no dev. **Ordem na produção:** dump, `db/20` no
-  `jogos_2026` (as conferências dele desfazem tudo se a produção não estiver igual ao dev), e o push do
-  frontend (a Agenda abre no dia certo); o backend não depende do `db/20`.
+  novos e o `fumaca` dentro do período novo. Aplicado no dev. **04/11/2026:** `db/21_troca_numeros_27_29.sql`
+  troca o `numero_tabela` dos jogos 27 e 29 da Quadra do CETI em 18/11 (só os números). **Ordem na
+  produção:** dump, `db/20` e `db/21` no `jogos_2026` (as conferências de cada um desfazem tudo se a
+  produção não estiver igual ao dev), e o push do frontend (a Agenda abre no dia certo); o backend não
+  depende do `db/20` nem do `db/21`.
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
@@ -190,9 +192,9 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja` → `11_pontos_lancados` →
   `12_locais_adelieta_ceti` → `13_escola_conveniada` →
   `14_tabela_do_chefe_equipes` → `15_numero_tabela` → `16_pontos_lancados_por_prova` →
-  `17_pontos_lancados_historico` → `18_usuarios_local` → `19_tabela_nova_equipes` → `20_datas_18a21_e_ajustes`
-  (este último não entra no banco de fumaça: ele confere os 237 jogos da tabela; o `fumaca:banco` aplica
-  dele só o período do evento).
+  `17_pontos_lancados_historico` → `18_usuarios_local` → `19_tabela_nova_equipes` → `20_datas_18a21_e_ajustes` →
+  `21_troca_numeros_27_29` (o `20` e o `21` não entram no banco de fumaça: conferem os 237 jogos da tabela;
+  o `fumaca:banco` aplica do `20` só o período do evento).
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
 - Scripts **sem `COLLATE`**: usam a padrão do servidor. Produção (`utf8mb4_0900_ai_ci`) é
@@ -231,7 +233,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `21`),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `22`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
