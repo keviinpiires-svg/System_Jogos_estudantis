@@ -17,7 +17,7 @@ grupos, modelos de súmula).
 
 ---
 
-## Estado atual (atualizado em 28/10/2026)
+## Estado atual (atualizado em 04/11/2026)
 
 - **A produção JÁ RODA O SISTEMA NOVO desde a noite de 01/10/2026** (virada entre ~20:59 e 21:50).
   Render publica a branch **`feat/novo-escopo`** (deploy `eaa50b6`, "Fatia 10d"), a Vercel também
@@ -42,7 +42,7 @@ grupos, modelos de súmula).
   (`db/18`) e o "Reiniciar Campeonato" desligado em produção — backend `d73cd8d`, frontend `db8e15c`.
   Falta confirmar, pelo login de ADMIN, que o `db/18` rodou no `jogos_2026`, e criar uma conta PLACAR
   por local em `/usuarios`.
-- **Evento mudou para 18 a 21/11/2026 (03/11/2026, commits locais NÃO publicados):** `db/20_datas_18a21_e_ajustes.sql`
+- **Evento mudou para 18 a 21/11/2026 (03/11/2026; scripts e código no GitHub desde 04/11/2026):** `db/20_datas_18a21_e_ajustes.sql`
   (jogos −7 dias, saem os jogos 34, 143 e 208 e as equipes do FRANCISCO AMORIM no Baleado M e no Futsal M
   Sub 8, jogo 203 com JOSE DIAS, jogo 35 às 17:10, `numero_tabela` renumerado pelo mapa
   `docs/importacao/mapa_jogos_18a21.csv`, período do evento 18 a 21/11; 237 jogos), a Agenda com os dias
@@ -50,7 +50,20 @@ grupos, modelos de súmula).
   troca o `numero_tabela` dos jogos 27 e 29 da Quadra do CETI em 18/11 (só os números). **Ordem na
   produção:** dump, `db/20` e `db/21` no `jogos_2026` (as conferências de cada um desfazem tudo se a
   produção não estiver igual ao dev), e o push do frontend (a Agenda abre no dia certo); o backend não
-  depende do `db/20` nem do `db/21`.
+  depende do `db/20` nem do `db/21`. **Situação na produção em 04/11/2026: `db/20` e `db/21` AINDA NÃO
+  confirmados no `jogos_2026`** (sem eles a Agenda mostra datas e números de tabela antigos).
+- **Publicado em 04/11/2026** (backend `31d3ad9`, `cfc975e`, `c75364c`; frontend `39fa1c5`, `49cfaab`, `b80fdc3`):
+  (1) **súmulas em branco em lote**, tela `/imprimir-sumulas` (ADMIN e PLACAR; dia + local, caixa de
+  seleção por jogo, uma folha A4 por jogo) e o botão "Súmulas em branco" na Agenda só para quem está
+  logado; (2) **handebol e baleado com elenco e folha de 12 linhas** (o regulamento escrito diz 14, mas
+  vale a resposta do chefe de 07/10/2026; mínimo 10 só aviso; **não haverá `db/22` para mudar o teto**) e
+  todas as folhas medidas para caberem em uma A4 (linha de 5,4 mm no futsal, society e basquete; 5,8 mm
+  no handebol e no baleado); (3) **coluna opcional "Exceção" no importador de atletas** (`SIM` dispensa só
+  a idade da categoria e o máximo de 2 coletivas, linha vira AVISO "exceção autorizada" e entra, log
+  `[EXCEÇÃO AUTORIZADA]` sem dados pessoais; `fumaca` com 174 ok); (4) **`db/22_davi_gomes_3a_modalidade.sql`**
+  (Davi Gomes Pereira, ACM, 3ª modalidade coletiva no Handebol M Sub 8, exceção do chefe; o importador
+  pula RG já cadastrado, por isso foi por script): **rodado e conferido no `jogos_2026` pelo usuário em
+  04/11/2026**.
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
@@ -163,7 +176,7 @@ Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mes
 | atletas | `GET /escola/:escola_id` (pública: anônimo recebe só id, nome e escola; o ADMIN também sexo e nascimento); `POST`, `GET/PUT/DELETE /:id` (ADMIN) |
 | inscricoes | `GET /equipe/:equipe_id` (pública: anônimo recebe só camisa e nome; o ADMIN também sexo e ano); `POST /`, `DELETE /:id` (ADMIN) |
 | jogos | `GET /`, `GET /:id`; `POST`, `PUT /:id`, `PUT /:id/wo`, `DELETE /:id` (ADMIN); `PUT /:id/iniciar` (mesa do local do jogo, ou ADMIN) |
-| importar-atletas | `POST /previa` e `POST /confirmar` (ADMIN; corpo `text/csv`; `?escola_id=` quando a planilha não tem a coluna Escola; `?apenas_ok=true` para gravar só as OK quando há erro, senão 422): atletas e inscrições por CSV, prévia OK/AVISO/ERRO sem gravar e confirmar numa transação única (tudo ou nada). RG já cadastrado é pulado e o atleta existente nunca muda. Ver `docs/IMPORTACAO_ATLETAS.md` e o exemplo fictício `docs/importacao/exemplo_atletas_ficticio.csv` (o único arquivo versionado dessa pasta) |
+| importar-atletas | `POST /previa` e `POST /confirmar` (ADMIN; corpo `text/csv`; `?escola_id=` quando a planilha não tem a coluna Escola; `?apenas_ok=true` para gravar só as OK quando há erro, senão 422): atletas e inscrições por CSV, prévia OK/AVISO/ERRO sem gravar e confirmar numa transação única (tudo ou nada). RG já cadastrado é pulado e o atleta existente nunca muda. Coluna opcional **"Exceção"** (`SIM`): dispensa só a idade da categoria e o máximo de 2 coletivas naquela linha (AVISO "exceção autorizada", entra ao confirmar; log `[EXCEÇÃO AUTORIZADA]`). Ver `docs/IMPORTACAO_ATLETAS.md` e o exemplo fictício `docs/importacao/exemplo_atletas_ficticio.csv` (o único arquivo versionado dessa pasta) |
 | importacao-jogos | `POST /previa` e `POST /` (ADMIN; corpo `text/csv`): jogos da fase de grupos por CSV, prévia sem gravar e importação idempotente numa transação; modelo em `docs/modelo_importacao_jogos.csv`. Coluna **opcional "Nº Tabela"** (número do jogo na tabela do chefe, `db/15`): célula vazia aceita, número repetido no arquivo ou já usado no banco é erro, e reimportar só preenche o número de jogo que já existe e está sem — sem mudar mais nada nem trocar número gravado |
 | sumulas | `GET /:jogo_id`; `POST /` (mesa do local do jogo, ou ADMIN; 403 "Esta mesa é do local X; este jogo é do local Y") — a súmula é a **única fonte do placar** |
 | classificacao | `GET /competicao/:id` (calculada dos jogos, nunca gravada) |
@@ -193,7 +206,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `12_locais_adelieta_ceti` → `13_escola_conveniada` →
   `14_tabela_do_chefe_equipes` → `15_numero_tabela` → `16_pontos_lancados_por_prova` →
   `17_pontos_lancados_historico` → `18_usuarios_local` → `19_tabela_nova_equipes` → `20_datas_18a21_e_ajustes` →
-  `21_troca_numeros_27_29` (o `20` e o `21` não entram no banco de fumaça: conferem os 237 jogos da tabela;
+  `21_troca_numeros_27_29` → `22_davi_gomes_3a_modalidade` (o `20`, o `21` e o `22` não entram no banco de fumaça: conferem os 237 jogos da tabela;
   o `fumaca:banco` aplica do `20` só o período do evento).
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
