@@ -2129,6 +2129,31 @@ const testarImportacaoDeAtletas = async () => {
   const aposPrevia = await contarMarcados();
   conferir(Number(aposPrevia.atletas) === 0 && Number(aposPrevia.inscricoes) === 0, 'a prévia não grava nada');
 
+  // Exceção autorizada (coluna opcional "Exceção" = SIM): dispensa SÓ a idade da
+  // categoria e o máximo de 2 coletivas, e só na linha marcada
+  const comColunaExcecao = (marcadas, valor = 'SIM') => planilha.split(/\r?\n/)
+    .map((l, i) => (i === 0 ? `${l};Exceção` : (l.trim() ? `${l};${marcadas.includes(i + 1) ? valor : ''}` : l))).join('\n');
+  const exc = await enviar('previa', comColunaExcecao([14, 20, 22, 26]));
+  const lexc = (n) => (exc.corpo.linhas || []).find((l) => l.linha === n) || { erros: [], avisos: [] };
+  const rExc = exc.corpo.resumo || {};
+  conferir(exc.status === 200 && lexc(20).situacao === 'AVISO' && lexc(20).excecao_autorizada
+    && /Exceção autorizada: máximo de 2 competições coletivas/.test(lexc(20).avisos.join(' '))
+    && lexc(22).situacao === 'AVISO' && lexc(22).excecao_autorizada
+    && /Exceção autorizada: idade da categoria/.test(lexc(22).avisos.join(' ')),
+  'exceção SIM: coletivas (linha 20) e idade (linha 22) viram AVISO "exceção autorizada" e entram',
+  `${lexc(20).situacao} ${lexc(20).avisos.join(' ')} / ${lexc(22).situacao} ${lexc(22).avisos.join(' ')}`);
+  conferir(lexc(14).situacao === 'ERRO' && /máximo permitido em Handebol/.test(lexc(14).erros.join(' '))
+    && lexc(26).situacao === 'ERRO' && /RG vazio/.test(lexc(26).erros.join(' ')),
+  'exceção SIM não dispensa elenco cheio (linha 14) nem RG vazio (linha 26)');
+  conferir(rExc.ok === 20 && rExc.excecoes === 2 && rExc.puladas === 1 && rExc.erros === 8 && rExc.inscricoes === 22,
+    'exceção: resumo com 20 OK + 2 exceções (22 inscrições), 1 pulada e 8 erros', JSON.stringify(rExc));
+  const naoSim = await enviar('previa', comColunaExcecao([20, 22], 'NAO'));
+  const ln = (n) => (naoSim.corpo.linhas || []).find((l) => l.linha === n) || { erros: [] };
+  conferir(ln(20).situacao === 'ERRO' && ln(22).situacao === 'ERRO' && naoSim.corpo.resumo.excecoes === 0,
+    'exceção com valor diferente de SIM: as linhas seguem em ERRO como hoje');
+  const mesaExc = await enviar('previa', comColunaExcecao([20, 22]), '', mesa);
+  conferir(mesaExc.status === 403, 'exceção: a mesa (PLACAR) não importa atletas (403)', `${mesaExc.status}`);
+
   // Planilha de uma escola só (sem a coluna Escola): a escola vem da tela
   const [[joseDias]] = await db.query("SELECT id FROM escolas WHERE nome = 'JOSE DIAS'");
   const semColuna = original.split(/\r?\n/).filter((l, i) => i === 0 || /^José Dias;/.test(l))
@@ -2201,6 +2226,17 @@ const testarImportacaoDeAtletas = async () => {
     && anaDepois.nome === 'Ana Ficticia Lima' && anaDepois.data_nascimento === '2017-05-10' && anaDepois.escola_id === joseDias.id,
   'RG já cadastrado com outro nome, escola e nascimento: linha pulada e o atleta existente não muda',
   JSON.stringify(anaDepois));
+
+  // Confirmar uma linha com exceção (idade acima da categoria): entra a inscrição e o resumo conta
+  const linhaIdade = planilha.split(/\r?\n/)[21].split(';');
+  const soIdade = [planilha.split(/\r?\n/)[0].replace(/^\uFEFF/, '') + ';Exceção', `${linhaIdade.join(';')};SIM`].join('\n');
+  const antesExc = await db.query('SELECT COUNT(*) AS n FROM inscricoes_atletas');
+  const confirmaExc = await enviar('confirmar', soIdade, '?apenas_ok=true');
+  const depoisExc = await db.query('SELECT COUNT(*) AS n FROM inscricoes_atletas');
+  conferir(confirmaExc.status === 201 && confirmaExc.corpo.final?.com_excecao === 1 && confirmaExc.corpo.final?.criados === 1
+    && Number(depoisExc[0][0].n) === Number(antesExc[0][0].n) + 1,
+  'confirmar linha com exceção autorizada: 201, 1 atleta criado, 1 inscrição por exceção',
+  `${confirmaExc.status} ${JSON.stringify(confirmaExc.corpo.final)} ${confirmaExc.corpo.erro || ''}`);
 
   // A lista pública da escola não mostra RG nem nascimento dos importados
   const publica = await comToken(null, 'GET', `/atletas/escola/${joseDias.id}`);

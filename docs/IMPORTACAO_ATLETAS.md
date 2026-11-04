@@ -19,6 +19,7 @@ ou maiúscula:
 | Gênero | sim | `M`/`F`, `Masculino`/`Feminino`. Também "Sexo" |
 | Modalidade | sim | nome ou apelido (Futsal, Society, Vôlei/Voleibol, Basquete/Basquetebol...) |
 | Categoria | não | `Sub 11`, `SUB-11`, `Aberto`... **Em branco, vale a categoria do atleta pela idade** (a menor em que ele cabe); para jogar acima, preencha |
+| Exceção | não | `SIM` = **exceção autorizada pela organização** naquela linha (só ADMIN, como toda a importação). Dispensa **apenas** a idade da categoria e o máximo de 2 competições coletivas; RG, RG duplicado, sexo × gênero, elenco máximo da equipe e as demais regras continuam valendo. Sem a coluna, ou com qualquer valor diferente de `SIM`, nada muda |
 
 Cada linha é **um aluno numa modalidade**: o mesmo aluno aparece em várias linhas, uma por modalidade
 (com os mesmos nome, nascimento, gênero e escola). Modelo vazio: botão "Baixar modelo CSV vazio" na tela.
@@ -30,6 +31,13 @@ Exemplo fictício com todos os casos: `docs/importacao/exemplo_atletas_ficticio.
   (modalidade × categoria × gênero; o vôlei misto aceita os dois sexos). Camisa fica em branco.
 - **AVISO (pulada)** — **RG já cadastrado**: a linha não grava nada e o atleta existente **não é
   alterado** nem ganha inscrição; ou a linha repete o mesmo aluno na mesma competição (entra uma vez).
+- **AVISO (exceção autorizada)** — linha com `SIM` na coluna Exceção que **só passou por causa dela**
+  (idade acima da categoria e/ou 3ª competição coletiva). A prévia diz qual regra foi dispensada e a
+  linha **entra** ao confirmar. `SIM` numa linha que não precisava dele vira OK com um aviso
+  "exceção marcada, mas não foi necessária". Ao confirmar, o servidor registra no log
+  `[EXCEÇÃO AUTORIZADA]` o usuário, a linha, a inscrição, o atleta, a equipe, a competição e as regras
+  dispensadas (sem RG, nascimento nem nome). Atleta com **RG já cadastrado** continua sendo pulado,
+  com ou sem exceção.
 - **ERRO (não entra)** — escola não encontrada ou ambígua, modalidade não encontrada, categoria
   inexistente, gênero inválido, nascimento inválido, no futuro ou fora das categorias da modalidade,
   RG vazio, categoria incompatível com a idade, escola sem equipe na competição, elenco cheio

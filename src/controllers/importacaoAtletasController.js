@@ -4,7 +4,7 @@ const {
 } = require('./importacaoJogosController');
 const {
   normalizarRg, normalizarNome, dataValida, validarAtleta, sexoCombina, idadeCabe,
-  motivoDeInelegibilidade, ADJETIVO_GENERO, plural
+  motivoDeInelegibilidade, ADJETIVO_GENERO, plural, anoMinimoDaCategoria, LIMITE_COMPETICOES_COLETIVAS
 } = require('../config/elegibilidade');
 
 // ============================================================================
@@ -34,9 +34,12 @@ const COLUNAS = [
   ['nascimento', 'Nascimento', ['NASCIMENTO', 'DATA DE NASCIMENTO', 'DATA NASCIMENTO', 'DT NASCIMENTO']],
   ['genero', 'Gênero', ['GENERO', 'SEXO']],
   ['modalidade', 'Modalidade', ['MODALIDADE']],
-  ['categoria', 'Categoria', ['CATEGORIA']]
+  ['categoria', 'Categoria', ['CATEGORIA']],
+  // "SIM" = exceção autorizada pela organização: dispensa só a idade da categoria e o
+  // máximo de 2 competições coletivas naquela linha. Qualquer outro valor = sem exceção.
+  ['excecao', 'Exceção', ['EXCECAO', 'EXCECAO AUTORIZADA']]
 ];
-const OPCIONAIS = ['escola', 'categoria'];
+const OPCIONAIS = ['escola', 'categoria', 'excecao'];
 
 const SEXO_DO_TEXTO = {
   M: 'M', MASC: 'M', MASCULINO: 'M',
@@ -143,6 +146,9 @@ const validarLinha = (valores, cadastro, escolaFixa) => {
     }
   }
   if (escola_id) l.escola = cadastro.escolaNome.get(escola_id);
+
+  // Só o "SIM" (sem diferença de acento ou maiúscula) vale; a rota é de ADMIN
+  l.excecao = normalizar(valores.excecao) === 'SIM';
 
   const nome = normalizarNome(valores.nome);
   const rg = normalizarRg(valores.rg);
@@ -253,7 +259,7 @@ const analisar = async (conexao, texto, { escolaId = null, travar = false } = {}
   if (faltando.length) {
     return {
       erroDoArquivo: `Faltam colunas no cabeçalho: ${faltando.join(', ')}. `
-        + `O arquivo precisa de: ${COLUNAS.map(([, r]) => r).join(', ')} (Escola e Categoria são opcionais).`
+        + `O arquivo precisa de: ${COLUNAS.map(([, r]) => r).join(', ')} (Escola, Categoria e Exceção são opcionais).`
     };
   }
 
@@ -351,16 +357,29 @@ const analisar = async (conexao, texto, { escolaId = null, travar = false } = {}
       .map((o) => o.competicao_dados.id)).size;
     const naEquipe = (inscritos.get(l.equipe_id) || 0) + (okNaEquipe.get(l.equipe_id) || []).length;
 
+    // Exceção autorizada: só idade e máximo de coletivas são dispensados
+    const foraDaIdade = !idadeCabe(cadastro.ano, competicao.idade_maxima, l.ano_nascimento);
+    const acimaDasColetivas = competicao.modalidade_tipo === 'COLETIVO' && coletivas >= LIMITE_COMPETICOES_COLETIVAS;
     const recusa = motivoDeInelegibilidade({
       competicao,
       atleta: { nome: l.nome, sexo: l.sexo, ano_nascimento: l.ano_nascimento },
       anoDoEvento: cadastro.ano,
       coletivas,
-      inscritos: naEquipe
+      inscritos: naEquipe,
+      excecao: l.excecao
     });
     if (recusa) {
       l.erros.push(recusa.erro);
       continue;
+    }
+
+    if (l.excecao && (foraDaIdade || acimaDasColetivas)) {
+      l.regras_dispensadas = [];
+      if (foraDaIdade) l.regras_dispensadas.push(`idade da categoria (${competicao.categoria_nome} aceita nascidos em ${anoMinimoDaCategoria(cadastro.ano, competicao.idade_maxima)} ou depois; nasceu em ${l.ano_nascimento})`);
+      if (acimaDasColetivas) l.regras_dispensadas.push(`máximo de ${LIMITE_COMPETICOES_COLETIVAS} competições coletivas (seria a ${coletivas + 1}ª)`);
+      l.avisos.push(`Exceção autorizada: ${l.regras_dispensadas.join(' e ')}. A linha entra na importação.`);
+    } else if (l.excecao) {
+      l.avisos.push('Exceção marcada, mas não foi necessária: nenhuma regra foi dispensada.');
     }
 
     okDoRg.set(l.rg, [...anteriores, l]);
@@ -369,11 +388,14 @@ const analisar = async (conexao, texto, { escolaId = null, travar = false } = {}
 
   for (const l of linhas) {
     if (l.erros.length) l.situacao = 'ERRO';
-    else if (l.pulada) l.situacao = 'AVISO';
+    else if (l.pulada || l.regras_dispensadas) l.situacao = 'AVISO';
     else l.situacao = 'OK';
   }
 
+  // Entram na gravação as OK e as que usaram a exceção autorizada (também AVISO)
   const ok = linhas.filter((l) => l.situacao === 'OK');
+  const comExcecao = linhas.filter((l) => l.situacao === 'AVISO' && l.regras_dispensadas);
+  const gravaveis = [...ok, ...comExcecao];
 
   return {
     linhas: linhas.map((l) => ({
@@ -383,18 +405,21 @@ const analisar = async (conexao, texto, { escolaId = null, travar = false } = {}
       escola: l.escola || null,
       competicao: l.competicao || null,
       categoria_pela_idade: Boolean(l.categoria_pela_idade),
+      excecao_autorizada: Boolean(l.regras_dispensadas),
       erros: l.erros,
       avisos: l.avisos,
       // Só o backend usa: o que vai para os INSERT
-      _gravar: l.situacao === 'OK' ? l : undefined
+      _gravar: l.situacao === 'OK' || l.regras_dispensadas ? l : undefined
     })),
     resumo: {
       linhas: linhas.length,
       ok: ok.length,
       avisos: linhas.filter((l) => l.situacao === 'AVISO').length,
+      puladas: linhas.filter((l) => l.pulada).length,
+      excecoes: comExcecao.length,
       erros: linhas.filter((l) => l.situacao === 'ERRO').length,
-      atletas_novos: new Set(ok.map((l) => l.rg)).size,
-      inscricoes: ok.length
+      atletas_novos: new Set(gravaveis.map((l) => l.rg)).size,
+      inscricoes: gravaveis.length
     },
     sem_coluna_escola: !temColunaEscola
   };
@@ -452,6 +477,7 @@ const confirmarAtletas = async (req, res) => {
     }
 
     const atletaPorRg = new Map();
+    const porExcecao = [];
     for (const { _gravar: l } of analise.linhas.filter((x) => x._gravar)) {
       if (!atletaPorRg.has(l.rg)) {
         const [novo] = await conexao.query(
@@ -460,28 +486,39 @@ const confirmarAtletas = async (req, res) => {
         );
         atletaPorRg.set(l.rg, novo.insertId);
       }
-      await conexao.query(
+      const [inscricao] = await conexao.query(
         'INSERT INTO inscricoes_atletas (equipe_id, atleta_id, escola_id, numero_camisa) VALUES (?, ?, ?, NULL)',
         [l.equipe_id, atletaPorRg.get(l.rg), l.escola_id]
       );
+      if (l.regras_dispensadas) {
+        porExcecao.push({ linha: l.linha, inscricao_id: inscricao.insertId, atleta_id: atletaPorRg.get(l.rg), equipe_id: l.equipe_id, competicao: l.competicao, regras: l.regras_dispensadas });
+      }
     }
 
     await conexao.commit();
 
+    // Registro das exceções: quem confirmou (usuário), onde e quais regras.
+    // Sem RG, nascimento nem nome: dado pessoal de menor não vai para o log.
+    for (const e of porExcecao) {
+      console.warn(`[EXCEÇÃO AUTORIZADA] importação de atletas, usuário ${req.usuario.id}: linha ${e.linha}, inscrição ${e.inscricao_id} (atleta ${e.atleta_id}, equipe ${e.equipe_id}, ${e.competicao}) dispensou ${e.regras.join(' e ')}`);
+    }
+
     const final = {
       criados: atletaPorRg.size,
-      inscricoes: resumo.ok,
-      pulados: resumo.avisos,
+      inscricoes: resumo.inscricoes,
+      pulados: resumo.puladas,
+      com_excecao: resumo.excecoes,
       com_erro: resumo.erros
     };
-    const mensagem = resumo.ok === 0
+    const mensagem = resumo.inscricoes === 0
       ? 'Nada novo: nenhum atleta foi gravado.'
       : `${plural(final.criados, 'atleta criado', 'atletas criados')} e `
         + `${plural(final.inscricoes, 'inscrição feita', 'inscrições feitas')}; `
         + `${plural(final.pulados, 'linha pulada', 'linhas puladas')} e `
-        + `${plural(final.com_erro, 'linha com erro', 'linhas com erro')} ficaram de fora.`;
+        + `${plural(final.com_erro, 'linha com erro', 'linhas com erro')} ficaram de fora`
+        + `${final.com_excecao ? `; ${plural(final.com_excecao, 'inscrição entrou', 'inscrições entraram')} por exceção autorizada` : ''}.`;
 
-    res.status(resumo.ok > 0 ? 201 : 200).json({ mensagem, final, ...semInterno(analise) });
+    res.status(resumo.inscricoes > 0 ? 201 : 200).json({ mensagem, final, ...semInterno(analise) });
   } catch (erro) {
     if (conexao) await conexao.rollback();
     registrarErro('Erro ao importar atletas', erro);

@@ -72,9 +72,12 @@ const idadeCabe = (anoDoEvento, idadeMaxima, anoNascimento) => {
 //   atleta:     { nome, sexo, ano_nascimento }
 //   coletivas:  competições coletivas em que ele já está (fora esta)
 //   inscritos:  atletas que a equipe já tem
+//   excecao:    true = exceção autorizada pela organização (só a importação de
+//               atletas, só para o ADMIN): dispensa APENAS a idade da categoria
+//               e o máximo de competições coletivas. Sexo e elenco cheio valem sempre.
 // Devolve { status, erro }: 400 para o que é do atleta (sexo, idade), 409 para
 // o que é de limite (competições coletivas, elenco cheio).
-const motivoDeInelegibilidade = ({ competicao, atleta, anoDoEvento, coletivas, inscritos }) => {
+const motivoDeInelegibilidade = ({ competicao, atleta, anoDoEvento, coletivas, inscritos, excecao = false }) => {
   if (!sexoCombina(competicao.genero, atleta.sexo)) {
     return {
       status: 400,
@@ -82,7 +85,7 @@ const motivoDeInelegibilidade = ({ competicao, atleta, anoDoEvento, coletivas, i
     };
   }
 
-  if (!idadeCabe(anoDoEvento, competicao.idade_maxima, atleta.ano_nascimento)) {
+  if (!excecao && !idadeCabe(anoDoEvento, competicao.idade_maxima, atleta.ano_nascimento)) {
     const anoMinimo = anoMinimoDaCategoria(anoDoEvento, competicao.idade_maxima);
     return {
       status: 400,
@@ -90,7 +93,7 @@ const motivoDeInelegibilidade = ({ competicao, atleta, anoDoEvento, coletivas, i
     };
   }
 
-  if (competicao.modalidade_tipo === 'COLETIVO' && coletivas >= LIMITE_COMPETICOES_COLETIVAS) {
+  if (!excecao && competicao.modalidade_tipo === 'COLETIVO' && coletivas >= LIMITE_COMPETICOES_COLETIVAS) {
     return {
       status: 409,
       erro: `${atleta.nome} já está em ${plural(coletivas, 'competição coletiva', 'competições coletivas')}, o máximo permitido pelo regulamento.`
