@@ -47,11 +47,9 @@ grupos, modelos de súmula).
   Sub 8, jogo 203 com JOSE DIAS, jogo 35 às 17:10, `numero_tabela` renumerado pelo mapa
   `docs/importacao/mapa_jogos_18a21.csv`, período do evento 18 a 21/11; 237 jogos), a Agenda com os dias
   novos e o `fumaca` dentro do período novo. Aplicado no dev. **04/11/2026:** `db/21_troca_numeros_27_29.sql`
-  troca o `numero_tabela` dos jogos 27 e 29 da Quadra do CETI em 18/11 (só os números). **Ordem na
-  produção:** dump, `db/20` e `db/21` no `jogos_2026` (as conferências de cada um desfazem tudo se a
-  produção não estiver igual ao dev), e o push do frontend (a Agenda abre no dia certo); o backend não
-  depende do `db/20` nem do `db/21`. **Situação na produção em 04/11/2026: `db/20` e `db/21` AINDA NÃO
-  confirmados no `jogos_2026`** (sem eles a Agenda mostra datas e números de tabela antigos).
+  troca o `numero_tabela` dos jogos 27 e 29 da Quadra do CETI em 18/11 (só os números). **`db/20` e `db/21`
+  rodados e conferidos no `jogos_2026` de produção** (antes do `db/22`; registrado em 04/11/2026), e o
+  frontend com a Agenda nos dias novos está no ar; o backend não dependia deles.
 - **Publicado em 04/11/2026** (backend `31d3ad9`, `cfc975e`, `c75364c`; frontend `39fa1c5`, `49cfaab`, `b80fdc3`):
   (1) **súmulas em branco em lote**, tela `/imprimir-sumulas` (ADMIN e PLACAR; dia + local, caixa de
   seleção por jogo, uma folha A4 por jogo) e o botão "Súmulas em branco" na Agenda só para quem está
@@ -63,7 +61,7 @@ grupos, modelos de súmula).
   `[EXCEÇÃO AUTORIZADA]` sem dados pessoais; `fumaca` com 174 ok); (4) **`db/22_davi_gomes_3a_modalidade.sql`**
   (Davi Gomes Pereira, ACM, 3ª modalidade coletiva no Handebol M Sub 8, exceção do chefe; o importador
   pula RG já cadastrado, por isso foi por script): **rodado e conferido no `jogos_2026` pelo usuário em
-  04/11/2026**.
+  04/11/2026**. Também em 04/11/2026 foram **importados os atletas de 7 escolas** (ACM, Francisco Amorim, Lucia Rocha, Manoel Ramos, Marlene Santana, Portal do Saber e Teodulo Leite); os **28 alunos do ACM sem RG** usam o **código provisório `ACM-SRG-001` a `ACM-SRG-028`** (guardado normalizado como `ACMSRG001` etc.), a trocar pelo RG real em **Listar Atletas** (`/lista-atletas`, edição do ADMIN).
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
