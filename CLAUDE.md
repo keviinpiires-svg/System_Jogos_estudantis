@@ -65,6 +65,7 @@ grupos, modelos de súmula).
   04/11/2026**. Também em 04/11/2026 foram **importados os atletas de 7 escolas** (ACM, Francisco Amorim, Lucia Rocha, Manoel Ramos, Marlene Santana, Portal do Saber e Teodulo Leite); os **28 alunos do ACM sem RG** usam o **código provisório `ACM-SRG-001` a `ACM-SRG-028`** (guardado normalizado como `ACMSRG001` etc.), a trocar pelo RG real em **Listar Atletas** (`/lista-atletas`, edição do ADMIN). Em **05/11/2026** foram importados os **atletas do CEBN** (122 alunos, 188 inscrições), com dump antes; **3 alunos sem documento válido** usam o **código provisório `CEBN-SRG-001` a `CEBN-SRG-003`** (guardado normalizado como `CEBNSRG001` etc.), a trocar pelo RG ou CPF real em **Listar Atletas**.
 - **04/11/2026, depois:** **`db/23_basquete_f_sub17_dois_jogos.sql`** (Basquete Feminino Sub 17, competição 48: passa a ter só **CEJA e CEBC** e **2 jogos** — nº 102 vira CEJA x CEBC e nº 209 vira CEBC x CEJA; o jogo nº 217 e a equipe CETI saem; data, hora e local não mudam; o `numero_tabela` não é renumerado e fica uma lacuna no 217; 236 jogos no banco): **rodado e conferido no `jogos_2026` pelo usuário em 04/11/2026**.
   **A regra de disputa dessa competição NÃO mudou:** segue "grupo único, 2 classificados, próxima fase FINAL, turno único", e **falta o chefe decidir se vira "melhor de dois jogos"** (turno `IDA_E_VOLTA`, 0 classificados, sem fase seguinte, como as outras de 2 equipes e 2 jogos: o campeão sai da soma dos dois placares). Sem a mudança, o sistema oferece uma final entre as mesmas duas equipes. Como o `db/20` e o `db/21` conferem 237 jogos, não devem ser rodados de novo depois do `db/23`.
+- **05/11/2026:** **`db/24_cebn_sem_society17_e_basquete15.sql`** (o **CEBN sai do Futebol Society Sub 17 Masculino e do Basquete Sub 15 Masculino**: saem os jogos nº 127 e 195 (Society) e nº 103 e 112 (Basquete) e a equipe do CEBN de cada uma; nenhum outro jogo é renumerado; o banco passa a ter **232 jogos**), **rodado e conferido no `jogos_2026` em 05/11/2026, com dump antes**. O Society Sub 17 M ficou com 4 equipes (grupo A: CEBC e CEJA; grupo B: CETI e VITORIA LIMA) e 3 jogos; o **Basquete Sub 15 M ficou com 3 equipes (CEBC, CEJA e Conveniada) e 2 jogos, sem o jogo CEBC x Conveniada**, por **decisão do usuário**. O `numero_jogo` das duas competições ficou **com buraco** (Society 1, 3, 4; Basquete 3, 4), também por decisão do usuário, e o `numero_tabela` ganhou lacunas. A regra de disputa das duas **não mudou** (Society: 2 grupos, 1 classificado por grupo, FINAL; Basquete: grupo único, 2 classificados, FINAL); se o chefe quiser que as três equipes do Basquete se enfrentem, falta cadastrar o jogo CEBC x Conveniada.
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
@@ -207,7 +208,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `12_locais_adelieta_ceti` → `13_escola_conveniada` →
   `14_tabela_do_chefe_equipes` → `15_numero_tabela` → `16_pontos_lancados_por_prova` →
   `17_pontos_lancados_historico` → `18_usuarios_local` → `19_tabela_nova_equipes` → `20_datas_18a21_e_ajustes` →
-  `21_troca_numeros_27_29` → `22_davi_gomes_3a_modalidade` → `23_basquete_f_sub17_dois_jogos` (o `20` a `23` não entram no banco de fumaça: conferem os 237 jogos da tabela;
+  `21_troca_numeros_27_29` → `22_davi_gomes_3a_modalidade` → `23_basquete_f_sub17_dois_jogos` → `24_cebn_sem_society17_e_basquete15` (o `20` a `24` não entram no banco de fumaça: conferem os 237 jogos da tabela;
   o `fumaca:banco` aplica do `20` só o período do evento).
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
@@ -247,7 +248,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `24`),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `25`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
