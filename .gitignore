@@ -1,2 +1,14 @@
 node_modules/
 .env
+# Súmulas geradas para conferir contra o papel oficial (não versionadas)
+docs/referencias/conferencia/
+
+# Programação real de jogos (CSV do chefe para importar): não versionar
+docs/importacao/*
+!docs/importacao/exemplo_atletas_ficticio.csv
+
+# Configuração local de agentes e ferramentas (não versionar)
+.agents/
+.claude/skills/
+.mcp.json
+AGENTS.md
