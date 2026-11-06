@@ -1054,9 +1054,9 @@ const testarFolhasOficiais = () => {
     'handebol: 10 caixas de gols, um amarelo, sem faltas, com tempo técnico'
   );
   conferir(
-    handebol.linhas === 12 && handebol.linhasMaximas === 12
-      && folhaDaModalidade('baleado', 'Baleado').linhasMaximas === 12,
-    'handebol e baleado: sempre 12 linhas (elenco de 12, 07/10/2026)'
+    handebol.linhas === 14 && handebol.linhasMaximas === 14
+      && folhaDaModalidade('baleado', 'Baleado').linhasMaximas === 14,
+    'handebol e baleado: 14 linhas, como as demais (teto de 14, decisão de 06/11/2026)'
   );
   conferir(
     folhaDaModalidade('futsal', 'Futsal').linhas === 14,
@@ -2067,7 +2067,7 @@ const testarImportacaoDeAtletas = async () => {
     [`${MARCA}FIC%`, `${MARCA}FIC%`]
   ))[0][0];
 
-  // A linha 14 testa o teto do elenco: a equipe do ACM no Handebol M Sub 8 precisa estar vazia
+  // As linhas 14, 33 e 34 testam o teto do elenco (14): a equipe do ACM no Handebol M Sub 8 precisa estar vazia
   const [[acm]] = await db.query(
     `SELECT e.id, (SELECT COUNT(*) FROM inscricoes_atletas i WHERE i.equipe_id = e.id) AS inscritos
        FROM equipes e
@@ -2098,15 +2098,17 @@ const testarImportacaoDeAtletas = async () => {
   // Prévia: os casos da planilha, sem gravar nada
   const previa = await enviar('previa', planilha);
   const r = previa.corpo.resumo || {};
-  conferir(previa.status === 200 && r.linhas === 31 && r.ok === 20 && r.avisos === 1 && r.erros === 10
-    && r.atletas_novos === 18,
-  'prévia (com BOM): 31 linhas, 20 OK, 1 aviso, 10 erros, 18 atletas novos', JSON.stringify(r));
+  conferir(previa.status === 200 && r.linhas === 33 && r.ok === 22 && r.avisos === 1 && r.erros === 10
+    && r.atletas_novos === 20,
+  'prévia (com BOM): 33 linhas, 22 OK, 1 aviso, 10 erros, 20 atletas novos', JSON.stringify(r));
 
   const linha = (n) => (previa.corpo.linhas || []).find((l) => l.linha === n) || { erros: [], avisos: [] };
   const motivo = (n) => [...linha(n).erros, ...linha(n).avisos].join(' ');
   const casos = [
     [2, 'OK', /^$/, 'categoria pela idade (Handebol Sub 8)'],
-    [14, 'ERRO', /máximo permitido em Handebol/, 'limite de atletas da equipe estourado'],
+    [14, 'OK', /^$/, 'o 13º atleta da equipe ainda cabe (teto de 14)'],
+    [33, 'OK', /^$/, 'o 14º atleta da equipe ainda cabe (teto de 14)'],
+    [34, 'ERRO', /máximo permitido em Handebol/, 'o 15º atleta estoura o limite da equipe'],
     [16, 'OK', /^$/, 'categoria escolhida acima da idade (Baleado Sub 11)'],
     [17, 'AVISO', /Repete a linha 15/, 'mesmo atleta na mesma competição: entra uma vez'],
     [20, 'ERRO', /2 competições coletivas/, 'terceira competição coletiva'],
@@ -2133,7 +2135,7 @@ const testarImportacaoDeAtletas = async () => {
   // categoria e o máximo de 2 coletivas, e só na linha marcada
   const comColunaExcecao = (marcadas, valor = 'SIM') => planilha.split(/\r?\n/)
     .map((l, i) => (i === 0 ? `${l};Exceção` : (l.trim() ? `${l};${marcadas.includes(i + 1) ? valor : ''}` : l))).join('\n');
-  const exc = await enviar('previa', comColunaExcecao([14, 20, 22, 26]));
+  const exc = await enviar('previa', comColunaExcecao([34, 20, 22, 26]));
   const lexc = (n) => (exc.corpo.linhas || []).find((l) => l.linha === n) || { erros: [], avisos: [] };
   const rExc = exc.corpo.resumo || {};
   conferir(exc.status === 200 && lexc(20).situacao === 'AVISO' && lexc(20).excecao_autorizada
@@ -2142,11 +2144,11 @@ const testarImportacaoDeAtletas = async () => {
     && /Exceção autorizada: idade da categoria/.test(lexc(22).avisos.join(' ')),
   'exceção SIM: coletivas (linha 20) e idade (linha 22) viram AVISO "exceção autorizada" e entram',
   `${lexc(20).situacao} ${lexc(20).avisos.join(' ')} / ${lexc(22).situacao} ${lexc(22).avisos.join(' ')}`);
-  conferir(lexc(14).situacao === 'ERRO' && /máximo permitido em Handebol/.test(lexc(14).erros.join(' '))
+  conferir(lexc(34).situacao === 'ERRO' && /máximo permitido em Handebol/.test(lexc(34).erros.join(' '))
     && lexc(26).situacao === 'ERRO' && /RG vazio/.test(lexc(26).erros.join(' ')),
-  'exceção SIM não dispensa elenco cheio (linha 14) nem RG vazio (linha 26)');
-  conferir(rExc.ok === 20 && rExc.excecoes === 2 && rExc.puladas === 1 && rExc.erros === 8 && rExc.inscricoes === 22,
-    'exceção: resumo com 20 OK + 2 exceções (22 inscrições), 1 pulada e 8 erros', JSON.stringify(rExc));
+  'exceção SIM não dispensa elenco cheio (linha 34) nem RG vazio (linha 26)');
+  conferir(rExc.ok === 22 && rExc.excecoes === 2 && rExc.puladas === 1 && rExc.erros === 8 && rExc.inscricoes === 24,
+    'exceção: resumo com 22 OK + 2 exceções (24 inscrições), 1 pulada e 8 erros', JSON.stringify(rExc));
   const naoSim = await enviar('previa', comColunaExcecao([20, 22], 'NAO'));
   const ln = (n) => (naoSim.corpo.linhas || []).find((l) => l.linha === n) || { erros: [] };
   conferir(ln(20).situacao === 'ERRO' && ln(22).situacao === 'ERRO' && naoSim.corpo.resumo.excecoes === 0,
@@ -2199,9 +2201,9 @@ const testarImportacaoDeAtletas = async () => {
   const f = confirmado.corpo.final || {};
   const gravados = await contarMarcados();
   const [[elencoAcm]] = await db.query('SELECT COUNT(*) AS n FROM inscricoes_atletas WHERE equipe_id = ?', [acm.id]);
-  conferir(confirmado.status === 201 && f.criados === 18 && f.inscricoes === 20 && f.pulados === 1 && f.com_erro === 10
-    && Number(gravados.atletas) === 18 && Number(gravados.inscricoes) === 20 && Number(elencoAcm.n) === 12,
-  'confirmar só as OK: 18 atletas criados, 20 inscrições, 1 pulada, 10 com erro; o ACM fica com 12',
+  conferir(confirmado.status === 201 && f.criados === 20 && f.inscricoes === 22 && f.pulados === 1 && f.com_erro === 10
+    && Number(gravados.atletas) === 20 && Number(gravados.inscricoes) === 22 && Number(elencoAcm.n) === 14,
+  'confirmar só as OK: 20 atletas criados, 22 inscrições, 1 pulada, 10 com erro; o ACM fica com 14',
   `${confirmado.status} ${JSON.stringify(f)} ${JSON.stringify(gravados)} ACM ${elencoAcm.n}`);
 
   const [[ana]] = await db.query("SELECT nome, sexo, data_nascimento FROM atletas WHERE rg = 'FUMACAFIC0101'");
@@ -2212,9 +2214,9 @@ const testarImportacaoDeAtletas = async () => {
   const reimportado = await enviar('confirmar', planilha, '?apenas_ok=true');
   const r2 = reimportado.corpo.final || {};
   const jaCadastrados = (reimportado.corpo.linhas || []).filter((l) => /RG já cadastrado/.test(l.avisos.join(' ')));
-  conferir(reimportado.status === 200 && r2.criados === 0 && r2.inscricoes === 0 && jaCadastrados.length === 23
-    && Number((await contarMarcados()).atletas) === 18,
-  'reimportar o mesmo arquivo: 0 criados, 23 linhas "RG já cadastrado", nada muda',
+  conferir(reimportado.status === 200 && r2.criados === 0 && r2.inscricoes === 0 && jaCadastrados.length === 25
+    && Number((await contarMarcados()).atletas) === 20,
+  'reimportar o mesmo arquivo: 0 criados, 25 linhas "RG já cadastrado", nada muda',
   `${reimportado.status} ${JSON.stringify(r2)} já cadastrados: ${jaCadastrados.length}`);
 
   // RG já cadastrado com outros dados: pula e não altera o atleta existente

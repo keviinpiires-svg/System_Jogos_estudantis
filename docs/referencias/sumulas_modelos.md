@@ -6,8 +6,8 @@ A folha impressa do sistema deve seguir estes modelos.
 > **Decisões do usuário (29/09/2026) — valem sobre o papel:**
 > 1. **Toda súmula impressa tem 14 linhas por equipe**, inclusive basquete e vôlei, cujos modelos em papel trazem 12.
 >    O limite de elenco do regulamento é 14, e a folha precisa comportar o elenco inteiro.
->    **Exceção — handebol e baleado: 12 linhas e elenco de 12** (min. 10, só aviso). O regulamento escrito diz 14,
->    mas vale a resposta do chefe de 07/10/2026 (`db/09`); o teto da súmula também é 12 nessas duas.
+>    **Handebol e baleado também têm 14 linhas e elenco de 14** (decisão do usuário em 06/11/2026, `db/25`; min. 10, só aviso). De
+>    07/10 a 06/11/2026 eram 12 pela resposta do chefe (`db/09`), mas o papel dessas duas traz 12 e o teto voltou a 14.
 > 2. **O handebol usa exatamente a folha do futsal** (mesmas colunas e o mesmo rodapé, inclusive "faltas acumuladas 1 a 5").
 >    Não é um layout à parte: só muda o título da folha. Cabeçalho comum: Campeonato (JOGOS ESTUDANTIS 2026), Local, Nº do jogo, Cidade, Categoria, Data, Árbitro 1, Árbitro 2, Anotador, Equipe A x Equipe B com caixa de placar.
 

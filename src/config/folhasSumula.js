@@ -13,15 +13,14 @@
 // equipe, inclusive basquete e vôlei, cujos papéis trazem 12 — o elenco do
 // regulamento é 14 e a folha precisa comportá-lo.
 //
-// Exceção do HANDEBOL e do BALEADO (chefe, 07/10/2026): o elenco dessas duas
-// modalidades é de 12 atletas (modalidades.max_atletas, db/09), então as
-// folhas oficiais têm sempre as 12 linhas do papel, em branco e preenchida.
-// `linhas` é o que a folha desenha; `linhasMaximas` é o teto que o backend
-// aceita na súmula.
+// Handebol e baleado voltaram a 14 linhas (decisão do usuário, 06/11/2026: o
+// teto de atletas é 14, igual ao regulamento escrito, db/25), apesar de os
+// papéis oficiais trazerem 12. De 07/10 a 06/11 eram 12 (resposta do chefe,
+// db/09). `linhas` é o que a folha desenha; `linhasMaximas` é o teto que o
+// backend aceita na súmula.
 // ============================================================================
 
 const LINHAS = 14;
-const LINHAS_DO_PAPEL = 12;
 
 // Futsal e Futebol Society usam exatamente a mesma folha: muda só o título,
 // que sai do nome da modalidade.
@@ -63,8 +62,8 @@ const FOLHAS = {
     faltasAcumuladas: 0,
     tempoTecnico: true,
     sets: false,
-    linhas: LINHAS_DO_PAPEL,
-    linhasMaximas: LINHAS_DO_PAPEL
+    linhas: LINHAS,
+    linhasMaximas: LINHAS
   },
 
   // Basquete: folha própria. Não tem cartão; tem faltas individuais de 0 a 5
@@ -138,8 +137,8 @@ const FOLHAS = {
     faltasAcumuladas: 0,
     tempoTecnico: false,
     sets: false,
-    linhas: LINHAS_DO_PAPEL,
-    linhasMaximas: LINHAS_DO_PAPEL
+    linhas: LINHAS,
+    linhasMaximas: LINHAS
   }
 };
 

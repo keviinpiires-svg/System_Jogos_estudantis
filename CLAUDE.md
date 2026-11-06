@@ -54,10 +54,8 @@ grupos, modelos de súmula).
 - **Publicado em 04/11/2026** (backend `31d3ad9`, `cfc975e`, `c75364c`; frontend `39fa1c5`, `49cfaab`, `b80fdc3`):
   (1) **súmulas em branco em lote**, tela `/imprimir-sumulas` (ADMIN e PLACAR; dia + local, caixa de
   seleção por jogo, uma folha A4 por jogo) e o botão "Súmulas em branco" na Agenda só para quem está
-  logado; (2) **handebol e baleado com elenco e folha de 12 linhas** (o regulamento escrito diz 14, mas
-  vale a resposta do chefe de 07/10/2026; mínimo 10 só aviso; **o teto de 12 não muda no banco**) e
-  todas as folhas medidas para caberem em uma A4 (linha de 5,4 mm no futsal, society e basquete; 5,8 mm
-  no handebol e no baleado); (3) **coluna opcional "Exceção" no importador de atletas** (`SIM` dispensa só
+  logado; (2) ~~handebol e baleado com elenco e folha de 12 linhas~~ (**substituído em 06/11/2026: o teto voltou a 14, ver o bullet de 06/11**) e
+  todas as folhas medidas para caberem em uma A4 (linha de 5,4 mm no futsal, society e basquete); (3) **coluna opcional "Exceção" no importador de atletas** (`SIM` dispensa só
   a idade da categoria e o máximo de 2 coletivas, linha vira AVISO "exceção autorizada" e entra, log
   `[EXCEÇÃO AUTORIZADA]` sem dados pessoais; `fumaca` com 174 ok); (4) **`db/22_davi_gomes_3a_modalidade.sql`**
   (Davi Gomes Pereira, ACM, 3ª modalidade coletiva no Handebol M Sub 8, exceção do chefe; o importador
@@ -66,6 +64,7 @@ grupos, modelos de súmula).
 - **04/11/2026, depois:** **`db/23_basquete_f_sub17_dois_jogos.sql`** (Basquete Feminino Sub 17, competição 48: passa a ter só **CEJA e CEBC** e **2 jogos** — nº 102 vira CEJA x CEBC e nº 209 vira CEBC x CEJA; o jogo nº 217 e a equipe CETI saem; data, hora e local não mudam; o `numero_tabela` não é renumerado e fica uma lacuna no 217; 236 jogos no banco): **rodado e conferido no `jogos_2026` pelo usuário em 04/11/2026**.
   **A regra de disputa dessa competição NÃO mudou:** segue "grupo único, 2 classificados, próxima fase FINAL, turno único", e **falta o chefe decidir se vira "melhor de dois jogos"** (turno `IDA_E_VOLTA`, 0 classificados, sem fase seguinte, como as outras de 2 equipes e 2 jogos: o campeão sai da soma dos dois placares). Sem a mudança, o sistema oferece uma final entre as mesmas duas equipes. Como o `db/20` e o `db/21` conferem 237 jogos, não devem ser rodados de novo depois do `db/23`.
 - **05/11/2026:** **`db/24_cebn_sem_society17_e_basquete15.sql`** (o **CEBN sai do Futebol Society Sub 17 Masculino e do Basquete Sub 15 Masculino**: saem os jogos nº 127 e 195 (Society) e nº 103 e 112 (Basquete) e a equipe do CEBN de cada uma; nenhum outro jogo é renumerado; o banco passa a ter **232 jogos**), **rodado e conferido no `jogos_2026` em 05/11/2026, com dump antes**. O Society Sub 17 M ficou com 4 equipes (grupo A: CEBC e CEJA; grupo B: CETI e VITORIA LIMA) e 3 jogos; o **Basquete Sub 15 M ficou com 3 equipes (CEBC, CEJA e Conveniada) e 2 jogos, sem o jogo CEBC x Conveniada**, por **decisão do usuário**. O `numero_jogo` das duas competições ficou **com buraco** (Society 1, 3, 4; Basquete 3, 4), também por decisão do usuário, e o `numero_tabela` ganhou lacunas. A regra de disputa das duas **não mudou** (Society: 2 grupos, 1 classificado por grupo, FINAL; Basquete: grupo único, 2 classificados, FINAL); se o chefe quiser que as três equipes do Basquete se enfrentem, falta cadastrar o jogo CEBC x Conveniada.
+- **06/11/2026 — teto de 14 atletas em Handebol e Baleado (decisão do usuário em 06/11/2026):** o teto volta a **14**, igual ao regulamento escrito, e substitui o 12 da resposta do chefe de 07/10 (`db/09`); o mínimo continua 10, só aviso. **`db/25_elenco_14_handebol_baleado.sql`** (`UPDATE modalidades SET max_atletas = 14`, idempotente, uma transação, duas travas): validado em banco descartável no MySQL 8.0.46, **rodado e conferido no `jogos_2026` em 06/11/2026, com dump antes** (handebol e baleado com `max_atletas = 14`). As folhas de handebol e baleado voltam a **14 linhas** (`folhasSumula.js`), a 4,9 mm por linha e 287 mm de altura, uma página A4 (medido no Edge em dev, individual e em lote). O `fumaca:banco` aplica o `db/25`, e o `fumaca` (174 ok) conferiu o teto de 14 pela importação. Como o banco já tem o teto de 14, o deploy do backend e do frontend com as folhas de 14 linhas fecha o conjunto.
 - **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
   Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
   1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
@@ -84,7 +83,7 @@ grupos, modelos de súmula).
   **mais 1ºs, depois 2ºs e 3ºs** (empate em tudo divide a posição: extensão provisória); **baleado**:
   empate vale na fase de grupos e, na **final**, acréscimo de 4 min com vitória de quem baleia primeiro
   (`jogos.baleou_primeiro_equipe_id`, `db/08`) — semifinal e ida e volta empatados seguem pendentes;
-  **handebol e baleado com elenco de 12** (`db/09`; o regulamento escrito diz 14, mas vale a resposta do chefe; mínimo 10 só aviso; sem `db/22`) e folhas de 12 linhas; **grade do vôlei de 1 a 30**
+  **handebol e baleado com elenco de 12** (`db/09`; mínimo 10 só aviso) e folhas de 12 linhas — ~~substituído em 06/11/2026: o teto voltou a 14 (`db/25`)~~; **grade do vôlei de 1 a 30**
   (o set segue em 21 até o chefe responder); atletismo, xadrez, dama e dominó: o juiz traz a súmula
   pronta e o sistema só lançará o resultado (plano na fatia 11, sem implementar).
 - **Respostas do chefe de 12/10/2026** (seção 12.1 do contexto, linhas 20, 22 e 23): a **semifinal do
@@ -208,7 +207,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `12_locais_adelieta_ceti` → `13_escola_conveniada` →
   `14_tabela_do_chefe_equipes` → `15_numero_tabela` → `16_pontos_lancados_por_prova` →
   `17_pontos_lancados_historico` → `18_usuarios_local` → `19_tabela_nova_equipes` → `20_datas_18a21_e_ajustes` →
-  `21_troca_numeros_27_29` → `22_davi_gomes_3a_modalidade` → `23_basquete_f_sub17_dois_jogos` → `24_cebn_sem_society17_e_basquete15` (o `20` a `24` não entram no banco de fumaça: conferem os 237 jogos da tabela;
+  `21_troca_numeros_27_29` → `22_davi_gomes_3a_modalidade` → `23_basquete_f_sub17_dois_jogos` → `24_cebn_sem_society17_e_basquete15` → `25_elenco_14_handebol_baleado` (o `20` a `24` não entram no banco de fumaça; o `25` entra, depois do `19`: conferem os 237 jogos da tabela;
   o `fumaca:banco` aplica do `20` só o período do evento).
   ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
 - Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
@@ -227,7 +226,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   `DATABASE_URL`). **Rode antes de dar uma fatia por pronta.** Não há testes de unidade.
   **Desde 20/10/2026 ele roda num banco próprio**, porque o `jogos_estudantis_dev` tem a tabela de jogos
   importada e o teste precisa de competições sem jogos:
-  `npm run fumaca:banco` (recria o `jogos_fumaca_dev` com `db/01`–`db/19` e o período do `db/20`; só apaga banco com "fumaca"
+  `npm run fumaca:banco` (recria o `jogos_fumaca_dev` com `db/01`–`db/19`, o `db/25` e o período do `db/20`; só apaga banco com "fumaca"
   e "dev" no nome) → `PORT=3001 DB_NAME=jogos_fumaca_dev npm start` (API de teste, sem derrubar a 3000) →
   `DB_NAME=jogos_fumaca_dev FUMACA_API=http://localhost:3001/api npm run fumaca`. O `DB_NAME` no ambiente
   vence o do `.env`, que usa `DB_*`.
@@ -248,7 +247,7 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
   script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
   só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
-- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `25`),
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `26`),
   nunca alteração manual.
 - Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
   se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca

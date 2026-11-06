@@ -41,7 +41,7 @@ Exemplo fictício com todos os casos: `docs/importacao/exemplo_atletas_ficticio.
 - **ERRO (não entra)** — escola não encontrada ou ambígua, modalidade não encontrada, categoria
   inexistente, gênero inválido, nascimento inválido, no futuro ou fora das categorias da modalidade,
   RG vazio, categoria incompatível com a idade, escola sem equipe na competição, elenco cheio
-  (`modalidades.max_atletas`: 14, ou 12 no handebol e no baleado), terceira competição coletiva, ou o
+  (`modalidades.max_atletas`: 14 em todas as modalidades de quadra, inclusive handebol e baleado desde o `db/25`, 06/11/2026), terceira competição coletiva, ou o
   mesmo RG com nome, nascimento, gênero ou escola diferentes de uma linha anterior.
 
 As regras de elegibilidade são **as mesmas da inscrição pela tela** (`src/config/elegibilidade.js`):

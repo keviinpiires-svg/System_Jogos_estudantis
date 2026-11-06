@@ -1,5 +1,5 @@
 // Recria, do zero, o banco próprio do teste de fumaça (padrão: jogos_fumaca_dev)
-// com os scripts db/01 a db/19, no mesmo servidor do
+// com os scripts db/01 a db/19 e o db/25 (teto de 14 no handebol e no baleado), no mesmo servidor do
 // banco de desenvolvimento, e com o período do evento do db/20 (18 a 21/11).
 //
 // Por quê: o fumaca procura competições sem jogos para testar. Com a tabela
@@ -31,7 +31,7 @@ const SCRIPTS = [
   '09_elenco_handebol_baleado', '10_locais_cebc_ceja', '11_pontos_lancados',
   '12_locais_adelieta_ceti', '13_escola_conveniada', '14_tabela_do_chefe_equipes',
   '15_numero_tabela', '16_pontos_lancados_por_prova', '17_pontos_lancados_historico',
-  '18_usuarios_local', '19_tabela_nova_equipes'
+  '18_usuarios_local', '19_tabela_nova_equipes', '25_elenco_14_handebol_baleado'
 ];
 
 // Os scripts não têm ";" dentro de texto nem procedures: dá para separar os
@@ -65,7 +65,7 @@ const comandos = (texto) => texto.replace(/--.*$/gm, '').split(';').map((c) => c
       `SELECT (SELECT COUNT(*) FROM competicoes) AS competicoes, (SELECT COUNT(*) FROM equipes) AS equipes,
               (SELECT COUNT(*) FROM locais_disputa) AS locais, (SELECT COUNT(*) FROM jogos) AS jogos`
     );
-    console.log(`${BANCO} recriado com db/01 a db/19 e o período do db/20:`, JSON.stringify(contagem));
+    console.log(`${BANCO} recriado com db/01 a db/19, db/25 e o período do db/20:`, JSON.stringify(contagem));
   } catch (erro) {
     console.error(`Falha ao montar ${BANCO}:`, erro.code || '', erro.sqlMessage || erro.message);
     process.exitCode = 1;
