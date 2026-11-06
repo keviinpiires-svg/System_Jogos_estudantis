@@ -17,6 +17,8 @@ router.get('/:id', jogoController.buscarPorId);
 router.put('/:id', somenteAdmin, jogoController.atualizarJogo);
 router.put('/:id/iniciar', mesaDoLocalOuAdmin, jogoController.iniciarJogo);
 router.put('/:id/wo', somenteAdmin, jogoController.declararWO);
+// Troca à mão a equipe de uma vaga do mata-mata, ou volta ao preenchimento automático
+router.put('/:id/vagas', somenteAdmin, jogoController.trocarVaga);
 router.delete('/:id', somenteAdmin, jogoController.excluirJogo);
 
 module.exports = router;

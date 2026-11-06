@@ -27,6 +27,7 @@ DROP TABLE IF EXISTS suspensoes;
 DROP TABLE IF EXISTS jogo_sets;
 DROP TABLE IF EXISTS sumula_equipes;
 DROP TABLE IF EXISTS sumula_atletas;
+DROP TABLE IF EXISTS jogo_vagas;
 DROP TABLE IF EXISTS jogos;
 DROP TABLE IF EXISTS locais_disputa;
 DROP TABLE IF EXISTS inscricoes_atletas;

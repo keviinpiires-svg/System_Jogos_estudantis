@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { REGRAS } = require('../config/regrasProvisorias');
+const { definirVaga, resolverVagasSemFalhar, ErroDeVaga } = require('../services/vagasMataMata');
 
 const FASES = ['GRUPOS', 'SEMIFINAL', 'FINAL'];
 const STATUS = ['AGENDADO', 'EM_ANDAMENTO', 'FINALIZADO', 'WO'];
@@ -106,22 +107,26 @@ const verificarConflitoDeLocal = async (conexao, { local_id, data_hora, ignorarJ
 };
 
 const SELECT_JOGO = `
-  SELECT j.id, j.competicao_id, j.numero_jogo, j.fase, j.rodada,
+  SELECT j.id, j.competicao_id, j.numero_jogo, j.numero_tabela, j.fase, j.rodada,
          j.data_hora, j.status, j.placar_1, j.placar_2,
          j.penaltis_1, j.penaltis_2, j.prorrogacao,
          j.arbitro_1, j.arbitro_2, j.anotador, j.observacoes,
          j.equipe_1_id, j.equipe_2_id, j.vencedor_equipe_id,
          e1.escola_id AS escola_1_id, esc1.nome AS equipe_1_nome,
          e2.escola_id AS escola_2_id, esc2.nome AS equipe_2_nome,
+         v1.rotulo AS origem_1, v1.manual AS vaga_1_manual,
+         v2.rotulo AS origem_2, v2.manual AS vaga_2_manual,
          j.grupo_id, g.nome AS grupo_nome,
          j.local_id, l.nome AS local_nome,
          m.nome AS modalidade_nome, m.slug AS modalidade_slug, m.tipo_placar,
          cat.nome AS categoria_nome, c.genero
     FROM jogos j
-    INNER JOIN equipes e1 ON e1.id = j.equipe_1_id
-    INNER JOIN escolas esc1 ON esc1.id = e1.escola_id
-    INNER JOIN equipes e2 ON e2.id = j.equipe_2_id
-    INNER JOIN escolas esc2 ON esc2.id = e2.escola_id
+    LEFT JOIN equipes e1 ON e1.id = j.equipe_1_id
+    LEFT JOIN escolas esc1 ON esc1.id = e1.escola_id
+    LEFT JOIN equipes e2 ON e2.id = j.equipe_2_id
+    LEFT JOIN escolas esc2 ON esc2.id = e2.escola_id
+    LEFT JOIN jogo_vagas v1 ON v1.jogo_id = j.id AND v1.lado = 1
+    LEFT JOIN jogo_vagas v2 ON v2.jogo_id = j.id AND v2.lado = 2
     INNER JOIN competicoes c ON c.id = j.competicao_id
     INNER JOIN modalidades m ON m.id = c.modalidade_id
     INNER JOIN categorias cat ON cat.id = c.categoria_id
@@ -525,6 +530,11 @@ const excluirJogo = async (req, res) => {
     });
   } catch (erro) {
     if (conexao) await conexao.rollback();
+    if (erro.code === 'ER_ROW_IS_REFERENCED_2') {
+      return res.status(409).json({
+        erro: 'Este jogo é a origem de uma vaga do mata-mata ("vencedor do jogo"). Troque a vaga antes de excluí-lo.'
+      });
+    }
     console.error(erro);
     res.status(500).json({ erro: 'Erro ao excluir o jogo.' });
   } finally {
@@ -542,10 +552,14 @@ const iniciarJogo = async (req, res) => {
   }
 
   try {
-    const [[jogo]] = await db.query('SELECT id, status FROM jogos WHERE id = ?', [id]);
+    const [[jogo]] = await db.query('SELECT id, status, equipe_1_id, equipe_2_id FROM jogos WHERE id = ?', [id]);
 
     if (!jogo) {
       return res.status(404).json({ erro: 'Jogo não encontrado.' });
+    }
+
+    if (!jogo.equipe_1_id || !jogo.equipe_2_id) {
+      return res.status(409).json({ erro: 'As equipes deste jogo ainda não foram definidas.' });
     }
 
     if (jogo.status !== 'AGENDADO') {
@@ -604,13 +618,18 @@ const declararWO = async (req, res) => {
     await conexao.beginTransaction();
 
     const [[jogo]] = await conexao.query(
-      'SELECT id, equipe_1_id, equipe_2_id, status FROM jogos WHERE id = ? FOR UPDATE',
+      'SELECT id, competicao_id, equipe_1_id, equipe_2_id, status FROM jogos WHERE id = ? FOR UPDATE',
       [id]
     );
 
     if (!jogo) {
       await conexao.rollback();
       return res.status(404).json({ erro: 'Jogo não encontrado.' });
+    }
+
+    if (!jogo.equipe_1_id || !jogo.equipe_2_id) {
+      await conexao.rollback();
+      return res.status(409).json({ erro: 'As equipes deste jogo ainda não foram definidas.' });
     }
 
     if (ENCERRADOS.includes(jogo.status)) {
@@ -660,7 +679,11 @@ const declararWO = async (req, res) => {
 
     await conexao.commit();
 
+    // O vencedor do W.O. pode ocupar uma vaga do mata-mata
+    const vagas = await resolverVagasSemFalhar(jogo.competicao_id);
+
     res.status(200).json({
+      vagas_preenchidas: vagas ? vagas.preenchidas : 0,
       mensagem: 'W.O. declarado.',
       id_jogo: id,
       placar: `${placar_1} x ${placar_2}`,
@@ -675,6 +698,39 @@ const declararWO = async (req, res) => {
   }
 };
 
+// PUT /api/jogos/:id/vagas — só ADMIN. Escolhe à mão a equipe de uma vaga do mata-mata (a
+// vaga fica travada: o preenchimento automático não a desfaz) ou volta ao automático.
+//   { lado: 1|2, equipe_id }            -> põe a equipe (null deixa a vaga vazia)
+//   { lado: 1|2, automatico: true }     -> solta a vaga e recalcula
+// Jogo iniciado ou encerrado só muda com { confirmar: true }.
+const trocarVaga = async (req, res) => {
+  const id = Number(req.params.id);
+  const lado = Number(req.body.lado);
+  const automatico = req.body.automatico === true || req.body.automatico === 'true';
+  const confirmar = req.body.confirmar === true || req.body.confirmar === 'true';
+  const equipeBruta = req.body.equipe_id;
+  const equipeId = equipeBruta === null || equipeBruta === undefined || equipeBruta === '' ? null : Number(equipeBruta);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ erro: 'Identificador de jogo inválido.' });
+  }
+  if (equipeId !== null && (!Number.isInteger(equipeId) || equipeId <= 0)) {
+    return res.status(400).json({ erro: 'Equipe inválida.' });
+  }
+
+  try {
+    const resultado = await definirVaga({ jogoId: id, lado, equipeId, automatico, confirmar });
+    res.status(200).json({
+      mensagem: automatico ? 'Vaga solta: volta a ser preenchida sozinha.' : 'Vaga definida.',
+      ...resultado
+    });
+  } catch (erro) {
+    if (erro instanceof ErroDeVaga) return res.status(erro.status).json({ erro: erro.message });
+    console.error('Erro ao trocar a vaga:', erro);
+    res.status(500).json({ erro: 'Erro ao trocar a vaga do jogo.' });
+  }
+};
+
 module.exports = {
   agendarJogo,
   declararWO,
@@ -682,5 +738,6 @@ module.exports = {
   buscarPorId,
   atualizarJogo,
   excluirJogo,
-  iniciarJogo
+  iniciarJogo,
+  trocarVaga
 };

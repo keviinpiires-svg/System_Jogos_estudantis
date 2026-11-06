@@ -7,6 +7,7 @@ const {
   REGRAS_DA_CHAVE, chaveDaSemifinal, chaveDaFinal, temMataMata
 } = require('../config/chavesMataMata');
 const { desempateDaModalidade } = require('../config/regrasProvisorias');
+const { resolverVagas, resolverVagasDeTodas, ErroDeVaga } = require('../services/vagasMataMata');
 
 // ============================================================================
 // MATA-MATA — a chave de cada competição, montada a partir da classificação.
@@ -40,20 +41,31 @@ const montarChave = async (id) => {
   const { competicao, grupos, jogos } = dados;
 
   const [todosOsJogos] = await db.query(
-    `SELECT j.id, j.numero_jogo, j.fase, j.status, j.data_hora, j.rodada,
+    `SELECT j.id, j.numero_jogo, j.numero_tabela, j.fase, j.status, j.data_hora, j.rodada,
             j.equipe_1_id, j.equipe_2_id, j.placar_1, j.placar_2,
             j.penaltis_1, j.penaltis_2, j.vencedor_equipe_id,
             e1.escola_id AS escola_1_id, esc1.nome AS escola_1_nome,
             e2.escola_id AS escola_2_id, esc2.nome AS escola_2_nome,
+            v1.rotulo AS origem_1, v2.rotulo AS origem_2,
             j.local_id, l.nome AS local_nome
        FROM jogos j
-       INNER JOIN equipes e1 ON e1.id = j.equipe_1_id
-       INNER JOIN escolas esc1 ON esc1.id = e1.escola_id
-       INNER JOIN equipes e2 ON e2.id = j.equipe_2_id
-       INNER JOIN escolas esc2 ON esc2.id = e2.escola_id
+       LEFT JOIN equipes e1 ON e1.id = j.equipe_1_id
+       LEFT JOIN escolas esc1 ON esc1.id = e1.escola_id
+       LEFT JOIN equipes e2 ON e2.id = j.equipe_2_id
+       LEFT JOIN escolas esc2 ON esc2.id = e2.escola_id
+       LEFT JOIN jogo_vagas v1 ON v1.jogo_id = j.id AND v1.lado = 1
+       LEFT JOIN jogo_vagas v2 ON v2.jogo_id = j.id AND v2.lado = 2
        LEFT JOIN locais_disputa l ON l.id = j.local_id
       WHERE j.competicao_id = ?
       ORDER BY j.fase, j.numero_jogo`,
+    [id]
+  );
+
+  // Mata-mata cadastrado de antemão pela tabela do chefe (jogo_vagas, db/28): as vagas se
+  // preenchem sozinhas e o gerar/desfazer por classificação não se aplica
+  const [[{ comVagas }]] = await db.query(
+    `SELECT COUNT(*) AS comVagas FROM jogo_vagas v INNER JOIN jogos j ON j.id = v.jogo_id
+      WHERE j.competicao_id = ?`,
     [id]
   );
 
@@ -81,6 +93,7 @@ const montarChave = async (id) => {
   return {
     ...dados,
     todosOsJogos,
+    vagasCadastradas: Number(comVagas) > 0,
     jogosDeGrupos: jogos,
     faseDeGrupos,
     contexto,
@@ -123,6 +136,14 @@ const proximaGeracao = (chave) => {
       fase: null,
       motivo: 'Esta competição não tem mata-mata: são duas equipes em ida e volta, '
         + 'e o campeão sai da soma dos dois jogos.'
+    };
+  }
+
+  if (chave.vagasCadastradas) {
+    return {
+      fase: null,
+      motivo: 'Os jogos do mata-mata já estão cadastrados pela tabela do chefe: as equipes entram sozinhas '
+        + 'quando cada grupo ou jogo termina. Use "Recalcular vagas" se precisar conferir.'
     };
   }
 
@@ -442,6 +463,7 @@ const chaveDaCompeticao = async (req, res) => {
         tem_mata_mata: temMataMata(competicao)
       },
       fase_de_grupos: faseDeGrupos,
+      vagas_cadastradas: chave.vagasCadastradas,
       classificados: contexto.classificadosPorGrupo,
       melhores_segundos: contexto.melhoresSegundos.map((e) => ({
         equipe_id: e.equipe_id,
@@ -603,6 +625,18 @@ const desfazerFase = async (req, res) => {
     return res.status(400).json({ erro: 'A fase a desfazer é SEMIFINAL ou FINAL.' });
   }
 
+  const [[{ comVagas }]] = await db.query(
+    `SELECT COUNT(*) AS comVagas FROM jogo_vagas v INNER JOIN jogos j ON j.id = v.jogo_id
+      WHERE j.competicao_id = ?`,
+    [id]
+  );
+  if (Number(comVagas) > 0) {
+    return res.status(409).json({
+      erro: 'Os jogos do mata-mata desta competição vêm da tabela do chefe e não se desfazem por aqui. '
+        + 'Para trocar uma equipe, use a troca de vaga do jogo.'
+    });
+  }
+
   let conexao;
   try {
     conexao = await db.getConnection();
@@ -696,10 +730,53 @@ const desfazerFase = async (req, res) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// POST /api/matamata/competicao/:competicao_id/recalcular-vagas — só ADMIN
+// POST /api/matamata/recalcular-vagas — só ADMIN, todas as competições
+// ---------------------------------------------------------------------------
+// Preenche as vagas dos jogos de mata-mata cadastrados pela tabela do chefe
+// (jogo_vagas): classificados quando o grupo fecha, vencedor quando o jogo
+// termina. É o mesmo cálculo que roda sozinho ao encerrar a súmula. Vaga trocada
+// à mão não é tocada, e jogo iniciado ou encerrado só vira aviso.
+const recalcularVagas = async (req, res) => {
+  const id = Number(req.params.competicao_id);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ erro: 'Identificador de competição inválido.' });
+  }
+
+  try {
+    const resultado = await resolverVagas(id);
+    res.status(200).json({ mensagem: 'Vagas recalculadas.', ...resultado });
+  } catch (erro) {
+    if (erro instanceof ErroDeVaga) return res.status(erro.status).json({ erro: erro.message });
+    console.error('Erro ao recalcular as vagas:', erro);
+    res.status(500).json({ erro: 'Erro ao recalcular as vagas do mata-mata.' });
+  }
+};
+
+const recalcularVagasDeTodas = async (req, res) => {
+  try {
+    const resultados = await resolverVagasDeTodas();
+    res.status(200).json({
+      mensagem: 'Vagas recalculadas em todas as competições.',
+      competicoes: resultados.length,
+      preenchidas: resultados.reduce((s, r) => s + r.preenchidas, 0),
+      limpas: resultados.reduce((s, r) => s + r.limpas, 0),
+      avisos: resultados.flatMap((r) => r.avisos.map((x) => ({ competicao_id: r.competicao_id, ...x })))
+    });
+  } catch (erro) {
+    console.error('Erro ao recalcular as vagas:', erro);
+    res.status(500).json({ erro: 'Erro ao recalcular as vagas do mata-mata.' });
+  }
+};
+
 module.exports = {
   chaveDaCompeticao,
   gerarFase,
   desfazerFase,
+  recalcularVagas,
+  recalcularVagasDeTodas,
   // Reaproveitados pelos testes e pela tela
   montarChave,
   proximaGeracao,

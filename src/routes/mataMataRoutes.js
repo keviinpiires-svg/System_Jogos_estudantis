@@ -11,6 +11,9 @@ const somenteAdmin = [verificarToken, exigirPerfil('ADMIN')];
 router.get('/competicao/:competicao_id', mataMataController.chaveDaCompeticao);
 
 router.post('/competicao/:competicao_id/gerar', somenteAdmin, mataMataController.gerarFase);
+// Vagas do mata-mata cadastrado pela tabela do chefe (db/28): recalcula uma competição ou todas
+router.post('/competicao/:competicao_id/recalcular-vagas', somenteAdmin, mataMataController.recalcularVagas);
+router.post('/recalcular-vagas', somenteAdmin, mataMataController.recalcularVagasDeTodas);
 router.delete('/competicao/:competicao_id/:fase', somenteAdmin, mataMataController.desfazerFase);
 
 module.exports = router;

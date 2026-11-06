@@ -20,17 +20,19 @@ const SELECT_AGENDA = `
   SELECT j.id, j.numero_jogo, j.numero_tabela, j.fase, j.status, j.data_hora,
          j.placar_1, j.placar_2, j.penaltis_1, j.penaltis_2, j.prorrogacao,
          j.vencedor_equipe_id, j.baleou_primeiro_equipe_id,
-         j.equipe_1_id, esc1.nome AS escola_1_nome,
-         j.equipe_2_id, esc2.nome AS escola_2_nome,
+         j.equipe_1_id, esc1.nome AS escola_1_nome, v1.rotulo AS origem_1,
+         j.equipe_2_id, esc2.nome AS escola_2_nome, v2.rotulo AS origem_2,
          g.nome AS grupo_nome, j.local_id, l.nome AS local_nome,
          j.competicao_id, c.turno, c.proxima_fase,
          m.nome AS modalidade_nome, m.slug AS modalidade_slug,
          cat.nome AS categoria_nome, c.genero
     FROM jogos j
-    INNER JOIN equipes e1 ON e1.id = j.equipe_1_id
-    INNER JOIN escolas esc1 ON esc1.id = e1.escola_id
-    INNER JOIN equipes e2 ON e2.id = j.equipe_2_id
-    INNER JOIN escolas esc2 ON esc2.id = e2.escola_id
+    LEFT JOIN equipes e1 ON e1.id = j.equipe_1_id
+    LEFT JOIN escolas esc1 ON esc1.id = e1.escola_id
+    LEFT JOIN equipes e2 ON e2.id = j.equipe_2_id
+    LEFT JOIN escolas esc2 ON esc2.id = e2.escola_id
+    LEFT JOIN jogo_vagas v1 ON v1.jogo_id = j.id AND v1.lado = 1
+    LEFT JOIN jogo_vagas v2 ON v2.jogo_id = j.id AND v2.lado = 2
     INNER JOIN competicoes c ON c.id = j.competicao_id
     INNER JOIN modalidades m ON m.id = c.modalidade_id
     INNER JOIN categorias cat ON cat.id = c.categoria_id
@@ -69,8 +71,10 @@ const jogoDaAgenda = (j) => {
     melhor_de_dois: melhorDeDois,
     grupo: j.fase === 'GRUPOS' && !melhorDeDois ? j.grupo_nome : null,
     status: j.status,
-    equipe_1: { id: j.equipe_1_id, escola: j.escola_1_nome },
-    equipe_2: { id: j.equipe_2_id, escola: j.escola_2_nome },
+    // Mata-mata cadastrado de antemão (db/28): sem equipe ainda, `escola` vem nula e `origem`
+    // diz de onde ela virá ("1º do Grupo A", "Vencedor do jogo 263")
+    equipe_1: { id: j.equipe_1_id, escola: j.escola_1_nome, origem: j.origem_1 ?? null },
+    equipe_2: { id: j.equipe_2_id, escola: j.escola_2_nome, origem: j.origem_2 ?? null },
     // Placar e resultado só de jogo encerrado (finalizado ou W.O.)
     placar: encerrado ? { equipe_1: j.placar_1, equipe_2: j.placar_2 } : null,
     resultado: encerrado

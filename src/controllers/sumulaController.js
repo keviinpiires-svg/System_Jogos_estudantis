@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const { desempateDaModalidade } = require('../config/regrasProvisorias');
 const { folhaDaModalidade } = require('../config/folhasSumula');
+const { resolverVagasSemFalhar } = require('../services/vagasMataMata');
 
 // ============================================================================
 // SÚMULA: única fonte de verdade do placar.
@@ -213,15 +214,21 @@ const buscarSumulaPorJogo = async (req, res) => {
       [jogo.equipe_1_id, jogo.equipe_2_id]
     );
 
+    // Mata-mata cadastrado de antemão (db/28): a vaga sem equipe sai na folha com a origem no lugar
+    // do nome ("1º do Grupo A"), sem atletas — dá para imprimir em branco
+    const [vagas] = await db.query('SELECT lado, rotulo FROM jogo_vagas WHERE jogo_id = ?', [jogo_id]);
+    const origemDoLado = (lado) => vagas.find((v) => v.lado === lado)?.rotulo || 'A definir';
+
     // A ordem importa: equipe 1 é a de cima na folha, equipe 2 a de baixo.
-    const montarEquipe = (equipe_id) => {
+    const montarEquipe = (equipe_id, lado) => {
       const equipe = equipes.find((e) => e.id === equipe_id);
       const rodape = rodapes.find((r) => r.equipe_id === equipe_id);
       const atletas = linhas.filter((l) => l.equipe_id === equipe_id);
 
       return {
         equipe_id,
-        escola_nome: equipe ? equipe.escola_nome : '',
+        escola_nome: equipe ? equipe.escola_nome : (equipe_id ? '' : origemDoLado(lado)),
+        a_definir: !equipe_id,
         // O técnico da súmula vence o da equipe: pode mudar de um jogo a outro
         tecnico_nome: rodape?.tecnico_nome ?? equipe?.tecnico_nome ?? null,
         faltas_1t: rodape?.faltas_1t ?? 0,
@@ -264,7 +271,7 @@ const buscarSumulaPorJogo = async (req, res) => {
       folha,
       sets,
       linhas_sumula: folha.linhas,
-      equipes: [montarEquipe(jogo.equipe_1_id), montarEquipe(jogo.equipe_2_id)],
+      equipes: [montarEquipe(jogo.equipe_1_id, 1), montarEquipe(jogo.equipe_2_id, 2)],
       lancada: linhas.some((l) => Number(l.gols) > 0 || Number(l.amarelos) > 0
         || Number(l.faltas) > 0 || l.vermelho)
         || rodapes.some((r) => Number(r.baleados) > 0)
@@ -366,6 +373,13 @@ const registrarSumula = async (req, res) => {
       await conexao.rollback();
       return res.status(409).json({
         erro: 'Este jogo foi decidido por W.O. e não tem súmula.'
+      });
+    }
+
+    if (!jogo.equipe_1_id || !jogo.equipe_2_id) {
+      await conexao.rollback();
+      return res.status(409).json({
+        erro: 'As equipes deste jogo ainda não foram definidas: a súmula só abre quando as duas vagas têm equipe.'
       });
     }
 
@@ -716,7 +730,11 @@ const registrarSumula = async (req, res) => {
 
     await conexao.commit();
 
+    // Jogo encerrado pode fechar um grupo ou decidir o vencedor de uma vaga do mata-mata
+    const vagasResolvidas = await resolverVagasSemFalhar(jogo.competicao_id);
+
     res.status(201).json({
+      vagas_preenchidas: vagasResolvidas ? vagasResolvidas.preenchidas : 0,
       mensagem: finalizar ? 'Súmula finalizada!' : 'Súmula salva.',
       jogo_id,
       placar_1,

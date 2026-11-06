@@ -12,6 +12,7 @@ const TABELAS_EM_ORDEM = [
   'sumula_atletas',
   'sumula_equipes',
   'jogo_sets',
+  'jogo_vagas',
   'suspensoes',
   'colocacoes_finais',
   'ajustes_pontos_geral',
