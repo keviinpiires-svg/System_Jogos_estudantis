@@ -31,7 +31,9 @@ const login = async (req, res) => {
     const token = jwt.sign(
       { id: usuario.id, nome: usuario.nome, email: usuario.email, perfil: usuario.perfil },
       process.env.JWT_SECRET,
-      { expiresIn: '8h' }
+      // 16 h: o login da manhã vale até o fim do dia de jogos (decisão do usuário, 06/11/2026;
+      // eram 8 h, e a sessão podia acabar no meio de uma súmula)
+      { expiresIn: '16h' }
     );
 
     // O local da mesa NÃO vai no token: a trava o relê do banco a cada escrita

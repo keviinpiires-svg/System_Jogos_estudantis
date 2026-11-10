@@ -273,6 +273,10 @@ const rodar = async () => {
   token = login.token;
   criados.usuario = login.usuario.id;
 
+  // O token dura 16 h (06/11/2026): o login da manhã vale o dia de jogos inteiro
+  const carga = JSON.parse(Buffer.from(login.token.split('.')[1], 'base64url').toString('utf8'));
+  conferir(carga.exp - carga.iat === 16 * 3600, 'o token do login dura 16 horas', `${(carga.exp - carga.iat) / 3600} h`);
+
   const { competicao, equipes } = await escolherCompeticao();
   console.log(
     `\nCompetição ${competicao.id}: ${competicao.modalidade} ${competicao.categoria} `
