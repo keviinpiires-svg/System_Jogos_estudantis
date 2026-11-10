@@ -82,6 +82,70 @@ const listarAtletasPorEscola = async (req, res) => {
   }
 };
 
+// Competições em que o atleta está inscrito (tela "Listar Atletas"). Pública como a lista de atletas:
+// modalidade, categoria, gênero e escola da equipe não são dado pessoal. A marca de EXCEÇÃO (idade acima
+// do limite da categoria, revela o nascimento) só vai para o ADMIN. O RG e o nascimento não saem daqui.
+const listarInscricoesDoAtleta = async (req, res) => {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ erro: 'Identificador de atleta inválido.' });
+  }
+
+  try {
+    const [[atleta]] = await db.query(
+      `SELECT a.id, a.nome, a.escola_id, s.nome AS escola_nome
+         FROM atletas a INNER JOIN escolas s ON s.id = a.escola_id WHERE a.id = ?`,
+      [id]
+    );
+
+    if (!atleta) {
+      return res.status(404).json({ erro: 'Atleta não encontrado.' });
+    }
+
+    const [linhas] = await db.query(
+      `SELECT i.id AS inscricao_id, i.equipe_id, e.competicao_id, e.escola_id,
+              s.nome AS escola_nome, m.nome AS modalidade, m.tipo AS tipo_modalidade,
+              k.nome AS categoria, c.genero,
+              (k.idade_maxima IS NOT NULL AND YEAR(a.data_nascimento) < ev.ano - k.idade_maxima) AS fora_da_idade
+         FROM inscricoes_atletas i
+         INNER JOIN atletas a ON a.id = i.atleta_id
+         INNER JOIN equipes e ON e.id = i.equipe_id
+         INNER JOIN escolas s ON s.id = e.escola_id
+         INNER JOIN competicoes c ON c.id = e.competicao_id
+         INNER JOIN modalidades m ON m.id = c.modalidade_id
+         INNER JOIN categorias k ON k.id = c.categoria_id
+         INNER JOIN configuracao_evento ev ON ev.id = 1
+        WHERE i.atleta_id = ?
+        ORDER BY m.nome, k.idade_maxima IS NULL, k.idade_maxima, c.genero`,
+      [id]
+    );
+
+    const admin = veDadosPessoais(req);
+    const inscricoes = linhas.map((l) => ({
+      inscricao_id: l.inscricao_id,
+      equipe_id: l.equipe_id,
+      competicao_id: l.competicao_id,
+      escola_id: l.escola_id,
+      escola_nome: l.escola_nome,
+      modalidade: l.modalidade,
+      coletiva: l.tipo_modalidade === 'COLETIVO',
+      categoria: l.categoria,
+      genero: l.genero,
+      ...(admin ? { excecao: Boolean(l.fora_da_idade) } : {})
+    }));
+
+    res.status(200).json({
+      atleta: { id: atleta.id, nome: atleta.nome, escola_id: atleta.escola_id, escola_nome: atleta.escola_nome },
+      inscricoes,
+      total_coletivas: inscricoes.filter((i) => i.coletiva).length
+    });
+  } catch (erro) {
+    console.error('Erro ao buscar as inscrições do atleta:', erro);
+    res.status(500).json({ erro: 'Erro ao buscar as inscrições do atleta.' });
+  }
+};
+
 // Só ADMIN: devolve o RG, para preencher a tela de edição.
 const buscarAtletaPorId = async (req, res) => {
   const id = Number(req.params.id);
@@ -190,6 +254,7 @@ const atualizarAtleta = async (req, res) => {
 };
 
 module.exports = {
+  listarInscricoesDoAtleta,
   cadastrarAtleta,
   listarAtletasPorEscola,
   buscarAtletaPorId,

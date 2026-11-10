@@ -16,6 +16,9 @@ router.get('/escola/:escola_id', identificarSeLogado, atletaController.listarAtl
 // sempre significou escola; no schema novo equipe é escola x competição.
 router.get('/equipe/:escola_id', identificarSeLogado, atletaController.listarAtletasPorEscola);
 
+// Competições do atleta: pública como a lista (sem RG nem nascimento; a marca de exceção só para o ADMIN)
+router.get('/:id/inscricoes', identificarSeLogado, atletaController.listarInscricoesDoAtleta);
+
 // Traz o RG, por isso é restrita ao administrador
 router.get('/:id', somenteAdmin, atletaController.buscarAtletaPorId);
 
