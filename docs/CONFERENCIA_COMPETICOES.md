@@ -50,7 +50,7 @@ Linhas com ⚠ têm algo para você decidir (veja a seção final).
 | 43 | Baleado Feminino Sub 17 | **A:** CEJA, LUCIA ROCHA, CEBC, CETI | Classificam-se os dois primeiros colocados para a Final. | os 2 primeiros vão para a final |  |
 | 44 | Vôlei Sub 15 Misto | **A:** EMILIANO ZAPATA, CEBC, CEJA, CEBN | Classificam-se os dois melhores colocados direto para a Final. | os 2 primeiros vão para a final |  |
 | 45 | Vôlei Sub 17 Misto | **A:** EMILIANO ZAPATA, CETI, CEBN<br>**B:** LUCIA ROCHA, CEBC | Classificam-se os dois mais bem colocados de cada grupo para a Final. | os 2 primeiros de cada grupo → semifinal | ⚠ |
-| 46 | Vôlei Aberto Masculino | **A:** LUCIA ROCHA, CEBC, CETI | Classificam-se os dois melhores colocados direto para a Final. | os 2 primeiros vão para a final |  |
+| 46 | Vôlei Aberto Misto | **A:** LUCIA ROCHA, CEBC, CETI | Classificam-se os dois melhores colocados direto para a Final. | os 2 primeiros vão para a final |  |
 | 47 | Basquete Feminino Sub 15 | **A:** COVENIADA, CEBC, CEJA | Classificam-se os dois melhores colocados direto para a Final. | os 2 primeiros vão para a final |  |
 | 48 | Basquete Feminino Sub 17 | **A:** CETI, CEJA, CEBC | Classificam-se os dois melhores colocados direto para a Final. | os 2 primeiros vão para a final |  |
 | 49 | Basquete Masculino Sub 15 | **A:** CEJA, COVENIADA, CEBC, CEBN | Classificam-se os dois melhores colocados direto para a Final. | os 2 primeiros vão para a final |  |
@@ -101,3 +101,17 @@ Linhas com ⚠ têm algo para você decidir (veja a seção final).
 | C | 2 grupos × 2 → SEMIFINAL | 10 | 1ºA × 2ºB e 1ºB × 2ºA |
 | D | 3 grupos × 1 + 1 melhor 2º → SEMIFINAL | 3 | melhor 1º × melhor 2º, evitando o mesmo grupo |
 | E | 1 grupo, ida e volta, sem mata-mata | 6 | nenhum: campeão pela soma dos dois jogos |
+
+## Atualização de 10/11/2026 — tabela de jogos 20266 (`db/32` e `db/34`)
+
+- **Vôlei Aberto Misto** (nº 46): o gênero passou de MASCULINO para MISTO (`db/32`); equipes (LUCIA ROCHA, CEBC e CETI), grupo e jogos não mudaram, e a regra de disputa segue "os 2 primeiros vão para a final".
+- A **tabela de jogos vigente é a 20266** (`db/34`): **231 jogos de grupo e 75 de mata-mata**. O que mudou no número de jogos de grupo por competição:
+
+| Competição | Jogos de grupo antes | Depois | O que mudou |
+|---|---|---|---|
+| Handebol Masculino Sub 9 | 1 | **0** | saiu o jogo 33; a competição ficou **sem jogos** (a confirmar com o chefe) |
+| Handebol Feminino Sub 8 | 1 | **2** | entrou o nº 102 (ACM x JOSE DIAS); a competição passa a ter o 102 e o 279 |
+| Handebol Feminino Sub 17 | 4 | **3** | saiu o jogo 189 |
+| Basquete Feminino Sub 17 (nº 48) | 3 | **1** | saíram os jogos 101 e 204; ficam o jogo 209 (CEJA x CEBC) e a final 292 (CEJA x CEBC, vagas manuais); a equipe do CETI continua cadastrada, **sem jogos** |
+
+As demais competições mantêm o mesmo número de jogos; só mudam número, dia, hora ou local. Os 75 jogos de mata-mata seguem os mesmos.
