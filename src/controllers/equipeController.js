@@ -129,4 +129,134 @@ const listarElegiveis = async (req, res) => {
   }
 };
 
-module.exports = { listarEquipes, listarElegiveis };
+const CAMISA_MINIMA = 1;
+const CAMISA_MAXIMA = 99;
+
+// Número da camisa da equipe, na hora da partida (a mesa e o ADMIN, pela tela de súmula).
+// PUT /api/equipes/:equipeId/camisas  { jogo_id, camisas: [{ inscricaoId, numero }] }
+// - grava em inscricoes_atletas.numero_camisa (vale para os próximos jogos da equipe);
+// - "numero" vazio ou null = sem número; 1 a 99; único dentro da equipe (conta quem já tem número);
+// - o jogo é obrigatório: é por ele que a mesa com local é travada (travarMesaPorLocal) e é dele
+//   que sai a conferência "a equipe joga este jogo"; jogo encerrado (finalizado ou W.O.) não muda.
+const salvarCamisas = async (req, res) => {
+  const equipe_id = Number(req.params.equipeId);
+  const jogo_id = Number(req.body?.jogo_id);
+  const lista = req.body?.camisas;
+
+  if (!Number.isInteger(equipe_id) || equipe_id <= 0) {
+    return res.status(400).json({ erro: 'Equipe inválida.' });
+  }
+  // Sem o jogo a trava de mesa por local não teria o que conferir
+  if (!Number.isInteger(jogo_id) || jogo_id <= 0) {
+    return res.status(400).json({ erro: 'Informe o jogo (jogo_id) em que a camisa está sendo lançada.' });
+  }
+  if (!Array.isArray(lista) || lista.length === 0) {
+    return res.status(400).json({ erro: 'Informe a lista de camisas: [{ inscricaoId, numero }].' });
+  }
+
+  const pedidos = new Map();
+  for (const item of lista) {
+    const inscricaoId = Number(item?.inscricaoId);
+    if (!Number.isInteger(inscricaoId) || inscricaoId <= 0) {
+      return res.status(400).json({ erro: 'Cada camisa precisa de uma inscrição (inscricaoId).' });
+    }
+    if (pedidos.has(inscricaoId)) {
+      return res.status(400).json({ erro: 'A mesma inscrição aparece duas vezes na lista.' });
+    }
+    const vazio = item.numero === undefined || item.numero === null || String(item.numero).trim() === '';
+    const numero = vazio ? null : Number(item.numero);
+    if (!vazio && (!Number.isInteger(numero) || numero < CAMISA_MINIMA || numero > CAMISA_MAXIMA)) {
+      return res.status(400).json({
+        erro: `O número da camisa precisa ser um inteiro entre ${CAMISA_MINIMA} e ${CAMISA_MAXIMA}.`
+      });
+    }
+    pedidos.set(inscricaoId, numero);
+  }
+
+  let conexao;
+  try {
+    conexao = await db.getConnection();
+    await conexao.beginTransaction();
+
+    const [[jogo]] = await conexao.query(
+      'SELECT id, status, equipe_1_id, equipe_2_id FROM jogos WHERE id = ? FOR UPDATE',
+      [jogo_id]
+    );
+    if (!jogo) {
+      await conexao.rollback();
+      return res.status(404).json({ erro: 'Jogo não encontrado.' });
+    }
+    if (jogo.equipe_1_id !== equipe_id && jogo.equipe_2_id !== equipe_id) {
+      await conexao.rollback();
+      return res.status(400).json({ erro: 'Esta equipe não joga este jogo.' });
+    }
+    if (['FINALIZADO', 'WO'].includes(jogo.status)) {
+      await conexao.rollback();
+      return res.status(409).json({ erro: 'Jogo encerrado: o número da camisa não muda por aqui.' });
+    }
+
+    // Todas as inscrições da equipe, travadas: a conferência de repetição vale para o conjunto
+    const [inscricoes] = await conexao.query(
+      `SELECT i.id, i.numero_camisa, a.nome
+         FROM inscricoes_atletas i
+         INNER JOIN atletas a ON a.id = i.atleta_id
+        WHERE i.equipe_id = ?
+        FOR UPDATE`,
+      [equipe_id]
+    );
+    const porId = new Map(inscricoes.map((i) => [i.id, i]));
+
+    for (const inscricaoId of pedidos.keys()) {
+      if (!porId.has(inscricaoId)) {
+        await conexao.rollback();
+        return res.status(400).json({ erro: 'Há inscrição que não é desta equipe.' });
+      }
+    }
+
+    // Como ficaria a equipe inteira: quem não veio no pedido mantém o número que tem
+    const donos = new Map();
+    for (const inscricao of inscricoes) {
+      const numero = pedidos.has(inscricao.id) ? pedidos.get(inscricao.id) : inscricao.numero_camisa;
+      if (numero === null || numero === undefined) continue;
+      if (donos.has(numero)) {
+        await conexao.rollback();
+        return res.status(409).json({
+          erro: `O número ${numero} está repetido na equipe (${donos.get(numero)} e ${inscricao.nome}).`
+        });
+      }
+      donos.set(numero, inscricao.nome);
+    }
+
+    // Em duas fases: trocar dois números entre atletas passaria por um repetido no meio do caminho
+    const mudam = [...pedidos].filter(([id, numero]) => (porId.get(id).numero_camisa ?? null) !== numero);
+    for (const [id] of mudam) {
+      await conexao.query('UPDATE inscricoes_atletas SET numero_camisa = NULL WHERE id = ?', [id]);
+    }
+    for (const [id, numero] of mudam) {
+      if (numero !== null) {
+        await conexao.query('UPDATE inscricoes_atletas SET numero_camisa = ? WHERE id = ?', [numero, id]);
+      }
+    }
+
+    await conexao.commit();
+    res.status(200).json({
+      mensagem: mudam.length ? 'Camisas salvas.' : 'Nada mudou.',
+      alteradas: mudam.length,
+      camisas: inscricoes.map((i) => ({
+        inscricao_id: i.id,
+        numero_camisa: pedidos.has(i.id) ? pedidos.get(i.id) : i.numero_camisa
+      }))
+    });
+  } catch (erro) {
+    if (conexao) await conexao.rollback().catch(() => {});
+    if (erro.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ erro: 'Esse número acabou de ser usado por outro atleta da equipe. Confira a lista.' });
+    }
+    console.error('Erro ao salvar as camisas da equipe:', erro);
+    res.status(500).json({ erro: 'Erro ao salvar as camisas.' });
+  } finally {
+    if (conexao) conexao.release();
+  }
+};
+
+module.exports = { listarEquipes, listarElegiveis, salvarCamisas };

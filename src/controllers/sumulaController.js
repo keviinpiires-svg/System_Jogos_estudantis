@@ -175,11 +175,17 @@ const buscarSumulaPorJogo = async (req, res) => {
       'SELECT nome_evento, ano, cidade, estado FROM configuracao_evento WHERE id = 1'
     );
 
+    // Camisa: enquanto o jogo não termina vale o número ATUAL da inscrição (a mesa pode ter acabado de
+    // acertá-lo pela tela de súmula); depois de encerrado vale o que ficou gravado na súmula.
+    const camisa = ['FINALIZADO', 'WO'].includes(jogo.status)
+      ? 'COALESCE(s.numero_camisa, i.numero_camisa)'
+      : 'i.numero_camisa';
+
     // LEFT JOIN: quem está inscrito aparece mesmo sem nada lançado ainda.
     // É o que permite imprimir a súmula em branco com o elenco já escrito.
     const [linhas] = await db.query(
-      `SELECT i.equipe_id, i.atleta_id,
-              COALESCE(s.numero_camisa, i.numero_camisa) AS numero_camisa,
+      `SELECT i.id AS inscricao_id, i.equipe_id, i.atleta_id,
+              ${camisa} AS numero_camisa,
               a.nome,
               COALESCE(s.presente, TRUE)        AS presente,
               COALESCE(s.capitao, FALSE)        AS capitao,
@@ -192,8 +198,7 @@ const buscarSumulaPorJogo = async (req, res) => {
          INNER JOIN atletas a ON a.id = i.atleta_id
          LEFT JOIN sumula_atletas s ON s.atleta_id = i.atleta_id AND s.jogo_id = ?
         WHERE i.equipe_id IN (?, ?)
-        ORDER BY COALESCE(s.numero_camisa, i.numero_camisa) IS NULL,
-                 COALESCE(s.numero_camisa, i.numero_camisa), a.nome`,
+        ORDER BY ${camisa} IS NULL, ${camisa}, a.nome`,
       [jogo_id, jogo.equipe_1_id, jogo.equipe_2_id]
     );
 
@@ -239,6 +244,7 @@ const buscarSumulaPorJogo = async (req, res) => {
         baleados: Number(rodape?.baleados ?? 0),
         gols: atletas.reduce((total, atleta) => total + Number(atleta.gols), 0),
         atletas: atletas.map((atleta) => ({
+          inscricao_id: atleta.inscricao_id,
           atleta_id: atleta.atleta_id,
           nome: atleta.nome,
           numero_camisa: atleta.numero_camisa,
@@ -401,10 +407,12 @@ const registrarSumula = async (req, res) => {
 
     // Quem pode entrar na súmula é quem está inscrito na equipe
     const [inscritos] = await conexao.query(
-      'SELECT equipe_id, atleta_id FROM inscricoes_atletas WHERE equipe_id IN (?, ?)',
+      'SELECT equipe_id, atleta_id, numero_camisa FROM inscricoes_atletas WHERE equipe_id IN (?, ?)',
       idsDoJogo
     );
     const inscricaoValida = new Set(inscritos.map((i) => `${i.equipe_id}:${i.atleta_id}`));
+    // O número da camisa que a súmula guarda é o da inscrição: é nela que a mesa o corrige
+    const camisaDaInscricao = new Map(inscritos.map((i) => [`${i.equipe_id}:${i.atleta_id}`, i.numero_camisa]));
 
     // O papel da modalidade manda nas validações: quantas linhas, se tem
     // cartão, quantas faltas cabem. Está em src/config/folhasSumula.js.
@@ -590,7 +598,7 @@ const registrarSumula = async (req, res) => {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             jogo_id, equipe_id, Number(atleta.atleta_id),
-            atleta.numero_camisa ? Number(atleta.numero_camisa) : null,
+            camisaDaInscricao.get(`${equipe_id}:${Number(atleta.atleta_id)}`) ?? null,
             booleano(atleta.presente), booleano(atleta.capitao),
             inteiroNaoNegativo(atleta.gols) ?? 0,
             inteiroNaoNegativo(atleta.amarelos) ?? 0,
