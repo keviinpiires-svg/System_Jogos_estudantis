@@ -12,6 +12,9 @@ router.post('/', somenteAdmin, atletaController.cadastrarAtleta);
 // nome e escola; o ADMIN recebe também sexo e nascimento (pendência 19)
 router.get('/escola/:escola_id', identificarSeLogado, atletaController.listarAtletasPorEscola);
 
+// Busca pelo nome em todas as escolas (mín. 3 letras, até 50 resultados): mesma privacidade da lista por escola
+router.get('/busca', identificarSeLogado, atletaController.buscarAtletasPorNome);
+
 // Caminho antigo, mantido enquanto o frontend não for migrado. "Equipe" aqui
 // sempre significou escola; no schema novo equipe é escola x competição.
 router.get('/equipe/:escola_id', identificarSeLogado, atletaController.listarAtletasPorEscola);

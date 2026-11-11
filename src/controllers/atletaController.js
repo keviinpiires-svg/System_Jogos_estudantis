@@ -82,6 +82,54 @@ const listarAtletasPorEscola = async (req, res) => {
   }
 };
 
+// Busca de atletas pelo NOME em todas as escolas (tela "Listar Atletas", sem escola escolhida).
+// GET /api/atletas/busca?nome=... — pública, com as mesmas regras de privacidade da lista por escola:
+// anônimo recebe só id, nome e escola; o ADMIN também sexo e nascimento. RG nunca sai daqui.
+// Pedaço do nome, sem diferenciar maiúscula nem acento (a collation do banco faz isso: na produção
+// utf8mb4_0900_ai_ci). Mínimo de 3 letras e no máximo 50 resultados; consulta parametrizada, com
+// % e _ do texto digitado tratados como letras comuns.
+const MINIMO_DA_BUSCA = 3;
+const LIMITE_DA_BUSCA = 50;
+
+const buscarAtletasPorNome = async (req, res) => {
+  const termo = String(req.query.nome ?? '').replace(/\s+/g, ' ').trim();
+
+  if (termo.length < MINIMO_DA_BUSCA) {
+    return res.status(400).json({ erro: `Digite pelo menos ${MINIMO_DA_BUSCA} letras para buscar.` });
+  }
+  if (termo.length > 80) {
+    return res.status(400).json({ erro: 'O nome buscado é grande demais.' });
+  }
+
+  try {
+    const padrao = `%${termo.replace(/[\\%_]/g, '\\$&')}%`;
+    // Pede 1 a mais que o limite só para saber se a lista foi cortada
+    const [linhas] = await db.query(
+      `SELECT a.id, a.nome, a.data_nascimento, a.sexo, a.escola_id, s.nome AS escola_nome
+         FROM atletas a
+         INNER JOIN escolas s ON s.id = a.escola_id
+        WHERE a.nome LIKE ?
+        ORDER BY a.nome ASC, a.id ASC
+        LIMIT ${LIMITE_DA_BUSCA + 1}`,
+      [padrao]
+    );
+
+    const cortada = linhas.length > LIMITE_DA_BUSCA;
+    const atletas = linhas.slice(0, LIMITE_DA_BUSCA);
+
+    res.status(200).json({
+      limite: LIMITE_DA_BUSCA,
+      mais_resultados: cortada,
+      atletas: veDadosPessoais(req)
+        ? atletas
+        : atletas.map(({ id, nome, escola_id, escola_nome }) => ({ id, nome, escola_id, escola_nome }))
+    });
+  } catch (erro) {
+    console.error('Erro ao buscar atletas pelo nome:', erro);
+    res.status(500).json({ erro: 'Erro ao buscar atletas.' });
+  }
+};
+
 // Competições em que o atleta está inscrito (tela "Listar Atletas"). Pública como a lista de atletas:
 // modalidade, categoria, gênero e escola da equipe não são dado pessoal. A marca de EXCEÇÃO (idade acima
 // do limite da categoria, revela o nascimento) só vai para o ADMIN. O RG e o nascimento não saem daqui.
@@ -257,6 +305,7 @@ module.exports = {
   listarInscricoesDoAtleta,
   cadastrarAtleta,
   listarAtletasPorEscola,
+  buscarAtletasPorNome,
   buscarAtletaPorId,
   excluirAtleta,
   atualizarAtleta
