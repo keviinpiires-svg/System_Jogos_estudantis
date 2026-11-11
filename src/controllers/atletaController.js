@@ -72,7 +72,7 @@ const listarAtletasPorEscola = async (req, res) => {
       [escola_id]
     );
 
-    // Sexo e nascimento só para o ADMIN; o público vê id, nome e escola
+    // Sexo e nascimento só para o ADMIN; a mesa (PLACAR) vê id, nome e escola
     res.status(200).json(veDadosPessoais(req)
       ? atletas
       : atletas.map(({ id, nome, escola_id }) => ({ id, nome, escola_id })));
@@ -83,8 +83,8 @@ const listarAtletasPorEscola = async (req, res) => {
 };
 
 // Busca de atletas pelo NOME em todas as escolas (tela "Listar Atletas", sem escola escolhida).
-// GET /api/atletas/busca?nome=... — pública, com as mesmas regras de privacidade da lista por escola:
-// anônimo recebe só id, nome e escola; o ADMIN também sexo e nascimento. RG nunca sai daqui.
+// GET /api/atletas/busca?nome=... — só para logados (ADMIN ou PLACAR), com as mesmas regras de privacidade da
+// lista por escola: a mesa recebe só id, nome e escola; o ADMIN também sexo e nascimento. RG nunca sai daqui.
 // Pedaço do nome, sem diferenciar maiúscula nem acento (a collation do banco faz isso: na produção
 // utf8mb4_0900_ai_ci). Mínimo de 3 letras e no máximo 50 resultados; consulta parametrizada, com
 // % e _ do texto digitado tratados como letras comuns.
@@ -130,7 +130,7 @@ const buscarAtletasPorNome = async (req, res) => {
   }
 };
 
-// Competições em que o atleta está inscrito (tela "Listar Atletas"). Pública como a lista de atletas:
+// Competições em que o atleta está inscrito (tela "Listar Atletas"). Só para logados, como a lista de atletas:
 // modalidade, categoria, gênero e escola da equipe não são dado pessoal. A marca de EXCEÇÃO (idade acima
 // do limite da categoria, revela o nascimento) só vai para o ADMIN. O RG e o nascimento não saem daqui.
 const listarInscricoesDoAtleta = async (req, res) => {

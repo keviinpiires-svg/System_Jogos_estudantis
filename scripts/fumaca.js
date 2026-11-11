@@ -33,6 +33,7 @@ const MARCA = 'FUMACA';
 const EMAIL = 'fumaca@local';
 const EMAIL_MESA = 'fumaca-mesa@local';
 const EMAIL_MESA_LOCAL = 'fumaca-mesa-local@local';
+const EMAIL_MESA_LISTA = 'fumaca-mesa-lista@local'; // lê as listas de atletas (só para logados, 11/11/2026)
 const SENHA = 'fumaca-senha-longa';
 
 // Jogos e competição que o dono do projeto usa para testar à mão. Mesmo que a
@@ -164,16 +165,16 @@ const limpar = async () => {
     `DELETE p FROM pontos_lancados p
        INNER JOIN usuarios u ON u.id = p.criado_por OR u.id = p.alterado_por
       WHERE u.email IN (?)`,
-    [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL]]
+    [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL, EMAIL_MESA_LISTA]]
   );
   // O histórico dos pontos lançados (db/17) aponta para os usuários de teste
   await db.query(
     `DELETE h FROM pontos_lancados_historico h
        INNER JOIN usuarios u ON u.id = h.usuario_id OR u.id = h.anterior_por
       WHERE u.email IN (?)`,
-    [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL]]
+    [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL, EMAIL_MESA_LISTA]]
   );
-  await db.query('DELETE FROM usuarios WHERE email IN (?)', [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL]]);
+  await db.query('DELETE FROM usuarios WHERE email IN (?)', [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL, EMAIL_MESA_LISTA]]);
   await db.query('DELETE FROM escola_apelidos WHERE apelido LIKE ?', [`${MARCA}%`]);
   await db.query(`DROP TRIGGER IF EXISTS ${GATILHO_DE_FALHA}`);
 
@@ -944,6 +945,17 @@ const testarAgenda = async () => {
 // login, nenhuma leitura traz RG, nascimento nem sexo; com login de ADMIN, as
 // telas de cadastro e inscrição continuam recebendo o que precisam.
 const PESSOAL = /"rg"|nascimento|"sexo"/i;
+
+// Conta de mesa (PLACAR) só para ler as listas de atletas; criada uma vez e apagada na limpeza pelo e-mail
+let tokenDaMesaDaLista = null;
+const mesaDaLista = async () => {
+  if (!tokenDaMesaDaLista) {
+    await db.query('INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, ?)',
+      [`Mesa lista (${MARCA})`, EMAIL_MESA_LISTA, bcrypt.hashSync(SENHA, 10), 'PLACAR']);
+    tokenDaMesaDaLista = (await exigir('POST', '/login', { email: EMAIL_MESA_LISTA, senha: SENHA }, 'login da mesa da lista')).token;
+  }
+  return tokenDaMesaDaLista;
+};
 const testarDadosPessoais = async () => {
   secao('-- dado pessoal de atleta nas rotas públicas');
 
@@ -971,13 +983,36 @@ const testarDadosPessoais = async () => {
     return { status: r.status, texto: await r.text() };
   };
 
-  // As três rotas reduzidas: sem login, só nome (e camisa/ids internos)
-  for (const caminho of [`/atletas/escola/${equipe.escola_id}`, `/atletas/equipe/${equipe.escola_id}`, `/inscricoes/equipe/${equipe.id}`]) {
+  // Elenco da equipe: segue público, reduzido (só nome, camisa e ids internos)
+  {
+    const caminho = `/inscricoes/equipe/${equipe.id}`;
     const r = await semLogin(caminho);
     conferir(
       r.status === 200 && r.texto.includes(`${MARCA} PRIVADO`) && !PESSOAL.test(r.texto) && !r.texto.includes(`${MARCA}PRIV"`),
       `GET ${caminho.replace(/\d+/, ':id')} sem login: o nome aparece, sem RG, nascimento nem sexo`,
       `${r.status} ${r.texto.slice(0, 160)}`
+    );
+  }
+
+  // As listas de atletas (por escola, alias antigo, busca por nome e competições do atleta) são só para
+  // quem está logado: sem login 401; com login de mesa, só id, nome e escola (sem RG, nascimento nem sexo)
+  const mesaDaListaToken = await mesaDaLista();
+  const listas = [
+    { caminho: `/atletas/escola/${equipe.escola_id}`, comNome: true },
+    { caminho: `/atletas/equipe/${equipe.escola_id}`, comNome: true },
+    { caminho: `/atletas/busca?nome=${encodeURIComponent(`${MARCA} PRIVADO`)}`, comNome: true },
+    { caminho: `/atletas/${atleta.id_atleta}/inscricoes`, comNome: false }
+  ];
+  for (const { caminho, comNome } of listas) {
+    const nome = caminho.replace(/\d+/, ':id').replace(/\?.*$/, '');
+    const anonimo = await semLogin(caminho);
+    conferir(anonimo.status === 401, `GET ${nome} sem login: 401 (lista de atletas só para quem está logado)`, `${anonimo.status} ${anonimo.texto.slice(0, 120)}`);
+    const daMesa = await comToken(mesaDaListaToken, 'GET', caminho);
+    const texto = JSON.stringify(daMesa.corpo);
+    conferir(
+      daMesa.status === 200 && (!comNome || texto.includes(`${MARCA} PRIVADO`)) && !PESSOAL.test(texto),
+      `GET ${nome} com login de mesa: 200, sem RG, nascimento nem sexo`,
+      `${daMesa.status} ${texto.slice(0, 160)}`
     );
   }
 
@@ -2244,11 +2279,11 @@ const testarImportacaoDeAtletas = async () => {
   'confirmar linha com exceção autorizada: 201, 1 atleta criado, 1 inscrição por exceção',
   `${confirmaExc.status} ${JSON.stringify(confirmaExc.corpo.final)} ${confirmaExc.corpo.erro || ''}`);
 
-  // A lista pública da escola não mostra RG nem nascimento dos importados
-  const publica = await comToken(null, 'GET', `/atletas/escola/${joseDias.id}`);
+  // A lista da escola (só para logados) não mostra RG nem nascimento dos importados para a mesa
+  const publica = await comToken(await mesaDaLista(), 'GET', `/atletas/escola/${joseDias.id}`);
   const importada = (publica.corpo || []).find((a) => a.nome === 'Ana Ficticia Lima');
   conferir(publica.status === 200 && importada && !('rg' in importada) && !('data_nascimento' in importada) && !('sexo' in importada),
-    'lista pública da escola: o atleta importado aparece só com id, nome e escola', JSON.stringify(importada));
+    'lista da escola (login de mesa): o atleta importado aparece só com id, nome e escola', JSON.stringify(importada));
 };
 
 // ---------------------------------------------------------------------------
