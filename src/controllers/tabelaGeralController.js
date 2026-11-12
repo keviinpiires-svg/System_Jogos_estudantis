@@ -17,8 +17,10 @@ const { REGRAS_DA_CHAVE } = require('../config/chavesMataMata');
 //
 // Duas coisas entram GRAVADAS, porque não saem de jogo nenhum: as punições
 // (ajustes_pontos_geral), os pontos que a mesa lança para xadrez, dama e
-// dominó (pontos_lancados, desde 12/10/2026), que funcionam fora do sistema,
-// e as colocações do atletismo (atletismo_colocacoes, db/37, 12/11/2026).
+// dominó (pontos_lancados, desde 12/10/2026; sem uso desde 12/11/2026, e o
+// que estiver gravado não soma), as colocações do atletismo
+// (atletismo_colocacoes, db/37) e as do tabuleiro (tabuleiro_colocacoes,
+// db/38), as duas de 12/11/2026.
 //
 // As decisões que o regulamento não fecha (posições que pontuam, mínimo de
 // equipes, empate na soma, punição) estão em src/config/regrasProvisorias.js,
@@ -249,6 +251,41 @@ const tabelaGeral = async (req, res) => {
       }
     }
 
+    // Tabuleiro por colocação (db/38, 12/11/2026): xadrez, dama e dominó,
+    // misto; o 1º, o 2º e o 3º de cada jogo + categoria valem a pontuação das
+    // coletivas e contam medalha (regrasProvisorias.tabuleiroColocacoes)
+    const [tabuleiro] = await db.query(
+      `SELECT t.escola_id, esc.nome AS escola_nome, m.nome AS jogo_nome, t.colocacao,
+              t.atleta_nome, cat.nome AS categoria_nome
+         FROM tabuleiro_colocacoes t
+         INNER JOIN escolas esc ON esc.id = t.escola_id
+         INNER JOIN modalidades m ON m.id = t.modalidade_id
+         INNER JOIN categorias cat ON cat.id = t.categoria_id
+        ORDER BY m.ordem, cat.ordem, t.colocacao`
+    );
+
+    for (const resultado of tabuleiro) {
+      const pontos = pontuacao.get(resultado.colocacao) ?? 0;
+      const linha = somar(geral, resultado.escola_id, resultado.escola_nome);
+      linha.pontos += pontos;
+      linha.origens.push({
+        tabuleiro: true,
+        modalidade_nome: resultado.jogo_nome,
+        categoria_nome: resultado.categoria_nome,
+        genero: REGRAS.tabuleiroColocacoes.genero,
+        atleta_nome: resultado.atleta_nome,
+        posicao: resultado.colocacao,
+        pontos,
+        provisoria: false
+      });
+
+      if (REGRAS.tabuleiroColocacoes.contaMedalha) {
+        if (resultado.colocacao === 1) linha.primeiros += 1;
+        if (resultado.colocacao === 2) linha.segundos += 1;
+        if (resultado.colocacao === 3) linha.terceiros += 1;
+      }
+    }
+
     // Punições da Comissão: descontam da soma geral da escola
     const [ajustes] = await db.query(
       `SELECT a.id, a.escola_id, a.pontos, a.motivo, a.criado_em,
@@ -306,6 +343,12 @@ const tabelaGeral = async (req, res) => {
           conta_medalha: REGRAS.atletismoColocacoes.contaMedalha,
           decidido_em: REGRAS.atletismoColocacoes.decididoEm,
           descricao: REGRAS.atletismoColocacoes.descricao
+        },
+        // Tabuleiro por colocação: mesma pontuação das coletivas, com medalha
+        tabuleiro: {
+          conta_medalha: REGRAS.tabuleiroColocacoes.contaMedalha,
+          decidido_em: REGRAS.tabuleiroColocacoes.decididoEm,
+          descricao: REGRAS.tabuleiroColocacoes.descricao
         },
         posicoes_provisorias: {
           posicoes: REGRA.posicoesProvisorias,

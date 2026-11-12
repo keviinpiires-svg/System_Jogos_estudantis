@@ -19,6 +19,7 @@ const TABELAS_EM_ORDEM = [
   'pontos_lancados_historico',
   'pontos_lancados',
   'atletismo_colocacoes',
+  'tabuleiro_colocacoes',
   'resultados_atletismo',
   'jogos'
 ];

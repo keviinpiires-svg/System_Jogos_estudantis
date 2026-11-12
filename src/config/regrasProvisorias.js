@@ -251,6 +251,13 @@ const REGRAS = {
     // gravado dela em pontos_lancados (para não contar duas vezes).
     substituidas: {
       atletismo: 'O atletismo passou a ser lançado por colocação (1º, 2º e 3º), na página Atletismo. '
+        + 'Os pontos por escola não são mais aceitos.',
+      // 12/11/2026 (db/38): o tabuleiro também passou a ser por colocação
+      xadrez: 'O xadrez passou a ser lançado por colocação (1º, 2º e 3º), na página Tabuleiro. '
+        + 'Os pontos por escola não são mais aceitos.',
+      dama: 'A dama passou a ser lançada por colocação (1º, 2º e 3º), na página Tabuleiro. '
+        + 'Os pontos por escola não são mais aceitos.',
+      domino: 'O dominó passou a ser lançado por colocação (1º, 2º e 3º), na página Tabuleiro. '
         + 'Os pontos por escola não são mais aceitos.'
     },
 
@@ -353,6 +360,46 @@ const REGRAS = {
       'Atletismo: o 1º, o 2º e o 3º de cada prova, categoria e gênero valem a mesma pontuação '
       + 'das modalidades coletivas (10, 8 e 6) e contam como 1º, 2º e 3º lugares.',
     aplicadoEm: 'atletismoColocacoesController e tabelaGeralController'
+  },
+
+  // --------------------------------------------------------------------
+  // 9. Tabuleiro por colocação: xadrez, dama e dominó (12/11/2026, db/38)
+  // --------------------------------------------------------------------
+  // Como o atletismo: o ADMIN lança o 1º, o 2º e o 3º de cada JOGO +
+  // categoria, na página /tabuleiro (pública para leitura). Regulamento: o
+  // tabuleiro é MISTO (não separa masculino e feminino) e todos os jogos são
+  // individuais, inclusive o dominó (um atleta por colocação). Na Tabela
+  // Geral, cada colocação vale a MESMA pontuação das coletivas (10, 8 e 6) e
+  // conta como 1º, 2º ou 3º lugar. Substitui os pontos por escola do
+  // xadrez, da dama e do dominó (pontosLancados, acima).
+  tabuleiroColocacoes: {
+    provisorio: false,
+    decididoEm: '12/11/2026',
+
+    // Os jogos (modalidades.slug, do db/11), nesta ordem
+    jogos: ['xadrez', 'dama', 'domino'],
+
+    // As categorias que o tabuleiro já usava (categorias.nome)
+    categorias: ['Sub 8', 'Sub 9', 'Sub 11', 'Sub 13', 'Sub 15', 'Sub 17', 'Aberto'],
+
+    // Sem gênero: é sempre misto (a tabela não tem a coluna)
+    genero: 'MISTO',
+
+    // Só o pódio é lançado
+    colocacoes: [1, 2, 3],
+
+    // Sem empate (uma escola por colocação) e uma escola só uma vez em cada
+    // jogo + categoria: o banco também garante (índices únicos do db/38)
+    umaEscolaPorColocacao: true,
+    umaColocacaoPorEscola: true,
+
+    // Na Tabela Geral: pontos de pontuacao_geral e medalha
+    contaMedalha: true,
+
+    descricao:
+      'Tabuleiro (xadrez, dama e dominó, misto): o 1º, o 2º e o 3º de cada jogo e categoria valem '
+      + 'a mesma pontuação das modalidades coletivas (10, 8 e 6) e contam como 1º, 2º e 3º lugares.',
+    aplicadoEm: 'tabuleiroColocacoesController e tabelaGeralController'
   },
 
   // --------------------------------------------------------------------
