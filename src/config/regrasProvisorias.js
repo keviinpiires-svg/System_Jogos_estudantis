@@ -242,8 +242,17 @@ const REGRAS = {
     decididoEm: '12/10/2026',
 
     // Abas da tela, nesta ordem (modalidades.slug; Xadrez, Dama e Dominó
-    // vêm do db/11)
-    modalidades: ['atletismo', 'xadrez', 'dama', 'domino'],
+    // vêm do db/11). 12/11/2026: o atletismo SAIU daqui — passou a ser
+    // lançado por colocação (atletismoColocacoes, abaixo; db/37).
+    modalidades: ['xadrez', 'dama', 'domino'],
+
+    // Modalidade que já foi lançada por pontos e não é mais: a rota antiga
+    // recusa com esta mensagem, e a Tabela Geral não soma o que estiver
+    // gravado dela em pontos_lancados (para não contar duas vezes).
+    substituidas: {
+      atletismo: 'O atletismo passou a ser lançado por colocação (1º, 2º e 3º), na página Atletismo. '
+        + 'Os pontos por escola não são mais aceitos.'
+    },
 
     // As mesmas categorias e gêneros nas quatro modalidades (categorias.nome).
     // A mesa usa as que existirem.
@@ -293,12 +302,57 @@ const REGRAS = {
     contaNoDesempate: false,
 
     descricao:
-      'Atletismo, xadrez, dama e dominó: a mesa digita os pontos de cada escola por categoria '
+      'Xadrez, dama e dominó: a mesa digita os pontos de cada escola por categoria '
       + 'e gênero, conforme a folha do juiz. Os pontos somam na tabela geral, mas não entram no '
-      + 'desempate por 1º, 2º e 3º lugares. No atletismo cada prova é um lançamento próprio (Sub 8 e '
-      + 'Sub 9: 50 m; Sub 11 a Sub 17: salto e 100 m), e as provas somam sozinhas. Pontos esperados '
-      + 'por escola: 10 em cada prova do atletismo e 10 no xadrez, na dama e no dominó.',
+      + 'desempate por 1º, 2º e 3º lugares. Pontos esperados por escola: 10. '
+      + '(O atletismo saiu daqui em 12/11/2026: é lançado por colocação.)',
     aplicadoEm: 'pontosLancadosController e tabelaGeralController'
+  },
+
+  // --------------------------------------------------------------------
+  // 8. Atletismo por colocação (12/11/2026, db/37) — pedido do usuário
+  // --------------------------------------------------------------------
+  // Chega a folha do juiz ("1º, atleta X, escola Y; 2º...") e o ADMIN lança
+  // o 1º, o 2º e o 3º de cada prova + categoria + gênero, na página
+  // /atletismo (pública para leitura). Na Tabela Geral, cada colocação vale
+  // a MESMA pontuação das coletivas (tabela pontuacao_geral: 10, 8 e 6) e
+  // conta como 1º, 2º ou 3º lugar (medalha e desempate). Substitui os
+  // pontos por escola do atletismo (pontosLancados, acima).
+  atletismoColocacoes: {
+    provisorio: false,
+    decididoEm: '12/11/2026',
+
+    // Só o pódio é lançado
+    colocacoes: [1, 2, 3],
+
+    // Categorias do formulário (categorias.nome) e gêneros (sem MISTO)
+    categorias: ['Sub 7', 'Sub 8', 'Sub 9', 'Sub 11', 'Sub 13', 'Sub 15', 'Sub 17', 'Aberto'],
+    generos: ['MASCULINO', 'FEMININO'],
+
+    // Provas SUGERIDAS por categoria (as do regulamento, nomes de
+    // provas_atletismo). A prova é texto: o ADMIN pode digitar outra.
+    sugestoes: {
+      'Sub 8': ['Corrida 50 metros'],
+      'Sub 9': ['Corrida 50 metros'],
+      'Sub 11': ['Salto em distância', 'Corrida 100 metros'],
+      'Sub 13': ['Salto em distância', 'Corrida 100 metros'],
+      'Sub 15': ['Salto em distância', 'Corrida 100 metros'],
+      'Sub 17': ['Salto em distância', 'Corrida 100 metros']
+    },
+
+    // Sem empate (uma escola por colocação) e 1 atleta por escola em cada
+    // prova + categoria + gênero (regulamento): o banco também garante
+    // (índices únicos do db/37).
+    umaEscolaPorColocacao: true,
+    umaColocacaoPorEscola: true,
+
+    // Na Tabela Geral: pontos de pontuacao_geral e medalha
+    contaMedalha: true,
+
+    descricao:
+      'Atletismo: o 1º, o 2º e o 3º de cada prova, categoria e gênero valem a mesma pontuação '
+      + 'das modalidades coletivas (10, 8 e 6) e contam como 1º, 2º e 3º lugares.',
+    aplicadoEm: 'atletismoColocacoesController e tabelaGeralController'
   },
 
   // --------------------------------------------------------------------

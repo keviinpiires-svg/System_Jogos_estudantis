@@ -78,6 +78,7 @@ const suspensaoRoutes = require('./src/routes/suspensaoRoutes');
 const tabelaGeralRoutes = require('./src/routes/tabelaGeralRoutes');
 const ajusteRoutes = require('./src/routes/ajusteRoutes');
 const pontosLancadosRoutes = require('./src/routes/pontosLancadosRoutes');
+const atletismoColocacoesRoutes = require('./src/routes/atletismoColocacoesRoutes');
 const saudeRoutes = require('./src/routes/saudeRoutes');
 const agendaRoutes = require('./src/routes/agendaRoutes');
 
@@ -103,6 +104,7 @@ app.use('/api/suspensoes', suspensaoRoutes);
 app.use('/api/tabela-geral', tabelaGeralRoutes);
 app.use('/api/ajustes-pontos', ajusteRoutes);
 app.use('/api/pontos-lancados', pontosLancadosRoutes);
+app.use('/api/atletismo-colocacoes', atletismoColocacoesRoutes);
 app.use('/api/modalidades', modalidadeRoutes);
 app.use('/api/competicoes', competicaoRoutes);
 app.use('/api/equipes', equipeRoutes);

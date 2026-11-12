@@ -175,6 +175,8 @@ const listarPontosLancados = async (req, res) => {
 
 // Acha a modalidade e a combinação pedidas na configuração, ou diz o erro
 const localizarLancamento = (configuracao, slug, categoria_id, genero, prova_id = null) => {
+  // Modalidade que deixou de ser lançada por pontos (atletismo, 12/11/2026)
+  if (REGRA.substituidas?.[slug]) return { erro: REGRA.substituidas[slug] };
   const modalidade = configuracao.find((m) => m.slug === slug);
   if (!modalidade) {
     return { erro: `Modalidade inválida: use ${REGRA.modalidades.join(', ')}.` };

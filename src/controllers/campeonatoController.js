@@ -18,6 +18,7 @@ const TABELAS_EM_ORDEM = [
   'ajustes_pontos_geral',
   'pontos_lancados_historico',
   'pontos_lancados',
+  'atletismo_colocacoes',
   'resultados_atletismo',
   'jogos'
 ];
