@@ -1,0 +1,2665 @@
+// Teste de fumaça do SGE — `npm run fumaca`
+//
+// Monta uma competição inteira contra o banco de DESENVOLVIMENTO, passando
+// pelas rotas da API como a tela passa: cria atletas, inscreve, agenda os jogos
+// da fase de grupos, lança as súmulas, confere a classificação, gera o
+// mata-mata, lança a final e confere o pódio e a tabela geral. No fim apaga
+// tudo o que criou e prova que o banco voltou ao estado anterior.
+//
+// Não é teste de unidade: é o passeio que se fazia à mão a cada fatia, agora
+// num arquivo. Se ele passa, o caminho principal do sistema está de pé.
+//
+// Uso:
+//   1. suba a API:        npm run dev
+//   2. noutro terminal:   npm run fumaca
+//
+// Nunca toca em dados de quem está usando o sistema: escolhe uma competição
+// que ainda não tem jogo nenhum, cria tudo com a marca FUMACA e só apaga o que
+// tem essa marca ou o id que ele mesmo guardou.
+require('dotenv').config({ quiet: true });
+const bcrypt = require('bcryptjs');
+const db = require('../src/config/db');
+const { REGRAS, desempateDaModalidade } = require('../src/config/regrasProvisorias');
+const { folhaDaModalidade } = require('../src/config/folhasSumula');
+const { compararEntreGrupos } = require('../src/controllers/classificacaoController');
+const { posicionar } = require('../src/controllers/tabelaGeralController');
+const { colocacoesFinais } = require('../src/controllers/mataMataController');
+const { apurarSets } = require('../src/controllers/sumulaController');
+const { lerData, lerHora } = require('../src/controllers/importacaoJogosController');
+const { chaveDaSemifinal, REGRAS_DA_CHAVE } = require('../src/config/chavesMataMata');
+
+const API = process.env.FUMACA_API || 'http://localhost:3000/api';
+const MARCA = 'FUMACA';
+const EMAIL = 'fumaca@local';
+const EMAIL_MESA = 'fumaca-mesa@local';
+const EMAIL_MESA_LOCAL = 'fumaca-mesa-local@local';
+const EMAIL_MESA_LISTA = 'fumaca-mesa-lista@local'; // lê as listas de atletas (só para logados, 11/11/2026)
+const SENHA = 'fumaca-senha-longa';
+
+// Jogos e competição que o dono do projeto usa para testar à mão. Mesmo que a
+// escolha automática falhasse, eles ficam de fora.
+const COMPETICAO_PROTEGIDA = 41;
+
+// Gatilho temporário que faz o INSERT de um atleta falhar no meio da
+// importação, para provar que nada fica gravado (testarImportacaoDeAtletas)
+const GATILHO_DE_FALHA = 'fumaca_falha_importacao';
+
+const criados = { jogos: [], inscricoes: [], atletas: [], ajustes: [], usuario: null };
+
+let passou = 0;
+let falhou = 0;
+const problemas = [];
+
+const conferir = (certo, descricao, detalhe) => {
+  if (certo) {
+    passou++;
+    console.log(`  ok    ${descricao}`);
+  } else {
+    falhou++;
+    problemas.push(descricao);
+    console.log(`  FALHA ${descricao}${detalhe ? `\n          ${detalhe}` : ''}`);
+  }
+};
+
+const secao = (titulo) => console.log(`\n${titulo}`);
+
+// ---------------------------------------------------------------------------
+// Conversa com a API
+// ---------------------------------------------------------------------------
+let token = null;
+
+const chamar = async (metodo, caminho, corpo) => {
+  const resposta = await fetch(`${API}${caminho}`, {
+    method: metodo,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    ...(corpo ? { body: JSON.stringify(corpo) } : {})
+  });
+  return { status: resposta.status, corpo: await resposta.json().catch(() => ({})) };
+};
+
+const exigir = async (metodo, caminho, corpo, oQue) => {
+  const { status, corpo: resposta } = await chamar(metodo, caminho, corpo);
+  if (status >= 400) {
+    throw new Error(`${oQue} falhou (${status}): ${resposta.erro || JSON.stringify(resposta)}`);
+  }
+  return resposta;
+};
+
+// ---------------------------------------------------------------------------
+// Trava de segurança: isto não roda em produção
+// ---------------------------------------------------------------------------
+// Descobre em que banco a conexão REALMENTE vai cair, do mesmo jeito que o
+// src/config/db.js decide: a URL única tem prioridade e o DB_NAME é ignorado
+// quando ela existe. A trava antiga olhava só o DB_NAME — então um .env com a
+// DATABASE_URL da produção e um DB_NAME "..._dev" esquecido ao lado passava na
+// conferência, e o teste escrevia e apagava na produção.
+const alvoDaConexao = () => {
+  const url = process.env.DATABASE_URL || process.env.MYSQL_URL;
+
+  if (!url) {
+    return {
+      banco: process.env.DB_NAME || '',
+      host: process.env.DB_HOST || 'localhost',
+      via: 'DB_NAME'
+    };
+  }
+
+  try {
+    const { pathname, hostname } = new URL(url);
+    return {
+      banco: decodeURIComponent(pathname.replace(/^\//, '')),
+      host: hostname,
+      via: 'DATABASE_URL'
+    };
+  } catch {
+    throw new Error(
+      'DATABASE_URL está definida mas não é uma URL válida. Como não dá para saber em que '
+      + 'banco isto cairia, o teste de fumaça não roda.'
+    );
+  }
+};
+
+const conferirQueEhDesenvolvimento = () => {
+  const { banco, host, via } = alvoDaConexao();
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('O teste de fumaça não roda com NODE_ENV=production.');
+  }
+
+  if (!/dev/i.test(banco)) {
+    throw new Error(
+      'O teste de fumaça escreve e apaga no banco, então só roda num banco de desenvolvimento. '
+      + `A conexão (via ${via}) cairia no banco "${banco}" em ${host}; esperava um nome com `
+      + '"dev" (ex.: jogos_estudantis_dev).'
+    );
+  }
+
+  return banco;
+};
+
+// ---------------------------------------------------------------------------
+// Limpeza — roda no fim e também antes, para o caso de uma execução interrompida
+// ---------------------------------------------------------------------------
+const limpar = async () => {
+  if (criados.jogos.length > 0) {
+    await db.query('DELETE FROM sumula_atletas WHERE jogo_id IN (?)', [criados.jogos]);
+    await db.query('DELETE FROM sumula_equipes WHERE jogo_id IN (?)', [criados.jogos]);
+    await db.query('DELETE FROM jogo_sets WHERE jogo_id IN (?)', [criados.jogos]);
+    await db.query('DELETE FROM jogos WHERE id IN (?)', [criados.jogos]);
+    criados.jogos = [];
+  }
+
+  // Pelo RG marcado: pega também o que sobrou de uma execução anterior
+  await db.query(
+    `DELETE i FROM inscricoes_atletas i
+       INNER JOIN atletas a ON a.id = i.atleta_id
+      WHERE a.rg LIKE ?`,
+    [`${MARCA}%`]
+  );
+  await db.query('DELETE FROM atletas WHERE rg LIKE ?', [`${MARCA}%`]);
+  await db.query('DELETE FROM ajustes_pontos_geral WHERE motivo LIKE ?', [`${MARCA}%`]);
+  await db.query(
+    `DELETE p FROM pontos_lancados p
+       INNER JOIN usuarios u ON u.id = p.criado_por OR u.id = p.alterado_por
+      WHERE u.email IN (?)`,
+    [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL, EMAIL_MESA_LISTA]]
+  );
+  // As colocações do tabuleiro (db/38) lançadas pelos usuários de teste
+  await db.query(
+    `DELETE t FROM tabuleiro_colocacoes t
+       INNER JOIN usuarios u ON u.id = t.criado_por OR u.id = t.alterado_por
+      WHERE u.email IN (?)`,
+    [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL, EMAIL_MESA_LISTA]]
+  );
+  // As colocações do atletismo (db/37) lançadas pelo teste
+  await db.query('DELETE FROM atletismo_colocacoes WHERE prova LIKE ?', [`${MARCA}%`]);
+  // O histórico dos pontos lançados (db/17) aponta para os usuários de teste
+  await db.query(
+    `DELETE h FROM pontos_lancados_historico h
+       INNER JOIN usuarios u ON u.id = h.usuario_id OR u.id = h.anterior_por
+      WHERE u.email IN (?)`,
+    [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL, EMAIL_MESA_LISTA]]
+  );
+  await db.query('DELETE FROM usuarios WHERE email IN (?)', [[EMAIL, EMAIL_MESA, EMAIL_MESA_LOCAL, EMAIL_MESA_LISTA]]);
+  await db.query('DELETE FROM escola_apelidos WHERE apelido LIKE ?', [`${MARCA}%`]);
+  await db.query(`DROP TRIGGER IF EXISTS ${GATILHO_DE_FALHA}`);
+
+  criados.inscricoes = [];
+  criados.atletas = [];
+  criados.ajustes = [];
+  criados.usuario = null;
+};
+
+// ---------------------------------------------------------------------------
+// Escolha da competição: duas chaves, dois classificados, semifinal — o formato
+// que exercita o caminho mais longo (grupos -> semifinal -> final -> pódio).
+// ---------------------------------------------------------------------------
+const escolherCompeticao = async () => {
+  const [candidatas] = await db.query(
+    `SELECT c.id, c.genero, c.qtd_grupos, m.nome AS modalidade, m.tipo_placar,
+            cat.nome AS categoria, cat.idade_maxima,
+            COUNT(DISTINCT e.id) AS equipes
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+       INNER JOIN equipes e ON e.id IN (
+         SELECT id FROM equipes WHERE competicao_id = c.id AND grupo_id IS NOT NULL
+       )
+      WHERE c.id <> ?
+        AND m.tipo_placar = 'GOLS'
+        AND c.qtd_grupos = 2
+        AND c.classificados_por_grupo = 2
+        AND c.proxima_fase = 'SEMIFINAL'
+        AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
+      GROUP BY c.id
+     HAVING equipes >= 4
+      ORDER BY equipes ASC, c.id ASC
+      LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+
+  if (candidatas.length === 0) {
+    throw new Error(
+      'Nenhuma competição livre no formato esperado (2 grupos, 2 classificados, semifinal '
+      + 'e sem jogos). Apague os jogos de alguma antes de rodar o teste de fumaça.'
+    );
+  }
+
+  const competicao = candidatas[0];
+
+  const [equipes] = await db.query(
+    `SELECT e.id, e.escola_id, esc.nome AS escola_nome, g.id AS grupo_id, g.nome AS grupo_nome
+       FROM equipes e
+       INNER JOIN escolas esc ON esc.id = e.escola_id
+       INNER JOIN grupos g ON g.id = e.grupo_id
+      WHERE e.competicao_id = ?
+      ORDER BY g.nome, esc.nome`,
+    [competicao.id]
+  );
+
+  // Todas as equipes entram: quem fica de fora acaba classificado por empate em
+  // zero ponto e cai na semifinal sem elenco — foi assim que este teste quebrou
+  // da primeira vez.
+  const grupos = new Set(equipes.map((e) => e.grupo_nome));
+  if (grupos.size < 2) {
+    throw new Error('A competição escolhida não tem dois grupos com equipes.');
+  }
+
+  return { competicao, equipes };
+};
+
+// ---------------------------------------------------------------------------
+// O passeio
+// ---------------------------------------------------------------------------
+const rodar = async () => {
+  const banco = conferirQueEhDesenvolvimento();
+  console.log(`Teste de fumaça — banco ${banco}, API ${API}`);
+
+  await limpar();
+
+  secao('-- antes');
+  const [[antes]] = await db.query(
+    `SELECT (SELECT COUNT(*) FROM jogos) AS jogos,
+            (SELECT COUNT(*) FROM atletas) AS atletas,
+            (SELECT COUNT(*) FROM inscricoes_atletas) AS inscricoes,
+            (SELECT COUNT(*) FROM sumula_atletas) AS sumulas,
+            (SELECT COUNT(*) FROM ajustes_pontos_geral) AS ajustes,
+            (SELECT COUNT(*) FROM usuarios) AS usuarios`
+  );
+  const [jogosAntes] = await db.query('SELECT id FROM jogos ORDER BY id');
+  console.log(`  ${JSON.stringify(antes)}`);
+
+  const [[evento]] = await db.query('SELECT ano FROM configuracao_evento WHERE id = 1');
+
+  // Usuário de teste e login
+  await db.query(
+    'INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, ?)',
+    [`Fumaça (${MARCA})`, EMAIL, bcrypt.hashSync(SENHA, 10), 'ADMIN']
+  );
+  const login = await exigir('POST', '/login', { email: EMAIL, senha: SENHA }, 'o login');
+  token = login.token;
+  criados.usuario = login.usuario.id;
+
+  // O token dura 16 h (06/11/2026): o login da manhã vale o dia de jogos inteiro
+  const carga = JSON.parse(Buffer.from(login.token.split('.')[1], 'base64url').toString('utf8'));
+  conferir(carga.exp - carga.iat === 16 * 3600, 'o token do login dura 16 horas', `${(carga.exp - carga.iat) / 3600} h`);
+
+  const { competicao, equipes } = await escolherCompeticao();
+  console.log(
+    `\nCompetição ${competicao.id}: ${competicao.modalidade} ${competicao.categoria} `
+    + `${competicao.genero} — ${equipes.map((e) => `${e.grupo_nome}:${e.escola_nome}`).join(', ')}`
+  );
+
+  // ---- atletas e inscrições -------------------------------------------------
+  secao('-- atletas e inscrições');
+  const sexo = competicao.genero === 'FEMININO' ? 'F' : 'M';
+  // Sub N aceita quem nasceu em (ano do evento - N) ou depois; Aberto não limita
+  const anoNascimento = competicao.idade_maxima
+    ? evento.ano - competicao.idade_maxima
+    : evento.ano - 20;
+
+  let contador = 0;
+  const elenco = new Map();   // equipe_id -> [atleta_id, ...]
+
+  for (const equipe of equipes) {
+    const doTime = [];
+
+    for (let i = 1; i <= 3; i++) {
+      contador++;
+      const atleta = await exigir('POST', '/atletas', {
+        nome: `${MARCA} ${equipe.escola_nome} ${i}`,
+        rg: `${MARCA}${String(contador).padStart(5, '0')}`,
+        data_nascimento: `${anoNascimento}-03-15`,
+        sexo,
+        escola_id: equipe.escola_id
+      }, 'cadastrar atleta');
+
+      criados.atletas.push(atleta.id_atleta);
+      doTime.push(atleta.id_atleta);
+
+      const inscricao = await exigir('POST', '/inscricoes', {
+        equipe_id: equipe.id,
+        atleta_id: atleta.id_atleta,
+        numero_camisa: i
+      }, 'inscrever atleta');
+      criados.inscricoes.push(inscricao.id_inscricao);
+    }
+
+    elenco.set(equipe.id, doTime);
+  }
+  conferir(criados.atletas.length === equipes.length * 3, `${criados.atletas.length} atletas criados e inscritos`);
+
+  const inscritos = await exigir('GET', `/inscricoes/equipe/${equipes[0].id}`, null, 'listar inscritos');
+  conferir(inscritos.total_inscritos === 3, 'a equipe lista os 3 inscritos', `veio ${inscritos.total_inscritos}`);
+  // Elenco abaixo do mínimo é aviso, não bloqueio (decisão de 28/09/2026)
+  conferir(Boolean(inscritos.aviso), 'elenco abaixo do mínimo gera aviso, e não erro', inscritos.aviso);
+
+  // ---- um jogo com placar -------------------------------------------------
+  // Marca de gols por equipe; quem vence é decidido aqui, para a classificação
+  // depois ser conferida contra um resultado conhecido.
+  const lancar = async (jogo_id, equipeA, golsA, equipeB, golsB) => {
+    const linhasDe = (equipe_id, gols) => {
+      const ids = elenco.get(equipe_id);
+      return ids.map((atleta_id, indice) => ({
+        atleta_id,
+        presente: true,
+        capitao: indice === 0,
+        gols: indice === 0 ? gols : 0,
+        amarelos: 0,
+        vermelho: false,
+        faltas: 0
+      }));
+    };
+
+    return exigir('POST', '/sumulas', {
+      jogo_id,
+      finalizar: true,
+      equipes: [
+        { equipe_id: equipeA, atletas: linhasDe(equipeA, golsA), faltas_1t: 0, faltas_2t: 0 },
+        { equipe_id: equipeB, atletas: linhasDe(equipeB, golsB), faltas_1t: 0, faltas_2t: 0 }
+      ]
+    }, `lançar a súmula do jogo ${jogo_id}`);
+  };
+
+  const agendar = async (equipe_1_id, equipe_2_id, fase, quando) => {
+    const jogo = await exigir('POST', '/jogos', {
+      competicao_id: competicao.id,
+      equipe_1_id,
+      equipe_2_id,
+      fase,
+      data_hora: quando
+    }, 'agendar jogo');
+    criados.jogos.push(jogo.id_jogo);
+    return jogo.id_jogo;
+  };
+
+  // ---- fase de grupos ------------------------------------------------------
+  secao('-- fase de grupos');
+  const grupos = [...new Set(equipes.map((e) => e.grupo_nome))].sort();
+  const primeiroDoGrupo = new Map();
+
+  // Todos contra todos dentro do grupo, e quem vem antes na lista sempre vence:
+  // a classificação fica previsível e dá para conferi-la contra um resultado
+  // conhecido, em vez de contra ela mesma.
+  for (const nome of grupos) {
+    const doGrupo = equipes.filter((e) => e.grupo_nome === nome);
+
+    for (let i = 0; i < doGrupo.length; i++) {
+      for (let j = i + 1; j < doGrupo.length; j++) {
+        const jogo = await agendar(doGrupo[i].id, doGrupo[j].id, 'GRUPOS', '2026-11-18T09:00');
+        await lancar(jogo, doGrupo[i].id, 3, doGrupo[j].id, 1);
+      }
+    }
+
+    primeiroDoGrupo.set(nome, doGrupo[0]);
+  }
+  conferir(criados.jogos.length >= grupos.length, `${criados.jogos.length} jogos de grupo lançados pela súmula`);
+
+  const classificacao = await exigir('GET', `/classificacao/competicao/${competicao.id}`, null, 'a classificação');
+  const grupoA = classificacao.grupos.find((g) => g.nome === grupos[0]);
+  const vitoriasDoLider = equipes.filter((e) => e.grupo_nome === grupos[0]).length - 1;
+
+  conferir(
+    grupoA.equipes[0].escola_nome === primeiroDoGrupo.get(grupos[0]).escola_nome,
+    'quem venceu tudo lidera o grupo na classificação',
+    `líder calculado: ${grupoA.equipes[0].escola_nome}`
+  );
+  conferir(
+    grupoA.equipes[0].pontos === vitoriasDoLider * 3,
+    `${vitoriasDoLider} ${vitoriasDoLider === 1 ? 'vitória vale' : 'vitórias valem'} ${vitoriasDoLider * 3} pontos`,
+    `pontos: ${grupoA.equipes[0].pontos}`
+  );
+  conferir(
+    grupoA.equipes[0].saldo === vitoriasDoLider * 2,
+    'o saldo de gols sai da súmula',
+    `saldo: ${grupoA.equipes[0].saldo}`
+  );
+
+  const suspensoes = await exigir('GET', `/suspensoes/competicao/${competicao.id}`, null, 'as suspensões');
+  conferir(Array.isArray(suspensoes.atletas), 'a tela de cartões responde');
+
+  // ---- mata-mata -----------------------------------------------------------
+  secao('-- mata-mata');
+  const semifinais = await exigir(
+    'POST', `/matamata/competicao/${competicao.id}/gerar`, { fase: 'SEMIFINAL' }, 'gerar a semifinal'
+  );
+  const idsSemi = (semifinais.jogos || []).map((j) => j.id ?? j.jogo_id).filter(Boolean);
+  criados.jogos.push(...idsSemi);
+  conferir(idsSemi.length === 2, 'a semifinal nasceu com 2 jogos', `nasceram: ${idsSemi.length}`);
+
+  const chaveAntes = await exigir('GET', `/matamata/competicao/${competicao.id}`, null, 'a chave');
+  const jogosSemi = chaveAntes.chave.semifinal.jogos;
+  conferir(chaveAntes.chave.semifinal.gerada === true, 'a chave mostra a semifinal como gerada');
+  conferir(
+    jogosSemi.every((j) => 'local_id' in j && 'local_nome' in j),
+    'os jogos da chave trazem o local (a definir enquanto não marcado)'
+  );
+
+  const vencedores = [];
+  for (const jogo of jogosSemi) {
+    await lancar(jogo.id, jogo.equipe_1_id, 2, jogo.equipe_2_id, 0);
+    vencedores.push(jogo.equipe_1_id);
+  }
+  conferir(vencedores.length === 2, 'as duas semifinais foram lançadas');
+
+  const final = await exigir(
+    'POST', `/matamata/competicao/${competicao.id}/gerar`, { fase: 'FINAL' }, 'gerar a final'
+  );
+  const idFinal = (final.jogos || [])[0]?.id ?? (final.jogos || [])[0]?.jogo_id;
+  criados.jogos.push(idFinal);
+  conferir(Boolean(idFinal), 'a final nasceu');
+
+  const chaveComFinal = await exigir('GET', `/matamata/competicao/${competicao.id}`, null, 'a chave com final');
+  const jogoFinal = chaveComFinal.chave.final.jogos[0];
+  await lancar(jogoFinal.id, jogoFinal.equipe_1_id, 4, jogoFinal.equipe_2_id, 2);
+
+  const chaveFinal = await exigir('GET', `/matamata/competicao/${competicao.id}`, null, 'o pódio');
+  const podio = chaveFinal.colocacoes || [];
+  conferir(podio.length >= 3, 'o pódio saiu com pelo menos 3 colocações', `saíram ${podio.length}`);
+  conferir(
+    podio[0]?.equipe_id === jogoFinal.equipe_1_id,
+    'campeão é quem venceu a final',
+    `campeão calculado: ${podio[0]?.escola_nome}`
+  );
+  conferir(
+    podio[1]?.equipe_id === jogoFinal.equipe_2_id,
+    'vice é quem perdeu a final'
+  );
+  conferir(
+    podio[2] && podio[2].como,
+    'o 3º vem com a explicação de como foi decidido',
+    podio[2]?.como
+  );
+
+  // 4º provisório: quem perdeu a semifinal para o vice (não há jogo de 3º)
+  const semiDoVice = jogosSemi.find((j) => j.equipe_1_id === jogoFinal.equipe_2_id);
+  const quarto = podio.find((c) => c.posicao === 4);
+  conferir(
+    quarto?.equipe_id === semiDoVice?.equipe_2_id && quarto?.provisoria === false,
+    '4º é quem perdeu a semifinal para o vice, sem marca de provisório (confirmado em 07/10)',
+    JSON.stringify(quarto)
+  );
+  // 5º provisório: com mais de 4 equipes na competição, a melhor campanha
+  // entre quem não chegou à semifinal
+  const naSemifinal = new Set(jogosSemi.flatMap((j) => [j.equipe_1_id, j.equipe_2_id]));
+  const quintos = podio.filter((c) => c.posicao === 5);
+  if (equipes.length > 4) {
+    conferir(
+      quintos.length > 0
+        && quintos.every((q) => !naSemifinal.has(q.equipe_id) && q.provisoria === false),
+      `com ${equipes.length} equipes, o 5º é de quem não chegou à semifinal, sem marca de provisório`,
+      JSON.stringify(quintos)
+    );
+  } else {
+    conferir(quintos.length === 0, `com ${equipes.length} equipes não há 5º`, JSON.stringify(quintos));
+  }
+
+  // O passeio faz todo mundo perder pelo mesmo placar, então com grupos do
+  // mesmo tamanho os últimos de cada grupo empatam em tudo: dividem o 5º.
+  // É exatamente o texto que o card do mata-mata mostra na linha de cada uma.
+  const tamanhos = new Set(grupos.map((g) => equipes.filter((e) => e.grupo_nome === g).length));
+  if (equipes.length > 4 && tamanhos.size === 1 && [...tamanhos][0] === 3) {
+    conferir(
+      quintos.length === 2,
+      'grupos iguais de 3: os dois últimos empatam em tudo e os dois aparecem como 5º',
+      JSON.stringify(quintos)
+    );
+  }
+  if (quintos.length > 1) {
+    const texto = REGRAS_DA_CHAVE.quartoEQuinto.textoDoEmpate;
+    console.log(`  (na tela: ${quintos.map((q) => `"5º ${q.escola_nome} — ${q.como}"`).join(' e ')})`);
+    conferir(
+      quintos.every((q) => q.dividida === true && q.como.startsWith(texto)),
+      `empate em tudo: ${quintos.length} equipes dividem o 5º, com "${texto}"`,
+      JSON.stringify(quintos)
+    );
+  }
+
+  // ---- tabela geral --------------------------------------------------------
+  secao('-- tabela geral');
+  const tabela = await exigir('GET', '/tabela-geral', null, 'a tabela geral');
+  const campeao = podio[0];
+  const naGeral = tabela.geral.find((e) => e.escola_nome === campeao.escola_nome);
+  conferir(Boolean(naGeral), 'a escola campeã entrou na soma geral');
+  conferir(naGeral?.primeiros >= 1, 'com um primeiro lugar contado');
+
+  const escolaDoQuarto = podio.find((c) => c.posicao === 4)?.escola_nome;
+  const origemDoQuarto = tabela.geral
+    .find((e) => e.escola_nome === escolaDoQuarto)?.origens
+    .find((o) => o.competicao_id === competicao.id && o.posicao === 4);
+  conferir(
+    origemDoQuarto?.pontos === 4 && origemDoQuarto?.provisoria === false,
+    'o 4º soma 4 pontos na tabela geral, sem marca de provisório',
+    JSON.stringify(origemDoQuarto)
+  );
+  // Cada escola que divide o 5º soma os 2 pontos inteiros
+  for (const quinto of podio.filter((c) => c.posicao === 5)) {
+    const origemDoQuinto = tabela.geral
+      .find((e) => e.escola_nome === quinto.escola_nome)?.origens
+      .find((o) => o.competicao_id === competicao.id && o.posicao === 5);
+    conferir(
+      origemDoQuinto?.pontos === 2 && origemDoQuinto?.provisoria === false,
+      `5º (${quinto.escola_nome}) soma 2 pontos na tabela geral, sem marca de provisório`,
+      JSON.stringify(origemDoQuinto)
+    );
+  }
+  conferir(
+    (tabela.regras.posicoes_provisorias?.posicoes || []).length === 0,
+    'a tabela geral não avisa mais 4º e 5º provisórios'
+  );
+
+  // colocacoes traz a equipe; a escola vem da lista que o teste já montou
+  const escolaDoCampeao = equipes.find((e) => e.id === campeao.equipe_id)?.escola_id;
+
+  const comPontos = naGeral?.pontos ?? 0;
+  const punicao = await exigir('POST', '/ajustes-pontos', {
+    escola_id: escolaDoCampeao,
+    pontos: -5,
+    motivo: `${MARCA} punição do teste de fumaça`
+  }, 'aplicar a punição');
+  criados.ajustes.push(punicao.id_ajuste ?? punicao.id);
+
+  const tabelaPunida = await exigir('GET', '/tabela-geral', null, 'a tabela com punição');
+  const depoisDaPunicao = tabelaPunida.geral.find((e) => e.escola_nome === campeao.escola_nome);
+  conferir(
+    depoisDaPunicao.pontos === comPontos - 5,
+    'a punição desconta da soma geral',
+    `${comPontos} - 5 deveria dar ${comPontos - 5}, deu ${depoisDaPunicao.pontos}`
+  );
+
+  // ---- desfazer ------------------------------------------------------------
+  secao('-- desfazer');
+  conferir(
+    (await chamar('DELETE', `/matamata/competicao/${competicao.id}/FINAL`)).status >= 400,
+    'não desfaz uma fase já finalizada'
+  );
+
+  await exigir('DELETE', `/ajustes-pontos/${criados.ajustes[0]}`, null, 'remover a punição');
+  criados.ajustes = [];
+  const semPunicao = await exigir('GET', '/tabela-geral', null, 'a tabela sem punição');
+  conferir(
+    semPunicao.geral.find((e) => e.escola_nome === campeao.escola_nome).pontos === comPontos,
+    'desfeita a punição, a soma volta ao que era'
+  );
+
+  await testarConflitoDeLocal(competicao, equipes, grupos);
+
+  testarRegrasDoChefe();
+  testarSemifinalDeTresGrupos();
+  testarSetsDoVolei();
+  await testarTerceiroSemSemifinal();
+  testarQuintoLugar();
+  testarDesempatePorModalidade();
+  testarFolhasOficiais();
+  await testarEmpateDoBaleado();
+  await testarMelhorDeDoisJogos('futsal');
+  await testarMelhorDeDoisJogos('baleado');
+  await testarJogoUnico();
+  await testarAgenda();
+  await testarDadosPessoais();
+  await testarImportacaoDeJogos();
+  await testarNumeroTabela();
+  await testarPontosLancadosRecusados();
+  await testarAtletismoPorColocacao();
+  await testarTabuleiroPorColocacao();
+  await testarImportacaoDeAtletas();
+  await testarTravaDeMesaPorLocal();
+  await testarReiniciarCampeonato();
+};
+
+// ---------------------------------------------------------------------------
+// Empate no baleado (chefe, 07/10/2026) — pela API, numa competição livre
+// ---------------------------------------------------------------------------
+// Fase de grupos: empate vale. Semifinal (chefe, 12/10/2026) e final (07/10):
+// acréscimo de 4 minutos, vence quem balear primeiro
+// (jogos.baleou_primeiro_equipe_id). O ida e volta com a soma empatada fica em
+// testarMelhorDeDoisJogos (20/10/2026).
+const testarEmpateDoBaleado = async () => {
+  secao('-- empate no baleado');
+
+  const [[comp]] = await db.query(
+    `SELECT c.id, c.genero, cat.idade_maxima, e1.id AS e1, e2.id AS e2,
+            e1.escola_id AS esc1, e2.escola_id AS esc2
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+       INNER JOIN equipes e1 ON e1.competicao_id = c.id
+       INNER JOIN equipes e2 ON e2.competicao_id = c.id AND e2.grupo_id = e1.grupo_id AND e2.id > e1.id
+      WHERE m.slug = 'baleado' AND c.turno = 'UNICO' AND c.id <> ?
+        AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
+      ORDER BY c.id LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) throw new Error('Não achei uma competição de baleado livre para o teste de empate.');
+
+  const [[{ ano }]] = await db.query('SELECT ano FROM configuracao_evento WHERE id = 1');
+  const nascimento = `${comp.idade_maxima ? ano - comp.idade_maxima : ano - 20}-03-15`;
+  const sexo = comp.genero === 'FEMININO' ? 'F' : 'M';
+
+  const atletaDe = async (equipe_id, escola_id, n) => {
+    const atleta = await exigir('POST', '/atletas', {
+      nome: `${MARCA} BALEADO ${n}`, rg: `${MARCA}BAL${n}`, data_nascimento: nascimento, sexo, escola_id
+    }, 'cadastrar atleta do baleado');
+    criados.atletas.push(atleta.id_atleta);
+    await exigir('POST', '/inscricoes', { equipe_id, atleta_id: atleta.id_atleta, numero_camisa: 1 }, 'inscrever no baleado');
+    return atleta.id_atleta;
+  };
+  const a1 = await atletaDe(comp.e1, comp.esc1, 1);
+  const a2 = await atletaDe(comp.e2, comp.esc2, 2);
+
+  const jogoNa = async (fase) => {
+    const jogo = await exigir('POST', '/jogos', {
+      competicao_id: comp.id, equipe_1_id: comp.e1, equipe_2_id: comp.e2, fase
+    }, `agendar ${fase} do baleado`);
+    criados.jogos.push(jogo.id_jogo);
+    return jogo.id_jogo;
+  };
+  const linha = (atleta_id) => ({ atleta_id, presente: true, capitao: true, gols: 0, amarelos: 0, vermelho: false, faltas: 0 });
+  // 3 baleadas de cada lado: empate
+  const sumula = (jogo_id, extra = {}) => chamar('POST', '/sumulas', {
+    jogo_id, finalizar: true, ...extra,
+    equipes: [
+      { equipe_id: comp.e1, baleados: 3, atletas: [linha(a1)] },
+      { equipe_id: comp.e2, baleados: 3, atletas: [linha(a2)] }
+    ]
+  });
+
+  const grupos = await jogoNa('GRUPOS');
+  const rGrupos = await sumula(grupos);
+  const [[jGrupos]] = await db.query('SELECT status, vencedor_equipe_id FROM jogos WHERE id = ?', [grupos]);
+  conferir(
+    rGrupos.status === 201 && jGrupos.status === 'FINALIZADO' && jGrupos.vencedor_equipe_id === null,
+    'fase de grupos: empate finaliza, sem vencedor (1 ponto a cada)',
+    `${rGrupos.status} ${rGrupos.corpo.erro || ''} ${JSON.stringify(jGrupos)}`
+  );
+
+  const semi = await jogoNa('SEMIFINAL');
+  const rSemiSemInformar = await sumula(semi);
+  conferir(
+    rSemiSemInformar.status === 400,
+    'semifinal empatada sem dizer quem baleou primeiro: recusada (não é mais 409)',
+    `${rSemiSemInformar.status} ${rSemiSemInformar.corpo.erro || ''}`
+  );
+  const rSemi = await sumula(semi, { baleou_primeiro_equipe_id: comp.e1 });
+  const [[jSemi]] = await db.query(
+    'SELECT status, vencedor_equipe_id, baleou_primeiro_equipe_id, placar_1, placar_2 FROM jogos WHERE id = ?', [semi]
+  );
+  conferir(
+    rSemi.status === 201 && jSemi.status === 'FINALIZADO' && jSemi.vencedor_equipe_id === comp.e1
+      && jSemi.baleou_primeiro_equipe_id === comp.e1 && jSemi.placar_1 === jSemi.placar_2,
+    'semifinal empatada: vence quem baleou primeiro no acréscimo, e o placar fica empatado',
+    `${rSemi.status} ${rSemi.corpo.erro || ''} ${JSON.stringify(jSemi)}`
+  );
+
+  const final = await jogoNa('FINAL');
+  const rSemInformar = await sumula(final);
+  conferir(
+    rSemInformar.status === 400,
+    'final empatada sem dizer quem baleou primeiro: recusada',
+    `${rSemInformar.status} ${rSemInformar.corpo.erro || ''}`
+  );
+  const rFinal = await sumula(final, { baleou_primeiro_equipe_id: comp.e2 });
+  const [[jFinal]] = await db.query(
+    'SELECT status, vencedor_equipe_id, baleou_primeiro_equipe_id, placar_1, placar_2 FROM jogos WHERE id = ?', [final]
+  );
+  conferir(
+    rFinal.status === 201 && jFinal.status === 'FINALIZADO' && jFinal.vencedor_equipe_id === comp.e2
+      && jFinal.baleou_primeiro_equipe_id === comp.e2 && jFinal.placar_1 === jFinal.placar_2,
+    'final empatada: vence quem baleou primeiro no acréscimo, e o placar fica empatado',
+    `${rFinal.status} ${rFinal.corpo.erro || ''} ${JSON.stringify(jFinal)}`
+  );
+};
+
+// "Melhor de dois jogos" (ida e volta de duas equipes, sem mata-mata) — pela
+// API, no futsal e no baleado (20/10/2026). O campeão é quem soma mais nos
+// dois jogos, pela soma direta dos placares, sem passar pela classificação.
+// Empatada a soma, o 2º jogo exige o desempate: pênaltis no futsal; no
+// baleado, o acréscimo de 4 minutos, e quem baleou primeiro é a campeã.
+const testarMelhorDeDoisJogos = async (slug) => {
+  secao(`-- melhor de dois jogos: ${slug}`);
+
+  const [[comp]] = await db.query(
+    `SELECT c.id, c.genero, cat.idade_maxima, e1.id AS e1, e2.id AS e2,
+            e1.escola_id AS esc1, e2.escola_id AS esc2
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+       INNER JOIN equipes e1 ON e1.competicao_id = c.id
+       INNER JOIN equipes e2 ON e2.competicao_id = c.id AND e2.id > e1.id
+      WHERE m.slug = ? AND c.turno = 'IDA_E_VOLTA' AND c.proxima_fase = 'NENHUMA' AND c.id <> ?
+        AND (SELECT COUNT(*) FROM equipes e WHERE e.competicao_id = c.id) = 2
+        AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
+      ORDER BY c.id LIMIT 1`,
+    [slug, COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) throw new Error(`Não achei uma competição de ${slug} em ida e volta livre para o teste.`);
+  const baleado = slug === 'baleado';
+
+  const [[{ ano }]] = await db.query('SELECT ano FROM configuracao_evento WHERE id = 1');
+  const nascimento = `${comp.idade_maxima ? ano - comp.idade_maxima : ano - 20}-03-15`;
+  const sexo = comp.genero === 'FEMININO' ? 'F' : 'M';
+
+  const atletaDe = async (equipe_id, escola_id, n) => {
+    const atleta = await exigir('POST', '/atletas', {
+      nome: `${MARCA} IV ${slug.toUpperCase()} ${n}`, rg: `${MARCA}IV${slug.slice(0, 3)}${n}`,
+      data_nascimento: nascimento, sexo, escola_id
+    }, 'cadastrar atleta do ida e volta');
+    criados.atletas.push(atleta.id_atleta);
+    await exigir('POST', '/inscricoes', { equipe_id, atleta_id: atleta.id_atleta, numero_camisa: 1 }, 'inscrever no ida e volta');
+    return atleta.id_atleta;
+  };
+  const a1 = await atletaDe(comp.e1, comp.esc1, 1);
+  const a2 = await atletaDe(comp.e2, comp.esc2, 2);
+
+  const jogoEntre = async (um, dois) => {
+    const jogo = await exigir('POST', '/jogos', {
+      competicao_id: comp.id, equipe_1_id: um, equipe_2_id: dois, fase: 'GRUPOS'
+    }, 'agendar jogo do ida e volta');
+    criados.jogos.push(jogo.id_jogo);
+    return jogo.id_jogo;
+  };
+  const apagarJogos = async (ids) => {
+    await db.query('DELETE FROM sumula_atletas WHERE jogo_id IN (?)', [ids]);
+    await db.query('DELETE FROM sumula_equipes WHERE jogo_id IN (?)', [ids]);
+    await db.query('DELETE FROM jogos WHERE id IN (?)', [ids]);
+    criados.jogos = criados.jogos.filter((id) => !ids.includes(id));
+  };
+  // Placar de cada equipe: gols no futsal; no baleado, o próprio contador de
+  // adversárias eliminadas (chefe, 12/10/2026). `de1`/`de2` são de comp.e1/e2.
+  const linha = (atleta_id, gols) => ({
+    atleta_id, presente: true, capitao: true, gols: baleado ? 0 : gols, amarelos: 0, vermelho: false, faltas: 0
+  });
+  const sumula = (jogo_id, de1, de2, extra = {}) => chamar('POST', '/sumulas', {
+    jogo_id, finalizar: true, ...extra,
+    equipes: [
+      { equipe_id: comp.e1, ...(baleado ? { baleados: de1 } : {}), atletas: [linha(a1, de1)] },
+      { equipe_id: comp.e2, ...(baleado ? { baleados: de2 } : {}), atletas: [linha(a2, de2)] }
+    ]
+  });
+  const podio = async () => ((await chamar('GET', `/matamata/competicao/${comp.id}`)).corpo.colocacoes || []);
+
+  // Caso 1 — a soma decide: e1 vence a ida por 5 x 4 e perde a volta por
+  // 1 x 3. Soma 6 x 7: a e2 é campeã, mesmo com uma vitória para cada (no
+  // baleado, antes de 20/10, a classificação podia pôr a e1 em 1º).
+  const ida = await jogoEntre(comp.e1, comp.e2);
+  const rIda = await sumula(ida, 5, 4);
+  const volta = await jogoEntre(comp.e2, comp.e1);
+  const rVolta = await sumula(volta, 1, 3);
+  const [campeao, vice] = await podio();
+  conferir(
+    rIda.status === 201 && rVolta.status === 201
+      && campeao?.equipe_id === comp.e2 && campeao?.como.includes('6') && vice?.equipe_id === comp.e1,
+    `${slug}: 5 x 4 e 1 x 3 (soma 6 x 7) — campeã é quem soma mais, pela soma direta`,
+    `${rIda.status}/${rVolta.status} ${rVolta.corpo.erro || ''} ${JSON.stringify([campeao, vice])}`
+  );
+  await apagarJogos([ida, volta]);
+
+  // Caso 2 — soma empatada: 5 x 4 na ida e 4 x 5 na volta (9 x 9)
+  const ida2 = await jogoEntre(comp.e1, comp.e2);
+  await sumula(ida2, 5, 4);
+  const volta2 = await jogoEntre(comp.e2, comp.e1);
+  const semDesempate = await sumula(volta2, 4, 5);
+  conferir(
+    semDesempate.status === 400,
+    `${slug}: soma empatada sem o desempate do 2º jogo é recusada (400, não 409)`,
+    `${semDesempate.status} ${semDesempate.corpo.erro || ''}`
+  );
+
+  // Na volta a equipe 1 do jogo é a e2: penaltis_2 = 3 dá a vitória à e1
+  const comDesempate = baleado
+    ? await sumula(volta2, 4, 5, { baleou_primeiro_equipe_id: comp.e1 })
+    : await sumula(volta2, 4, 5, { penaltis_1: 2, penaltis_2: 3 });
+  const esperado = comp.e1;
+  const [[jVolta2]] = await db.query(
+    'SELECT status, vencedor_equipe_id, baleou_primeiro_equipe_id, penaltis_1, penaltis_2 FROM jogos WHERE id = ?', [volta2]
+  );
+  const [campeao2] = await podio();
+  conferir(
+    comDesempate.status === 201 && jVolta2.vencedor_equipe_id === esperado && campeao2?.equipe_id === esperado
+      && (baleado ? jVolta2.baleou_primeiro_equipe_id === comp.e1 : jVolta2.penaltis_1 === 2),
+    baleado
+      ? 'baleado: soma empatada — quem baleou primeiro no acréscimo do 2º jogo é a campeã'
+      : 'futsal: soma empatada — os pênaltis do 2º jogo dão o título',
+    `${comDesempate.status} ${comDesempate.corpo.erro || ''} ${JSON.stringify(jVolta2)} ${JSON.stringify(campeao2)}`
+  );
+  await apagarJogos([ida2, volta2]);
+};
+
+// Competição de 2 escolas com um jogo só (Handebol M Sub 9, db/14, tabela do
+// chefe de 20/10/2026): funciona como final única, e os textos falam do jogo,
+// não da "soma dos dois jogos". Sem a competição no banco, o teste é pulado.
+const testarJogoUnico = async () => {
+  secao('-- 2 escolas e 1 jogo só (Handebol M Sub 9)');
+
+  const [[comp]] = await db.query(
+    `SELECT c.id FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+      WHERE m.slug = 'handebol' AND cat.nome = 'Sub 9' AND c.genero = 'MASCULINO'
+        AND c.turno = 'IDA_E_VOLTA' AND c.id <> ?
+        AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) {
+    console.log('  (pulado: sem o Handebol M Sub 9 livre — o db/14 não rodou neste banco)');
+    return;
+  }
+  const [eq] = await db.query('SELECT id, grupo_id FROM equipes WHERE competicao_id = ? ORDER BY id', [comp.id]);
+  const podio = async () => ((await chamar('GET', `/matamata/competicao/${comp.id}`)).corpo.colocacoes || []);
+
+  // Vitória: o jogo gravado já finalizado, 3 x 2
+  const [vitoria] = await db.query(
+    `INSERT INTO jogos (competicao_id, numero_jogo, fase, grupo_id, equipe_1_id, equipe_2_id,
+                        status, placar_1, placar_2, vencedor_equipe_id)
+     VALUES (?, 1, 'GRUPOS', ?, ?, ?, 'FINALIZADO', 3, 2, ?)`,
+    [comp.id, eq[0].grupo_id, eq[0].id, eq[1].id, eq[0].id]
+  );
+  criados.jogos.push(vitoria.insertId);
+  const [campeao] = await podio();
+  conferir(
+    campeao?.equipe_id === eq[0].id && campeao.como === 'venceu o jogo (3 × 2)',
+    'jogo único vencido: "venceu o jogo", sem falar em soma',
+    JSON.stringify(campeao)
+  );
+  await db.query('DELETE FROM jogos WHERE id = ?', [vitoria.insertId]);
+  criados.jogos = criados.jogos.filter((id) => id !== vitoria.insertId);
+
+  // Empate pela súmula (sem gols: 0 x 0): prorrogação e 7 metros, como numa final
+  const jogo = await exigir('POST', '/jogos', {
+    competicao_id: comp.id, equipe_1_id: eq[0].id, equipe_2_id: eq[1].id, fase: 'GRUPOS'
+  }, 'agendar o jogo único');
+  criados.jogos.push(jogo.id_jogo);
+  const sumula = (extra) => chamar('POST', '/sumulas', {
+    jogo_id: jogo.id_jogo, finalizar: true, ...extra, equipes: eq.map((e) => ({ equipe_id: e.id, atletas: [] }))
+  });
+  const semProrrogacao = await sumula({});
+  const comCobranca = await sumula({ prorrogacao: true, penaltis_1: 3, penaltis_2: 4 });
+  const [campeao2] = await podio();
+  conferir(
+    semProrrogacao.status === 400 && (semProrrogacao.corpo.erro || '').startsWith('O jogo terminou empatado')
+      && comCobranca.status === 201 && campeao2?.equipe_id === eq[1].id && campeao2.como === 'campeão nas cobranças',
+    'jogo único empatado: "O jogo terminou empatado", prorrogação e 7 metros, e "campeão nas cobranças"',
+    `${semProrrogacao.status} ${semProrrogacao.corpo.erro || ''} | ${comCobranca.status} ${comCobranca.corpo.erro || ''} | ${JSON.stringify(campeao2)}`
+  );
+};
+
+// Agenda de jogos (pública, 20/10/2026): a lista e o detalhe trazem só os
+// campos da tela; os atletas só com nome e camisa — nunca RG nem nascimento.
+const testarAgenda = async () => {
+  secao('-- agenda de jogos (pública)');
+
+  const [[comp]] = await db.query(
+    `SELECT c.id, c.genero, cat.idade_maxima, e1.id AS e1, e2.id AS e2, e1.escola_id AS esc1
+       FROM competicoes c
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN equipes e1 ON e1.competicao_id = c.id
+       INNER JOIN equipes e2 ON e2.competicao_id = c.id AND e2.grupo_id = e1.grupo_id AND e2.id > e1.id
+      WHERE m.tipo = 'COLETIVO' AND c.turno = 'UNICO' AND c.id <> ?
+        AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
+        AND NOT EXISTS (SELECT 1 FROM inscricoes_atletas i WHERE i.equipe_id IN (e1.id, e2.id))
+      ORDER BY c.id DESC LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) throw new Error('Não achei uma competição livre para o teste da agenda.');
+  const [[local]] = await db.query('SELECT id, nome FROM locais_disputa ORDER BY id LIMIT 1');
+  const [[{ ano }]] = await db.query('SELECT ano FROM configuracao_evento WHERE id = 1');
+
+  const atleta = await exigir('POST', '/atletas', {
+    nome: `${MARCA} AGENDA`, rg: `${MARCA}AGENDA`, sexo: comp.genero === 'FEMININO' ? 'F' : 'M',
+    data_nascimento: `${comp.idade_maxima ? ano - comp.idade_maxima : ano - 20}-03-15`, escola_id: comp.esc1
+  }, 'cadastrar atleta da agenda');
+  criados.atletas.push(atleta.id_atleta);
+  await exigir('POST', '/inscricoes', { equipe_id: comp.e1, atleta_id: atleta.id_atleta, numero_camisa: 10 }, 'inscrever na agenda');
+  const jogo = await exigir('POST', '/jogos', {
+    competicao_id: comp.id, equipe_1_id: comp.e1, equipe_2_id: comp.e2, fase: 'GRUPOS',
+    data_hora: '2026-11-20T05:41', local_id: local.id
+  }, 'agendar jogo da agenda');
+  criados.jogos.push(jogo.id_jogo);
+
+  // Sem token: as duas rotas são públicas
+  const lista = await fetch(`${API}/agenda`);
+  const corpoLista = await lista.text();
+  const doJogo = lista.ok ? JSON.parse(corpoLista).find((j) => j.id === jogo.id_jogo) : null;
+  conferir(
+    lista.status === 200 && doJogo?.data === '2026-11-20' && doJogo?.hora === '05:41'
+      && doJogo?.local?.nome === local.nome && doJogo?.status === 'AGENDADO' && doJogo?.placar === null,
+    'GET /agenda sem login: o jogo com dia e hora de parede, local e status, sem placar antes de encerrar',
+    `${lista.status} ${JSON.stringify(doJogo)}`
+  );
+
+  const detalhe = await fetch(`${API}/agenda/jogos/${jogo.id_jogo}`);
+  const corpoDetalhe = await detalhe.text();
+  const d = detalhe.ok ? JSON.parse(corpoDetalhe) : {};
+  conferir(
+    detalhe.status === 200 && d.equipe_1?.atletas?.length === 1
+      && JSON.stringify(d.equipe_1.atletas[0]) === JSON.stringify({ nome: `${MARCA} AGENDA`, numero_camisa: 10 })
+      && Array.isArray(d.equipe_2?.atletas) && d.equipe_2.atletas.length === 0,
+    'GET /agenda/jogos/:id sem login: atletas só com nome e camisa; equipe sem inscritos vem vazia',
+    `${detalhe.status} ${JSON.stringify(d.equipe_1)} ${JSON.stringify(d.equipe_2)}`
+  );
+  conferir(
+    ![corpoLista, corpoDetalhe].some((c) => /"rg"|nascimento|"sexo"|arbitro|observac/i.test(c))
+      && !corpoDetalhe.includes(`${MARCA}AGENDA"`),
+    'resposta pública sem RG, nascimento, sexo, árbitros nem observações'
+  );
+  const inexistente = await fetch(`${API}/agenda/jogos/999999999`);
+  conferir(inexistente.status === 404, 'detalhe de jogo inexistente -> 404', `saiu ${inexistente.status}`);
+};
+
+// Dado pessoal de atleta nas rotas públicas (pendência 19, 20/10/2026): sem
+// login, nenhuma leitura traz RG, nascimento nem sexo; com login de ADMIN, as
+// telas de cadastro e inscrição continuam recebendo o que precisam.
+const PESSOAL = /"rg"|nascimento|"sexo"/i;
+
+// Conta de mesa (PLACAR) só para ler as listas de atletas; criada uma vez e apagada na limpeza pelo e-mail
+let tokenDaMesaDaLista = null;
+const mesaDaLista = async () => {
+  if (!tokenDaMesaDaLista) {
+    await db.query('INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, ?)',
+      [`Mesa lista (${MARCA})`, EMAIL_MESA_LISTA, bcrypt.hashSync(SENHA, 10), 'PLACAR']);
+    tokenDaMesaDaLista = (await exigir('POST', '/login', { email: EMAIL_MESA_LISTA, senha: SENHA }, 'login da mesa da lista')).token;
+  }
+  return tokenDaMesaDaLista;
+};
+const testarDadosPessoais = async () => {
+  secao('-- dado pessoal de atleta nas rotas públicas');
+
+  const [[equipe]] = await db.query(
+    `SELECT e.id, e.escola_id, e.competicao_id, c.genero, cat.idade_maxima
+       FROM equipes e
+       INNER JOIN competicoes c ON c.id = e.competicao_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+      WHERE m.tipo = 'COLETIVO' AND c.id <> ?
+        AND NOT EXISTS (SELECT 1 FROM inscricoes_atletas i WHERE i.equipe_id = e.id)
+      ORDER BY e.id DESC LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  const [[{ ano }]] = await db.query('SELECT ano FROM configuracao_evento WHERE id = 1');
+  const atleta = await exigir('POST', '/atletas', {
+    nome: `${MARCA} PRIVADO`, rg: `${MARCA}PRIV`, sexo: equipe.genero === 'FEMININO' ? 'F' : 'M',
+    data_nascimento: `${equipe.idade_maxima ? ano - equipe.idade_maxima : ano - 20}-03-15`, escola_id: equipe.escola_id
+  }, 'cadastrar atleta do teste de privacidade');
+  criados.atletas.push(atleta.id_atleta);
+  await exigir('POST', '/inscricoes', { equipe_id: equipe.id, atleta_id: atleta.id_atleta, numero_camisa: 4 }, 'inscrever no teste de privacidade');
+
+  const semLogin = async (caminho) => {
+    const r = await fetch(`${API}${caminho}`);
+    return { status: r.status, texto: await r.text() };
+  };
+
+  // Elenco da equipe: segue público, reduzido (só nome, camisa e ids internos)
+  {
+    const caminho = `/inscricoes/equipe/${equipe.id}`;
+    const r = await semLogin(caminho);
+    conferir(
+      r.status === 200 && r.texto.includes(`${MARCA} PRIVADO`) && !PESSOAL.test(r.texto) && !r.texto.includes(`${MARCA}PRIV"`),
+      `GET ${caminho.replace(/\d+/, ':id')} sem login: o nome aparece, sem RG, nascimento nem sexo`,
+      `${r.status} ${r.texto.slice(0, 160)}`
+    );
+  }
+
+  // As listas de atletas (por escola, alias antigo, busca por nome e competições do atleta) são só para
+  // quem está logado: sem login 401; com login de mesa, só id, nome e escola (sem RG, nascimento nem sexo)
+  const mesaDaListaToken = await mesaDaLista();
+  const listas = [
+    { caminho: `/atletas/escola/${equipe.escola_id}`, comNome: true },
+    { caminho: `/atletas/equipe/${equipe.escola_id}`, comNome: true },
+    { caminho: `/atletas/busca?nome=${encodeURIComponent(`${MARCA} PRIVADO`)}`, comNome: true },
+    { caminho: `/atletas/${atleta.id_atleta}/inscricoes`, comNome: false }
+  ];
+  for (const { caminho, comNome } of listas) {
+    const nome = caminho.replace(/\d+/, ':id').replace(/\?.*$/, '');
+    const anonimo = await semLogin(caminho);
+    conferir(anonimo.status === 401, `GET ${nome} sem login: 401 (lista de atletas só para quem está logado)`, `${anonimo.status} ${anonimo.texto.slice(0, 120)}`);
+    const daMesa = await comToken(mesaDaListaToken, 'GET', caminho);
+    const texto = JSON.stringify(daMesa.corpo);
+    conferir(
+      daMesa.status === 200 && (!comNome || texto.includes(`${MARCA} PRIVADO`)) && !PESSOAL.test(texto),
+      `GET ${nome} com login de mesa: 200, sem RG, nascimento nem sexo`,
+      `${daMesa.status} ${texto.slice(0, 160)}`
+    );
+  }
+
+  // Com login de ADMIN, cadastro e inscrição seguem recebendo sexo e nascimento
+  const admin = await chamar('GET', `/atletas/escola/${equipe.escola_id}`);
+  const doAdmin = (admin.corpo || []).find((a) => a.id === atleta.id_atleta);
+  const elencoAdmin = await chamar('GET', `/inscricoes/equipe/${equipe.id}`);
+  const inscritoAdmin = (elencoAdmin.corpo.atletas || []).find((a) => a.atleta_id === atleta.id_atleta);
+  conferir(
+    Boolean(doAdmin?.data_nascimento && doAdmin?.sexo) && Boolean(inscritoAdmin?.ano_nascimento && inscritoAdmin?.sexo),
+    'com login de ADMIN, atletas e elenco continuam com sexo e nascimento (telas de cadastro e inscrição)',
+    JSON.stringify({ doAdmin, inscritoAdmin })
+  );
+
+  // Elegíveis: só o ADMIN
+  const elegiveisSemLogin = await semLogin(`/equipes/${equipe.id}/atletas-elegiveis`);
+  const elegiveisAdmin = await chamar('GET', `/equipes/${equipe.id}/atletas-elegiveis`);
+  conferir(
+    elegiveisSemLogin.status === 401 && elegiveisAdmin.status === 200,
+    'GET /equipes/:id/atletas-elegiveis: 401 sem login, 200 para o ADMIN',
+    `${elegiveisSemLogin.status} / ${elegiveisAdmin.status}`
+  );
+
+  // Varredura das outras leituras públicas que trazem atleta
+  const [[jogo]] = await db.query('SELECT id, competicao_id FROM jogos ORDER BY id LIMIT 1');
+  const publicas = ['/artilharia/lideres', `/artilharia/competicao/${equipe.competicao_id}`,
+    `/suspensoes/competicao/${equipe.competicao_id}`, `/competicoes/${equipe.competicao_id}`,
+    `/classificacao/competicao/${equipe.competicao_id}`, `/matamata/competicao/${equipe.competicao_id}`,
+    '/agenda', '/dashboard', '/tabela-geral', '/equipes'];
+  if (jogo) publicas.push(`/sumulas/${jogo.id}`, `/suspensoes/jogo/${jogo.id}`, `/agenda/jogos/${jogo.id}`, `/jogos/${jogo.id}`);
+  const vazando = [];
+  for (const caminho of publicas) {
+    const r = await semLogin(caminho);
+    if (r.status !== 200) vazando.push(`${caminho}: HTTP ${r.status}`);
+    else if (PESSOAL.test(r.texto)) vazando.push(`${caminho}: ${r.texto.match(PESSOAL)[0]}`);
+  }
+  conferir(vazando.length === 0, `${publicas.length} leituras públicas sem RG, nascimento nem sexo`, vazando.join(' | '));
+};
+
+// ---------------------------------------------------------------------------
+// Sets do vôlei (chefe, 12/10/2026) — só lógica
+// ---------------------------------------------------------------------------
+// Três sets de 21, o 3º inclusive, com 2 de vantagem e sem teto.
+const testarSetsDoVolei = () => {
+  secao('-- sets do vôlei');
+
+  const volei = folhaDaModalidade('volei', 'Vôlei');
+  const jogo = (...placares) => placares.map(([pontos_1, pontos_2], i) => ({ numero_set: i + 1, pontos_1, pontos_2 }));
+
+  const tresSets = apurarSets(jogo([21, 15], [18, 21], [21, 19]), volei, true);
+  conferir(
+    !tresSets.erro && tresSets.vencidos.um === 2 && tresSets.vencidos.dois === 1,
+    '3º set de 21 x 19 fecha o jogo em 2 x 1',
+    tresSets.erro
+  );
+  const setCurto = apurarSets(jogo([21, 15], [18, 21], [15, 13]), volei, true);
+  conferir(Boolean(setCurto.erro), '3º set de 15 x 13 não fecha: o 3º set também é de 21', setCurto.erro || 'aceito');
+  const semTeto = apurarSets(jogo([21, 15], [18, 21], [27, 25]), volei, true);
+  conferir(!semTeto.erro && semTeto.vencidos.um === 2, '3º set sem teto: 27 x 25 fecha', semTeto.erro);
+  const semVantagem = apurarSets(jogo([21, 15], [18, 21], [21, 20]), volei, true);
+  conferir(Boolean(semVantagem.erro), '3º set de 21 x 20 não fecha: precisa de 2 de vantagem', semVantagem.erro || 'aceito');
+};
+
+// ---------------------------------------------------------------------------
+// Folhas oficiais de 2026 (docs/referencias/SUMULA_HANDEBOL.pdf e SUMULA_BALEADO.pdf)
+// ---------------------------------------------------------------------------
+const testarFolhasOficiais = () => {
+  secao('-- folhas oficiais de súmula');
+
+  const handebol = folhaDaModalidade('handebol', 'Handebol');
+  conferir(
+    handebol.tipo === 'HANDEBOL' && handebol.titulo === 'SÚMULA DE HANDEBOL' && !handebol.provisoria,
+    'handebol tem folha própria, sem aviso de provisória'
+  );
+  conferir(
+    handebol.caixasEstatistica === 10 && handebol.cartoes && handebol.maxAmarelos === 1
+      && handebol.faltasIndividuais === 0 && handebol.faltasAcumuladas === 0 && handebol.tempoTecnico,
+    'handebol: 10 caixas de gols, um amarelo, sem faltas, com tempo técnico'
+  );
+  conferir(
+    handebol.linhas === 14 && handebol.linhasMaximas === 14
+      && folhaDaModalidade('baleado', 'Baleado').linhasMaximas === 14,
+    'handebol e baleado: 14 linhas, como as demais (teto de 14, decisão de 06/11/2026)'
+  );
+  conferir(
+    folhaDaModalidade('futsal', 'Futsal').linhas === 14,
+    'futsal segue com as 14 linhas da decisão de 29/09'
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Empate no mata-mata — cada modalidade segue o regulamento (06/10/2026)
+// ---------------------------------------------------------------------------
+// Não há cobrança genérica: onde o regulamento é omisso, a regra é pendente.
+const testarDesempatePorModalidade = () => {
+  secao('-- empate no mata-mata, por modalidade');
+
+  const futsal = desempateDaModalidade('futsal');
+  conferir(
+    futsal.sequencia.join(',') === 'PENALTIS' && futsal.nomeCobranca.includes('3x1x1'),
+    'futsal: pênaltis 3x1x1, como no regulamento'
+  );
+  for (const slug of ['handebol', 'basquete']) {
+    conferir(
+      desempateDaModalidade(slug).sequencia[0] === 'PRORROGACAO',
+      `${slug}: prorrogação antes de qualquer cobrança`
+    );
+  }
+  const baleado = desempateDaModalidade('baleado');
+  conferir(
+    !baleado.pendente && !baleado.nomeCobranca && baleado.acrescimo?.somaDosDoisJogos === true
+      && baleado.acrescimo.fases.join(',') === 'SEMIFINAL,FINAL',
+    'baleado: sem cobrança; acréscimo na semifinal, na final e no 2º jogo do ida e volta'
+  );
+  conferir(
+    desempateDaModalidade('modalidade-que-nao-existe').pendente === true,
+    'modalidade sem regra cai em pendente, nunca em pênalti genérico'
+  );
+};
+
+// ---------------------------------------------------------------------------
+// 5º lugar — só lógica
+// ---------------------------------------------------------------------------
+// O passeio já confere o 5º numa competição real. Aqui, duas de mentira,
+// com desempate decidido pelos pontos: uma de 5 equipes (há 5º) e uma de 4
+// (não há).
+const testarQuintoLugar = () => {
+  secao('-- 5º lugar');
+
+  const equipe = (grupo, posicao, equipe_id, pontos) => ({
+    ...equipeDeTeste(grupo, posicao, equipe_id), pontos, saldo: 0, vitorias: 0, marcados: 0,
+    vermelhos: 0, amarelos: 0, jogos: 2
+  });
+  const jogo = (id, fase, um, dois) => ({
+    id, fase, status: 'FINALIZADO', vencedor_equipe_id: um,
+    equipe_1_id: um, equipe_2_id: dois, escola_1_nome: `E${um}`, escola_2_nome: `E${dois}`
+  });
+  // Semifinais 1×4 e 3×2, final 1×3: campeão 1, vice 3, 3º 4, 4º 2
+  const mataMata = [
+    jogo(1, 'SEMIFINAL', 1, 4), jogo(2, 'SEMIFINAL', 3, 2), jogo(3, 'FINAL', 1, 3)
+  ];
+  const colocar = (grupos) => colocacoesFinais({
+    competicao: { proxima_fase: 'SEMIFINAL', qtd_grupos: 2, tipo_placar: 'GOLS' },
+    todosOsJogos: mataMata,
+    grupos,
+    criterios: ['saldo', 'vitorias', 'marcados', 'menos_vermelhos', 'menos_amarelos'],
+    jogos: [],
+    comparacoes: {},
+    faseDeGrupos: { completa: true }
+  });
+
+  // 5 equipes: grupo A com 3 (a 5 ficou de fora), grupo B com 2
+  const cinco = colocar([
+    { nome: 'A', equipes: [equipe('A', 1, 1, 6), equipe('A', 2, 2, 3), equipe('A', 3, 5, 1)] },
+    { nome: 'B', equipes: [equipe('B', 1, 3, 3), equipe('B', 2, 4, 0)] }
+  ]);
+  const quinto = cinco.find((c) => c.posicao === 5);
+  conferir(
+    quinto?.equipe_id === 5 && quinto?.provisoria === false,
+    'competição de 5 equipes: o 5º é quem não chegou à semifinal',
+    JSON.stringify(quinto)
+  );
+  conferir(
+    cinco.find((c) => c.posicao === 4)?.equipe_id === 2,
+    'e o 4º é quem perdeu a semifinal para o vice'
+  );
+
+  // 6 equipes, e as duas fora da semifinal (5 e 6) empatam em tudo — mesmos
+  // pontos, saldo, vitórias, gols e cartões, de grupos diferentes, sem
+  // confronto direto: dividem o 5º, sem sorteio
+  const seis = colocar([
+    { nome: 'A', equipes: [equipe('A', 1, 1, 6), equipe('A', 2, 2, 3), equipe('A', 3, 5, 0)] },
+    { nome: 'B', equipes: [equipe('B', 1, 3, 6), equipe('B', 2, 4, 3), equipe('B', 3, 6, 0)] }
+  ]);
+  const divididos = seis.filter((c) => c.posicao === 5);
+  conferir(
+    divididos.map((c) => c.equipe_id).sort().join(',') === '5,6'
+      && divididos.every((c) => c.dividida && c.provisoria === false
+        && c.como.startsWith(REGRAS_DA_CHAVE.quartoEQuinto.textoDoEmpate)),
+    'empate em tudo: as duas candidatas aparecem como 5º, com "5º lugar dividido"',
+    JSON.stringify(divididos)
+  );
+
+  // 4 equipes: todas jogam a semifinal, e não há 5º
+  const quatro = colocar([
+    { nome: 'A', equipes: [equipe('A', 1, 1, 3), equipe('A', 2, 2, 0)] },
+    { nome: 'B', equipes: [equipe('B', 1, 3, 3), equipe('B', 2, 4, 0)] }
+  ]);
+  conferir(!quatro.some((c) => c.posicao === 5), 'competição de 4 equipes: não há 5º');
+};
+
+// ---------------------------------------------------------------------------
+// Regras confirmadas pelo chefe em 06/10/2026 — só lógica, sem banco
+// ---------------------------------------------------------------------------
+// Um campeonato de verdade levaria muitas competições para produzir um empate
+// na soma geral ou um "melhor segundo" de grupos de tamanhos diferentes. Os
+// dois casos são conferidos direto nas funções que decidem.
+const testarRegrasDoChefe = () => {
+  secao('-- regras de 06/10/2026');
+
+  // Mesma soma (07/10/2026): desempata quem tem mais 1ºs, depois 2ºs e 3ºs.
+  // BETA e ALFA somam 10, mas ALFA tem um 1º lugar e BETA não; GAMA e DELTA
+  // empatam em tudo e dividem a posição (numeração de competição).
+  const soma = posicionar([
+    { escola_nome: 'BETA', pontos: 10, primeiros: 0, segundos: 1, terceiros: 0 },
+    { escola_nome: 'ALFA', pontos: 10, primeiros: 1, segundos: 0, terceiros: 0 },
+    { escola_nome: 'GAMA', pontos: 6, primeiros: 0, segundos: 0, terceiros: 1 },
+    { escola_nome: 'DELTA', pontos: 6, primeiros: 0, segundos: 0, terceiros: 1 },
+    { escola_nome: 'EPSILON', pontos: 2, primeiros: 0, segundos: 0, terceiros: 0 }
+  ]);
+  const posicoes = soma.map((e) => `${e.escola_nome} ${e.posicao}`).join(', ');
+  conferir(
+    posicoes === 'ALFA 1, BETA 2, DELTA 3, GAMA 3, EPSILON 5',
+    'mesma soma: mais 1ºs desempata; empate em tudo divide a posição',
+    `saiu ${posicoes}`
+  );
+
+  // "Melhor segundo" sem descartar jogos: o segundo do grupo de 4 jogou 3
+  // vezes e fez 6 pontos; o do grupo de 3 jogou 2 e fez 4. Pela regra
+  // recusada, os jogos contra o último do grupo maior seriam descartados;
+  // pela de 06/10, vale a campanha inteira e o de 6 pontos fica à frente.
+  const segundoDe = (grupo, equipe_id, jogos, pontos) => ({
+    equipe_id, escola_nome: `ESCOLA ${equipe_id}`, grupo_nome: grupo, posicao: 2,
+    jogos, pontos, saldo: 0, vitorias: 0, marcados: 0, vermelhos: 0, amarelos: 0
+  });
+  const primeiroDe = (grupo, equipe_id) => ({ ...segundoDe(grupo, equipe_id, 3, 9), posicao: 1 });
+
+  const comparacao = compararEntreGrupos(2, {
+    competicao: { tipo_placar: 'GOLS' },
+    criterios: ['saldo', 'vitorias', 'marcados', 'menos_vermelhos', 'menos_amarelos'],
+    jogos: [],
+    grupos: [
+      { nome: 'A', equipes: [primeiroDe('A', 1), segundoDe('A', 2, 3, 6), {}, {}] },
+      { nome: 'B', equipes: [primeiroDe('B', 3), segundoDe('B', 4, 2, 4), {}] }
+    ]
+  });
+  conferir(
+    comparacao.ordenadas[0]?.equipe_id === 2 && comparacao.ordenadas[0]?.pontos === 6,
+    'melhor segundo comparado com todos os jogos, sem descartar nenhum',
+    `primeiro da comparação: equipe ${comparacao.ordenadas[0]?.equipe_id}, ${comparacao.ordenadas[0]?.pontos} pts`
+  );
+  conferir(
+    comparacao.jogos_diferentes === true,
+    'números de jogos diferentes ligam o aviso da tela'
+  );
+};
+
+// Equipe de mentira para as conferências de chave e colocação
+const equipeDeTeste = (grupo, posicao, equipe_id) => ({
+  equipe_id, escola_nome: `ESCOLA ${grupo}${posicao}`, grupo_id: grupo.charCodeAt(0),
+  grupo_nome: grupo, posicao
+});
+
+// ---------------------------------------------------------------------------
+// Semifinal com 3 grupos — decisão de 06/10/2026
+// ---------------------------------------------------------------------------
+// Só lógica, como a seção anterior: a função que monta a chave recebe uma
+// competição de mentira.
+const testarSemifinalDeTresGrupos = () => {
+  secao('-- semifinal com 3 grupos');
+
+  const equipe = equipeDeTeste;
+  const formatoD = { qtd_grupos: 3, classificados_por_grupo: 1, melhores_segundos: 1 };
+  // Fora de ordem de propósito: "A", "B" e "C" saem do nome do grupo
+  const classificadosPorGrupo = ['C', 'A', 'B'].map((g, i) => ({
+    grupo_id: g.charCodeAt(0), grupo_nome: g, equipes: [equipe(g, 1, 10 + i)]
+  }));
+  const primeiroDe = (g) => classificadosPorGrupo.find((x) => x.grupo_nome === g).equipes[0].equipe_id;
+  const par = (c) => `${c.equipe_1_id}x${c.equipe_2_id}`;
+
+  // Melhor 2º do grupo B: 1ºA × 2ºB e 1ºB × 1ºC, sem aviso
+  const semRevanche = chaveDaSemifinal(formatoD, {
+    classificadosPorGrupo, melhoresSegundos: [equipe('B', 2, 21)]
+  });
+  conferir(
+    par(semRevanche.confrontos[0]) === `${primeiroDe('A')}x21`
+      && par(semRevanche.confrontos[1]) === `${primeiroDe('B')}x${primeiroDe('C')}`,
+    '3 grupos: 1ºA × melhor 2º e 1ºB × 1ºC',
+    semRevanche.confrontos.map(par).join(' / ')
+  );
+  conferir(!semRevanche.observacao, 'sem revanche, sem aviso', semRevanche.observacao);
+
+  // Melhor 2º do grupo A: a chave sai mesmo assim, com o aviso da regra pendente
+  const comRevanche = chaveDaSemifinal(formatoD, {
+    classificadosPorGrupo, melhoresSegundos: [equipe('A', 2, 22)]
+  });
+  conferir(
+    !comRevanche.erro && par(comRevanche.confrontos[0]) === `${primeiroDe('A')}x22`,
+    'revanche (1ºA × 2ºA) não bloqueia a semifinal',
+    comRevanche.erro || comRevanche.confrontos.map(par).join(' / ')
+  );
+  conferir(
+    !comRevanche.observacao && REGRAS_DA_CHAVE.revancheNaSemifinal.provisorio === false,
+    'revanche aceita sem aviso (confirmado pelo chefe em 07/10)',
+    comRevanche.observacao
+  );
+};
+
+// ---------------------------------------------------------------------------
+// 3º lugar sem semifinal — decisão de 06/10/2026
+// ---------------------------------------------------------------------------
+// As colocações saem de uma competição de mentira; o banco só é lido, para
+// conferir quantos pontos o 3º lugar vale.
+const testarTerceiroSemSemifinal = async () => {
+  secao('-- 3º lugar sem semifinal');
+
+  const equipe = equipeDeTeste;
+
+  // Dois grupos, 1º de cada à final: o 3º é o melhor 2º pela campanha
+  const final = {
+    id: 1, fase: 'FINAL', status: 'FINALIZADO', vencedor_equipe_id: 1,
+    equipe_1_id: 1, equipe_2_id: 2, escola_1_nome: 'ESCOLA A1', escola_2_nome: 'ESCOLA B1'
+  };
+  const melhorSegundo = equipe('B', 2, 4);
+  const colocacoes = colocacoesFinais({
+    competicao: { proxima_fase: 'FINAL', qtd_grupos: 2 },
+    todosOsJogos: [final],
+    grupos: [
+      { nome: 'A', equipes: [equipe('A', 1, 1), equipe('A', 2, 3)] },
+      { nome: 'B', equipes: [equipe('B', 1, 2), melhorSegundo] }
+    ],
+    comparacoes: { segundos: { ordenadas: [melhorSegundo, equipe('A', 2, 3)] } },
+    faseDeGrupos: { completa: true }
+  });
+  const terceiro = colocacoes.find((c) => c.posicao === 3);
+  conferir(
+    terceiro?.equipe_id === 4 && terceiro.provisoria === false,
+    '3º sem semifinal é o melhor 2º, sem marca de regra provisória',
+    JSON.stringify(terceiro)
+  );
+
+  const [[pontuacao]] = await db.query('SELECT pontos FROM pontuacao_geral WHERE posicao = 3');
+  conferir(
+    pontuacao?.pontos === 6 && REGRAS.tabelaGeral.posicoesQuePontuam.includes(3),
+    'o 3º lugar vale 6 pontos na tabela geral',
+    `pontuacao_geral(3) = ${pontuacao?.pontos}`
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Conflito de local (regrasProvisorias.conflitoDeLocal)
+// ---------------------------------------------------------------------------
+// Roda depois do passeio para os jogos extras não mexerem na classificação e
+// no pódio já conferidos. Usa os locais que já existem (db/04_locais.sql), sem
+// criar nem apagar nenhum, e um dia em que esses locais estão vazios. Os
+// intervalos saem da regra, então o teste acompanha se ela mudar.
+const testarConflitoDeLocal = async (competicao, equipes, grupos) => {
+  secao('-- conflito de local');
+
+  // Só o horário de INÍCIO conta (a duração das partidas está em aberto):
+  // um minuto a menos que o intervalo conflita, o intervalo exato não.
+  const { intervaloMinutos } = REGRAS.conflitoDeLocal;
+  const quase = intervaloMinutos - 1;
+
+  const [locais] = await db.query('SELECT id, nome FROM locais_disputa ORDER BY id LIMIT 2');
+  if (locais.length < 2) {
+    throw new Error('O teste de conflito precisa de dois locais em locais_disputa (db/04_locais.sql).');
+  }
+  const [L1, L2] = locais;
+
+  // Primeiro dia, a partir de dezembro (depois do evento), sem jogo nenhum
+  // nos dois locais: os jogos de quem usa o sistema não interferem no teste.
+  let dia = null;
+  for (let d = 0; d < 120 && !dia; d++) {
+    const candidato = new Date(Date.UTC(2026, 11, 1 + d)).toISOString().slice(0, 10);
+    const [[{ ocupados }]] = await db.query(
+      `SELECT COUNT(*) AS ocupados FROM jogos
+        WHERE local_id IN (?, ?) AND data_hora >= ? AND data_hora < ? + INTERVAL 1 DAY`,
+      [L1.id, L2.id, candidato, candidato]
+    );
+    if (ocupados === 0) dia = candidato;
+  }
+  if (!dia) throw new Error('Não achei um dia livre nos locais para o teste de conflito.');
+
+  // Minutos a partir das 08:00 do dia livre -> "AAAA-MM-DD HH:MM"
+  const as = (minutos) => {
+    const total = 8 * 60 + minutos;
+    const hh = String(Math.floor(total / 60)).padStart(2, '0');
+    const mm = String(total % 60).padStart(2, '0');
+    return `${dia} ${hh}:${mm}`;
+  };
+
+  const doGrupo = equipes.filter((e) => e.grupo_nome === grupos[0]);
+  const [a, b] = doGrupo;
+
+  const tentar = async (local, quando, competicao_id = competicao.id, e1 = a.id, e2 = b.id) => {
+    const r = await chamar('POST', '/jogos', {
+      competicao_id, equipe_1_id: e1, equipe_2_id: e2, fase: 'GRUPOS',
+      local_id: local.id, data_hora: quando
+    });
+    if (r.corpo.id_jogo) criados.jogos.push(r.corpo.id_jogo);
+    return r;
+  };
+
+  console.log(`  locais ${L1.nome} e ${L2.nome}, dia ${dia}, intervalo ${intervaloMinutos} min`);
+
+  const j1 = await tentar(L1, as(0));
+  conferir(j1.status === 201, 'local e horário livres -> 201', `${j1.status} ${j1.corpo.erro || ''}`);
+
+  const perto = await tentar(L1, as(quase));
+  conferir(
+    perto.status === 409,
+    `mesmo local a ${quase} min do início -> 409`,
+    `${perto.status} ${perto.corpo.erro || ''}`
+  );
+  conferir(
+    perto.status === 409 && perto.corpo.erro.includes(L1.nome)
+      && perto.corpo.erro.includes(`nº ${j1.corpo.numero_jogo}`)
+      && perto.corpo.erro.includes(`${intervaloMinutos} minutos entre os horários de início`),
+    'a recusa diz o local, o número do jogo que ocupa e o intervalo da regra',
+    perto.corpo.erro
+  );
+
+  const j3 = await tentar(L1, as(intervaloMinutos));
+  conferir(j3.status === 201, `mesmo local a exatamente ${intervaloMinutos} min -> 201`, `${j3.status} ${j3.corpo.erro || ''}`);
+
+  const j4 = await tentar(L2, as(0));
+  conferir(j4.status === 201, 'mesmo horário em outro local -> 201', `${j4.status} ${j4.corpo.erro || ''}`);
+
+  const wo = await chamar('PUT', `/jogos/${j1.corpo.id_jogo}/wo`, {
+    vencedor_equipe_id: a.id,
+    motivo: `${MARCA} W.O. do teste de conflito`
+  });
+  conferir(wo.status === 200, 'W.O. declarado no primeiro jogo', `${wo.status} ${wo.corpo.erro || ''}`);
+
+  const j5 = await tentar(L1, as(0));
+  conferir(j5.status === 201, 'o W.O. libera o horário: agendar de novo passa', `${j5.status} ${j5.corpo.erro || ''}`);
+
+  const semMudar = await chamar('PUT', `/jogos/${j3.corpo.id_jogo}`, {
+    local_id: L1.id, data_hora: as(intervaloMinutos), arbitro_1: `${MARCA} árbitro`
+  });
+  conferir(
+    semMudar.status === 200,
+    'editar sem mudar a agenda -> 200',
+    `${semMudar.status} ${semMudar.corpo.erro || ''}`
+  );
+
+  // Andar menos que o intervalo continua perto do horário antigo do próprio
+  // jogo, que não pode contar como conflito consigo mesmo.
+  const mexeuPouco = await chamar('PUT', `/jogos/${j3.corpo.id_jogo}`, {
+    data_hora: as(intervaloMinutos + quase)
+  });
+  conferir(
+    mexeuPouco.status === 200,
+    `reagendar ${quase} min ignora o próprio jogo -> 200`,
+    `${mexeuPouco.status} ${mexeuPouco.corpo.erro || ''}`
+  );
+
+  // Limpar a agenda volta o jogo para "a definir". Sem local nem horário não
+  // há o que conferir, então a checagem de conflito não entra.
+  const limpou = await chamar('PUT', `/jogos/${j3.corpo.id_jogo}`, { data_hora: '', local_id: '' });
+  const [[limpo]] = await db.query('SELECT local_id, data_hora FROM jogos WHERE id = ?', [j3.corpo.id_jogo]);
+  conferir(
+    limpou.status === 200 && limpo.local_id === null && limpo.data_hora === null,
+    'limpar data e local de jogo AGENDADO -> 200 e grava NULL',
+    `${limpou.status} ${limpou.corpo.erro || ''} local=${limpo.local_id} data=${limpo.data_hora}`
+  );
+
+  // Só o local, mantendo o horário: também sai da checagem
+  const soLocal = await chamar('PUT', `/jogos/${j5.corpo.id_jogo}`, { local_id: null });
+  conferir(soLocal.status === 200, 'tirar só o local -> 200', `${soLocal.status} ${soLocal.corpo.erro || ''}`);
+
+  // O primeiro jogo do passeio já está FINALIZADO pela súmula
+  const finalizado = criados.jogos[0];
+  const mudarFinalizado = await chamar('PUT', `/jogos/${finalizado}`, { local_id: L2.id, data_hora: as(300) });
+  conferir(
+    mudarFinalizado.status === 409,
+    'mudar data/hora/local de jogo FINALIZADO -> 409',
+    `${mudarFinalizado.status} ${mudarFinalizado.corpo.erro || ''}`
+  );
+  const arbitroFinalizado = await chamar('PUT', `/jogos/${finalizado}`, { arbitro_2: `${MARCA} árbitro` });
+  conferir(
+    arbitroFinalizado.status === 200,
+    'árbitro de jogo FINALIZADO continua editável -> 200',
+    `${arbitroFinalizado.status} ${arbitroFinalizado.corpo.erro || ''}`
+  );
+
+  await exigir('PUT', `/jogos/${j4.corpo.id_jogo}/iniciar`, null, 'iniciar o jogo');
+  const mudarEmAndamento = await chamar('PUT', `/jogos/${j4.corpo.id_jogo}`, { data_hora: as(300) });
+  conferir(
+    mudarEmAndamento.status === 409,
+    'mudar data/hora de jogo EM_ANDAMENTO -> 409',
+    `${mudarEmAndamento.status} ${mudarEmAndamento.corpo.erro || ''}`
+  );
+
+  // ---- corrida -------------------------------------------------------------
+  // Dois agendamentos ao mesmo tempo, no mesmo local e horário. Vêm de
+  // competições DIFERENTES de propósito: na mesma competição eles já fariam
+  // fila na trava da competição (numero_jogo), e o que se quer provar é a
+  // trava do local. Três rodadas, em horários distintos.
+  const [[outra]] = await db.query(
+    `SELECT e1.competicao_id, e1.id AS e1, e2.id AS e2
+       FROM equipes e1
+       INNER JOIN equipes e2 ON e2.competicao_id = e1.competicao_id
+                            AND e2.grupo_id = e1.grupo_id AND e2.id > e1.id
+      WHERE e1.competicao_id NOT IN (?, ?)
+        AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = e1.competicao_id)
+      ORDER BY e1.competicao_id, e1.id
+      LIMIT 1`,
+    [competicao.id, COMPETICAO_PROTEGIDA]
+  );
+  if (!outra) throw new Error('Não achei uma segunda competição sem jogos para o teste de corrida.');
+
+  for (const rodada of [1, 2, 3]) {
+    const quando = as(240 + rodada * 2 * intervaloMinutos);
+    const respostas = await Promise.all([
+      tentar(L2, quando),
+      tentar(L2, quando, outra.competicao_id, outra.e1, outra.e2)
+    ]);
+    const status = respostas.map((r) => r.status).sort();
+    conferir(
+      status[0] === 201 && status[1] === 409,
+      `corrida ${rodada}: dois POST simultâneos no mesmo local e horário -> um 201 e um 409`,
+      `saiu ${status.join(' e ')} ${respostas.map((r) => r.corpo.erro || '').join(' | ')}`
+    );
+  }
+};
+
+
+// ---------------------------------------------------------------------------
+// Importação de jogos por CSV — pela API, numa competição livre
+// ---------------------------------------------------------------------------
+// Prévia sem gravar, linhas com erro de fora, avisos que não bloqueiam,
+// numeração por data e hora, e reimportação que não duplica.
+const enviarCsv = async (caminho, csv) => {
+  const resposta = await fetch(`${API}${caminho}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/csv', Authorization: `Bearer ${token}` },
+    body: csv
+  });
+  return { status: resposta.status, corpo: await resposta.json().catch(() => ({})) };
+};
+
+// Nº Tabela — o número do jogo na tabela oficial do chefe (db/15, 20/10/2026).
+// Coluna opcional do CSV: com ou sem ela, célula vazia aceita, número repetido
+// no arquivo ou já usado no banco é erro, e reimportar só preenche o número de
+// jogo que já existe e está sem — sem mudar mais nada nem trocar número gravado.
+const testarNumeroTabela = async () => {
+  secao('-- Nº Tabela (número da tabela do chefe)');
+
+  const [[comp]] = await db.query(
+    `SELECT c.id, m.nome AS modalidade, cat.nome AS categoria, c.genero, g.id AS grupo_id
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+       INNER JOIN grupos g ON g.competicao_id = c.id
+       INNER JOIN equipes e ON e.grupo_id = g.id
+      WHERE c.id <> ? AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
+      GROUP BY c.id, g.id
+     HAVING COUNT(e.id) >= 3
+      ORDER BY c.id LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) throw new Error('Não achei uma competição livre com grupo de 3 equipes para o teste do Nº Tabela.');
+  const [eq] = await db.query(
+    'SELECT esc.nome FROM equipes e INNER JOIN escolas esc ON esc.id = e.escola_id WHERE e.grupo_id = ? ORDER BY e.id LIMIT 3',
+    [comp.grupo_id]
+  );
+  const [[{ maior }]] = await db.query('SELECT COALESCE(MAX(numero_tabela), 0) AS maior FROM jogos');
+  const n = (k) => 9000 + Number(maior) + k; // números que o banco ainda não usa (o MAX volta como texto)
+  const CAB = 'Modalidade;Categoria;Gênero;Grupo;Equipe 1;Equipe 2;Data;Hora;Local;Rodada;Árbitro;Nº Tabela';
+  const linhaCsv = (a, b, hora, numero) => [comp.modalidade, comp.categoria, comp.genero, '', eq[a].nome, eq[b].nome,
+    '21/11/2026', hora, '', '', '', numero].join(';');
+  const meus = async () => (await db.query(
+    'SELECT id, numero_tabela, data_hora, local_id, rodada, arbitro_1, numero_jogo FROM jogos WHERE competicao_id = ? ORDER BY data_hora',
+    [comp.id]
+  ))[0];
+  const linha = (r, k) => (r.corpo.linhas || []).find((l) => l.linha === k) || { erros: [], avisos: [] };
+
+  // 1) Com a coluna: número, célula vazia e um par repetido no arquivo
+  const csv1 = [CAB,
+    linhaCsv(0, 1, '05:01', n(1)), // 2: nova com número
+    linhaCsv(0, 2, '05:02', ''), // 3: nova sem número (célula vazia)
+    linhaCsv(1, 2, '05:03', n(2)), // 4: repetido...
+    linhaCsv(1, 0, '05:04', n(2)) // 5: ...com a linha 4
+  ].join('\r\n');
+  const previa1 = await enviarCsv('/importacao-jogos/previa', csv1);
+  conferir(
+    previa1.status === 200 && linha(previa1, 2).situacao === 'NOVA' && linha(previa1, 2).numero_tabela === n(1)
+      && linha(previa1, 3).situacao === 'NOVA' && linha(previa1, 3).numero_tabela === null
+      && [4, 5].every((k) => linha(previa1, k).situacao === 'ERRO' && linha(previa1, k).erros.some((e) => e.includes('repetido no arquivo'))),
+    'com a coluna: número aceito, célula vazia aceita, número repetido no arquivo é erro nas duas linhas',
+    JSON.stringify(previa1.corpo.resumo || previa1.corpo)
+  );
+  const imp1 = await enviarCsv('/importacao-jogos', csv1);
+  let gravados = await meus();
+  criados.jogos.push(...gravados.map((j) => j.id));
+  conferir(
+    imp1.status === 201 && gravados.length === 2 && gravados[0].numero_tabela === n(1) && gravados[1].numero_tabela === null,
+    'importação grava o número da nova e deixa vazio o da célula vazia; as repetidas não entram',
+    JSON.stringify(gravados)
+  );
+
+  // 2) Número que já é de outro jogo no banco
+  const previa2 = await enviarCsv('/importacao-jogos/previa', [CAB, linhaCsv(1, 2, '05:05', n(1))].join('\r\n'));
+  conferir(
+    linha(previa2, 2).situacao === 'ERRO' && linha(previa2, 2).erros.some((e) => e.includes(`${n(1)} já é do jogo`)),
+    'número que já é de outro jogo do banco: erro',
+    JSON.stringify(linha(previa2, 2).erros)
+  );
+
+  // 3) Reimportar: preenche o número do jogo sem número; não troca o já gravado
+  const antes = await meus();
+  const csv3 = [CAB, linhaCsv(0, 1, '05:01', n(9)), linhaCsv(0, 2, '05:02', n(3))].join('\r\n');
+  const previa3 = await enviarCsv('/importacao-jogos/previa', csv3);
+  conferir(
+    previa3.corpo.resumo?.numeros_a_preencher === 1 && previa3.corpo.resumo?.novas === 0
+      && linha(previa3, 3).preencher_numero === true
+      && linha(previa3, 2).avisos.some((a) => a.includes('não troca')),
+    'reimportação: 1 número a preencher, nenhum jogo novo, aviso para o número já gravado',
+    JSON.stringify(previa3.corpo.resumo)
+  );
+  const imp3 = await enviarCsv('/importacao-jogos', csv3);
+  gravados = await meus();
+  const igualFora = (a, b) => JSON.stringify({ ...a, numero_tabela: 0 }) === JSON.stringify({ ...b, numero_tabela: 0 });
+  conferir(
+    imp3.status === 201 && gravados.length === 2 && gravados[0].numero_tabela === n(1) && gravados[1].numero_tabela === n(3)
+      && gravados.every((g, i) => igualFora(g, antes[i])),
+    'reimportação preenche só o número do jogo sem número; o resto do jogo e o número já gravado não mudam',
+    JSON.stringify(gravados)
+  );
+
+  // 4) Sem a coluna: o arquivo é aceito e o número gravado continua
+  const semColuna = await enviarCsv('/importacao-jogos/previa',
+    [CAB.replace(';Nº Tabela', ''), linhaCsv(0, 1, '05:01', '').replace(/;$/, '')].join('\r\n'));
+  conferir(
+    semColuna.status === 200 && linha(semColuna, 2).situacao === 'EXISTENTE' && !linha(semColuna, 2).preencher_numero,
+    'sem a coluna Nº Tabela: arquivo aceito, nada a preencher',
+    JSON.stringify(semColuna.corpo.resumo || semColuna.corpo)
+  );
+
+  // 5) A agenda (pública) devolve o número
+  const agenda = await (await fetch(`${API}/agenda`)).json();
+  conferir(
+    agenda.find((j) => j.id === gravados[0].id)?.numero_tabela === n(1)
+      && agenda.find((j) => j.id === gravados[1].id)?.numero_tabela === n(3),
+    'GET /agenda devolve o numero_tabela de cada jogo'
+  );
+};
+
+const testarImportacaoDeJogos = async () => {
+  secao('-- importação de jogos por CSV');
+
+  conferir(
+    lerData('31/11/2026', 2026) === undefined && lerData('23/11', 2026) === '2026-11-23'
+      && lerHora('14h') === '14:00' && lerHora('25:00') === undefined,
+    'datas e horas: 31/11 recusado, ano do evento quando falta, 14h e 25:00'
+  );
+
+  const [[comp]] = await db.query(
+    `SELECT c.id, m.nome AS modalidade, cat.nome AS categoria, c.genero, g.nome AS grupo,
+            MIN(e.id) AS qualquer
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+       INNER JOIN grupos g ON g.competicao_id = c.id
+       INNER JOIN equipes e ON e.grupo_id = g.id
+      WHERE c.id <> ? AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
+      GROUP BY c.id, g.id
+     HAVING COUNT(e.id) >= 3
+      ORDER BY c.id DESC LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) throw new Error('Não achei uma competição livre com grupo de 3 equipes para a importação.');
+
+  const [equipes] = await db.query(
+    `SELECT e.id, esc.id AS escola_id, esc.nome FROM equipes e
+       INNER JOIN escolas esc ON esc.id = e.escola_id
+       INNER JOIN grupos g ON g.id = e.grupo_id
+      WHERE e.competicao_id = ? AND g.nome = ? ORDER BY e.id LIMIT 3`,
+    [comp.id, comp.grupo]
+  );
+  const [e1, e2, e3] = equipes;
+  const [locais] = await db.query('SELECT nome FROM locais_disputa ORDER BY id LIMIT 2');
+
+  // Nome ambíguo: dois apelidos que só diferem no ponto servem a escolas diferentes
+  await db.query('INSERT INTO escola_apelidos (escola_id, apelido) VALUES (?, ?), (?, ?)',
+    [e2.escola_id, `${MARCA} AMBIGUA`, e3.escola_id, `${MARCA} AMBIGUA.`]);
+
+  // Escrita torta de propósito: minúsculas, espaços e "SUB-0N"
+  const torto = (nome) => `  ${nome.toLowerCase().replace(/ /g, '  ')} `;
+  const categoria = comp.categoria.replace(/^Sub (\d+)$/, 'SUB-0$1');
+  const genero = { MASCULINO: 'M', FEMININO: 'f', MISTO: 'misto' }[comp.genero];
+  const base = (eq1, eq2, data, hora, local, extra = {}) => [
+    extra.modalidade || comp.modalidade, categoria, genero, extra.grupo || '',
+    eq1, eq2, data, hora, local, extra.rodada || '', extra.arbitro || ''
+  ].join(';');
+
+  const csv = [
+    'Modalidade;Categoria;Gênero;Grupo;Equipe 1;Equipe 2;Data;Hora;Local;Rodada;Árbitro',
+    base(torto(e1.nome), e2.nome, '19/11/2026', '05:13', locais[0].nome, { grupo: `Grupo ${comp.grupo}`, rodada: 1, arbitro: `${MARCA} árbitro` }), // 2
+    base(e1.nome, e3.nome, '18/11/2026', '05:13', locais[0].nome, { modalidade: comp.modalidade.toUpperCase() }), // 3
+    base(e2.nome, e3.nome, '19/11/2026', '05h13', locais[0].nome), // 4: e2 e local no mesmo horário da linha 2
+    base(e2.nome, e1.nome, '19/11/2026', '05:13', locais[0].nome), // 5: repete a linha 2
+    base(e1.nome, e2.nome, '30/11/2026', '05:13', locais[1].nome), // 6: fora do evento, confronto repetido
+    base('ESCOLA QUE NAO EXISTE', e1.nome, '20/11/2026', '05:13', ''), // 7
+    base(`${MARCA} ambígua`, e1.nome, '20/11/2026', '05:13', ''), // 8
+    base(e1.nome, e3.nome, '20/11/2026', '05:13', 'Quadra Inexistente') // 9
+  ].join('\r\n');
+
+  const contarJogos = async () => (await db.query('SELECT COUNT(*) AS n FROM jogos WHERE competicao_id = ?', [comp.id]))[0][0].n;
+  const linha = (resposta, n) => resposta.corpo.linhas.find((l) => l.linha === n);
+  const temAviso = (l, trecho) => l.avisos.some((a) => a.includes(trecho));
+
+  const semToken = await fetch(`${API}/importacao-jogos/previa`, {
+    method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: csv
+  });
+  conferir(semToken.status === 401, 'prévia sem login -> 401', `saiu ${semToken.status}`);
+
+  const previa = await enviarCsv('/importacao-jogos/previa', csv);
+  const r = previa.corpo.resumo || {};
+  conferir(
+    previa.status === 200 && r.novas === 4 && r.duplicadas === 1 && r.erros === 3 && r.existentes === 0,
+    'prévia: 4 novas, 1 duplicada e 3 com erro',
+    `${previa.status} ${previa.corpo.erro || JSON.stringify(r)}`
+  );
+  conferir(await contarJogos() === 0, 'a prévia não grava nada');
+
+  if (previa.status === 200) {
+    conferir(
+      [linha(previa, 3), linha(previa, 2), linha(previa, 4), linha(previa, 6)].map((l) => l.numero_jogo).join(',') === '1,2,3,4',
+      'numeração por data e hora: a linha do dia 23 é o jogo 1, mesmo vindo depois no arquivo'
+    );
+    conferir(
+      linha(previa, 2).equipe_1 === e1.nome && linha(previa, 2).grupo === comp.grupo,
+      'escola reconhecida sem maiúsculas e com espaços sobrando; grupo "Grupo X" aceito'
+    );
+    conferir(
+      temAviso(linha(previa, 4), 'mesmo horário') && temAviso(linha(previa, 4), 'minutos entre os inícios'),
+      'aviso: equipe em dois jogos no mesmo horário e local ocupado'
+    );
+    conferir(
+      temAviso(linha(previa, 6), 'fora do evento') && temAviso(linha(previa, 6), 'Confronto repetido'),
+      'aviso: data fora de 18 a 21/11 e confronto repetido no grupo'
+    );
+    conferir(
+      linha(previa, 7).situacao === 'ERRO' && linha(previa, 7).erros[0].includes('não encontrada')
+        && linha(previa, 8).erros[0].includes('ambíguo')
+        && linha(previa, 9).erros.some((e) => e.includes('não está cadastrado')),
+      'erros: escola desconhecida, nome ambíguo e local fora do cadastro'
+    );
+  }
+
+  const importacao = await enviarCsv('/importacao-jogos', csv);
+  const [gravados] = await db.query(
+    'SELECT id, numero_jogo, data_hora, arbitro_1, rodada FROM jogos WHERE competicao_id = ? ORDER BY numero_jogo',
+    [comp.id]
+  );
+  criados.jogos.push(...gravados.map((j) => j.id));
+  conferir(
+    importacao.status === 201 && gravados.length === 4 && gravados[0].data_hora.startsWith('2026-11-18')
+      && gravados[1].arbitro_1 === `${MARCA} árbitro` && gravados[1].rodada === 1,
+    'importação: grava as 4 novas, numeradas por data, com árbitro e rodada',
+    `${importacao.status} ${importacao.corpo.erro || ''} ${JSON.stringify(gravados)}`
+  );
+
+  const de_novo = await enviarCsv('/importacao-jogos', csv);
+  conferir(
+    // A linha 5, que repetia a 2, agora também casa com o jogo gravado
+    de_novo.status === 200 && de_novo.corpo.resumo.novas === 0 && de_novo.corpo.resumo.existentes === 5
+      && await contarJogos() === 4,
+    'reimportar o mesmo arquivo não duplica: tudo já existe, nada gravado',
+    `${de_novo.status} ${JSON.stringify(de_novo.corpo.resumo)}`
+  );
+
+  // Grupo em branco (a tabela do chefe não traz grupo, 20/10/2026): vale o
+  // grupo das equipes; grupos diferentes e equipe fora da competição são erro.
+  // Só prévia: não grava nada.
+  const [[dois]] = await db.query(
+    `SELECT c.id, m.nome AS modalidade, cat.nome AS categoria, c.genero
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+      WHERE (SELECT COUNT(DISTINCT e.grupo_id) FROM equipes e WHERE e.competicao_id = c.id) >= 2
+      ORDER BY c.id LIMIT 1`
+  );
+  const [doDois] = await db.query(
+    `SELECT esc.nome, g.nome AS grupo FROM equipes e
+       INNER JOIN escolas esc ON esc.id = e.escola_id
+       INNER JOIN grupos g ON g.id = e.grupo_id
+      WHERE e.competicao_id = ? ORDER BY g.nome, e.id`,
+    [dois.id]
+  );
+  const [[fora]] = await db.query(
+    'SELECT nome FROM escolas WHERE id NOT IN (SELECT escola_id FROM equipes WHERE competicao_id = ?) ORDER BY id LIMIT 1',
+    [dois.id]
+  );
+  const [a1, a2] = doDois.filter((e) => e.grupo === doDois[0].grupo);
+  const b1 = doDois.find((e) => e.grupo !== doDois[0].grupo);
+  const semGrupo = (eq1, eq2) => [dois.modalidade, dois.categoria, dois.genero, '', eq1, eq2,
+    '20/11/2026', '05:13', '', '', ''].join(';');
+  const grupoVazio = await enviarCsv('/importacao-jogos/previa', [
+    'Modalidade;Categoria;Gênero;Grupo;Equipe 1;Equipe 2;Data;Hora;Local;Rodada;Árbitro',
+    semGrupo(a1.nome, a2.nome), // 2: mesmo grupo
+    semGrupo(a1.nome, b1.nome), // 3: grupos diferentes
+    semGrupo(fora.nome, a1.nome) // 4: escola fora da competição
+  ].join('\r\n'));
+  const gv = (n) => (grupoVazio.corpo.linhas || []).find((l) => l.linha === n) || { erros: [] };
+  conferir(
+    gv(2).situacao === 'NOVA' && gv(2).grupo === a1.grupo
+      && gv(3).situacao === 'ERRO' && gv(3).erros.some((e) => e.includes('grupos diferentes'))
+      && gv(4).situacao === 'ERRO' && gv(4).erros.some((e) => e.includes('não joga')),
+    'grupo em branco: vale o das equipes; grupos diferentes e equipe fora da competição são erro',
+    JSON.stringify(grupoVazio.corpo.resumo || grupoVazio.corpo)
+  );
+
+  const semColuna = await enviarCsv('/importacao-jogos/previa', 'Modalidade;Categoria\r\nFutsal;Sub 8');
+  conferir(
+    semColuna.status === 400 && (semColuna.corpo.erro || '').includes('Faltam colunas'),
+    'cabeçalho sem as colunas -> 400 dizendo quais faltam'
+  );
+};
+
+
+// ---------------------------------------------------------------------------
+// Pontos lançados — sem uso desde 12/11/2026: o atletismo (db/37) e o
+// tabuleiro (db/38) passaram a ser lançados por colocação. A leitura segue
+// pública; lançar e apagar pontos de qualquer um dos quatro responde 400, e o
+// que estiver gravado não soma na Tabela Geral.
+// ---------------------------------------------------------------------------
+const comToken = async (tok, metodo, caminho, corpo) => {
+  const resposta = await fetch(`${API}${caminho}`, {
+    method: metodo,
+    headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+    ...(corpo ? { body: JSON.stringify(corpo) } : {})
+  });
+  return { status: resposta.status, corpo: await resposta.json().catch(() => ({})) };
+};
+
+const testarPontosLancadosRecusados = async () => {
+  secao('-- pontos lançados (sem uso: atletismo e tabuleiro são por colocação)');
+
+  // A conta de mesa do teste (o atletismo e o tabuleiro usam para o 403)
+  await db.query('INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, ?)',
+    [`Mesa (${MARCA})`, EMAIL_MESA, bcrypt.hashSync(SENHA, 10), 'PLACAR']);
+  const mesa = (await exigir('POST', '/login', { email: EMAIL_MESA, senha: SENHA }, 'login da mesa')).token;
+
+  const publica = await comToken(null, 'GET', '/pontos-lancados');
+  conferir(publica.status === 200 && Array.isArray(publica.corpo.lancamentos), 'a leitura dos pontos lançados segue pública', `${publica.status}`);
+
+  const [[categoria]] = await db.query("SELECT id FROM categorias WHERE nome = 'Sub 13'");
+  const [[escola]] = await db.query('SELECT id FROM escolas ORDER BY id LIMIT 1');
+  const respostas = [];
+  for (const jogo of ['xadrez', 'dama', 'domino']) {
+    for (const genero of ['MASCULINO', 'FEMININO']) {
+      const corpo = { modalidade: jogo, categoria_id: categoria.id, genero, linhas: [{ escola_id: escola.id, pontos: 5 }], base: [] };
+      respostas.push({ jogo, quem: 'ADMIN', ...(await comToken(token, 'PUT', '/pontos-lancados', corpo)) });
+      respostas.push({ jogo, quem: 'mesa', ...(await comToken(mesa, 'PUT', '/pontos-lancados', corpo)) });
+    }
+    respostas.push({ jogo, quem: 'ADMIN (apagar)', ...(await comToken(token, 'DELETE', `/pontos-lancados/${jogo}/${categoria.id}/MASCULINO`)) });
+  }
+  conferir(
+    respostas.every((r) => r.status === 400 && /passou a ser lançad[oa] por colocação/.test(r.corpo.erro || '')),
+    'xadrez, dama e dominó: lançar (ADMIN e mesa) e apagar pontos -> 400, explicando que agora é por colocação',
+    respostas.filter((r) => r.status !== 400).map((r) => `${r.jogo} ${r.quem} ${r.status}`).join(', ')
+  );
+  const semLogin = await comToken(null, 'PUT', '/pontos-lancados', { modalidade: 'xadrez', categoria_id: categoria.id, genero: 'MASCULINO', linhas: [], base: [] });
+  conferir(semLogin.status === 401, 'sem login continua 401', `${semLogin.status}`);
+  const [[gravados]] = await db.query('SELECT COUNT(*) AS n FROM pontos_lancados p INNER JOIN usuarios u ON u.id = p.criado_por WHERE u.email IN (?)', [[EMAIL, EMAIL_MESA]]);
+  conferir(Number(gravados.n) === 0, 'nada foi gravado em pontos_lancados pelo teste', `${gravados.n}`);
+};
+
+// Tabuleiro por colocação (db/38, 12/11/2026): xadrez, dama e dominó, MISTO;
+// o ADMIN lança o 1º, o 2º e o 3º de cada jogo + categoria; valem a pontuação
+// das coletivas (10, 8 e 6) e contam medalha. Pontos antigos não somam.
+const testarTabuleiroPorColocacao = async () => {
+  secao('-- tabuleiro por colocação');
+
+  const mesa = (await exigir('POST', '/login', { email: EMAIL_MESA, senha: SENHA }, 'login da mesa')).token;
+  const rota = '/tabuleiro-colocacoes';
+
+  const publica = await comToken(null, 'GET', rota);
+  const cfg = publica.corpo.configuracao || {};
+  conferir(
+    publica.status === 200 && Array.isArray(publica.corpo.resultados)
+      && (cfg.jogos || []).map((j) => `${j.slug}:${j.nome}`).join() === 'xadrez:Xadrez,dama:Dama,domino:Dominó'
+      && (cfg.categorias || []).map((c) => c.nome).join() === 'Sub 8,Sub 9,Sub 11,Sub 13,Sub 15,Sub 17,Aberto'
+      && cfg.genero === 'MISTO'
+      && (cfg.pontuacao || []).map((x) => `${x.posicao}:${x.pontos}`).join() === '1:10,2:8,3:6',
+    'leitura pública: Xadrez, Dama e Dominó, Sub 8 a Aberto, gênero MISTO e 10/8/6',
+    `${publica.status} ${JSON.stringify(cfg).slice(0, 300)}`
+  );
+
+  // Um jogo + categoria ainda sem resultado
+  const ocupados = new Set(publica.corpo.resultados.map((r) => `${r.jogo}|${r.categoria_id}`));
+  const sub13 = cfg.categorias.find((c) => c.nome === 'Sub 13');
+  const jogo = ['xadrez', 'dama', 'domino'].find((j) => !ocupados.has(`${j}|${sub13.id}`));
+  const outroJogo = ['xadrez', 'dama', 'domino'].find((j) => j !== jogo && !ocupados.has(`${j}|${sub13.id}`));
+  if (!jogo || !outroJogo) throw new Error('Não achei jogo livre no Sub 13 para o teste do tabuleiro.');
+  const nomeDo = (slug) => cfg.jogos.find((j) => j.slug === slug).nome;
+  const ROTULO = `${nomeDo(jogo)} Sub 13`;
+
+  const [[e1], [e2], [e3], [e4]] = await Promise.all([0, 1, 2, 3].map((n) =>
+    db.query('SELECT id, nome FROM escolas ORDER BY id LIMIT 1 OFFSET ?', [n]).then(([l]) => l)));
+  const recorte = { jogo, categoria_id: sub13.id };
+  const linhaDe = (tabela, escola) => tabela.geral.find((e) => e.escola_id === escola.id)
+    || { pontos: 0, primeiros: 0, segundos: 0, terceiros: 0, origens: [] };
+  const tabelaAntes = await exigir('GET', '/tabela-geral', null, 'a tabela geral antes do tabuleiro');
+  const antes = [e1, e2, e3, e4].map((e) => linhaDe(tabelaAntes, e));
+
+  // 401 e 403
+  const corpo1 = { ...recorte, colocacao: 1, escola_id: e1.id, atleta_nome: '  Fulano   de Tal ' };
+  const semLogin = await comToken(null, 'POST', rota, corpo1);
+  const daMesa = await comToken(mesa, 'POST', rota, corpo1);
+  const podioSemLogin = await comToken(null, 'PUT', `${rota}/podio`, { ...recorte, linhas: [corpo1] });
+  const podioDaMesa = await comToken(mesa, 'PUT', `${rota}/podio`, { ...recorte, linhas: [corpo1] });
+  conferir(semLogin.status === 401 && daMesa.status === 403 && podioSemLogin.status === 401 && podioDaMesa.status === 403,
+    'lançar sem login -> 401; a mesa (PLACAR) -> 403', `${semLogin.status} ${daMesa.status} ${podioSemLogin.status} ${podioDaMesa.status}`);
+
+  // Validação
+  const [[futsal]] = await db.query("SELECT id FROM modalidades WHERE slug = 'futsal'");
+  const [[sub7]] = await db.query("SELECT id FROM categorias WHERE nome = 'Sub 7'");
+  const invalidas = await Promise.all([
+    chamar('POST', rota, { ...corpo1, colocacao: 4 }),
+    chamar('POST', rota, { ...corpo1, colocacao: 0 }),
+    chamar('POST', rota, { ...corpo1, escola_id: 99999999 }),
+    chamar('POST', rota, { ...corpo1, jogo: 'futsal' }),
+    chamar('POST', rota, { ...corpo1, jogo: undefined, modalidade_id: futsal.id }),
+    chamar('POST', rota, { ...corpo1, jogo: 'atletismo' }),
+    chamar('POST', rota, { ...corpo1, categoria_id: sub7.id }),
+    chamar('POST', rota, { ...corpo1, categoria_id: 99999999 })
+  ]);
+  conferir(invalidas.every((r) => r.status === 400),
+    'colocação fora de 1 a 3, escola inexistente, jogo fora dos três (futsal, atletismo) e categoria fora do tabuleiro (Sub 7) -> 400',
+    invalidas.map((r) => `${r.status} ${r.corpo.erro || ''}`).join(' | '));
+
+  // Lançar
+  const primeiro = await chamar('POST', rota, corpo1);
+  conferir(primeiro.status === 201 && primeiro.corpo.resultado?.colocacao === 1 && primeiro.corpo.resultado?.atleta_nome === 'Fulano de Tal'
+      && primeiro.corpo.resultado?.genero === 'MISTO' && primeiro.corpo.resultado?.jogo === jogo
+      && primeiro.corpo.mensagem === `1º lugar de ${ROTULO} lançado.`,
+    `o ADMIN lança o 1º lugar de ${ROTULO} (misto; nome do atleta com os espaços arrumados)`, `${primeiro.status} ${primeiro.corpo.erro || primeiro.corpo.mensagem}`);
+  const id1 = primeiro.corpo.resultado?.id;
+
+  // Colocação repetida (sem empate) e a mesma escola duas vezes
+  const repetida = await chamar('POST', rota, { ...recorte, colocacao: 1, escola_id: e2.id });
+  conferir(repetida.status === 409 && repetida.corpo.erro === `${ROTULO} já tem o 1º lugar (${e1.nome}). Não há empate: edite ou apague esse resultado antes.`,
+    'colocação repetida no mesmo jogo + categoria -> 409, dizendo quem já é o 1º', `${repetida.status} ${repetida.corpo.erro}`);
+  const mesmaEscola = await chamar('POST', rota, { ...recorte, colocacao: 2, escola_id: e1.id });
+  conferir(mesmaEscola.status === 409 && mesmaEscola.corpo.erro === `${e1.nome} já está em ${ROTULO}, no 1º lugar. Cada escola tem um atleta só por jogo e categoria.`,
+    'a mesma escola em duas colocações do mesmo jogo + categoria -> 409', `${mesmaEscola.status} ${mesmaEscola.corpo.erro}`);
+
+  // O mesmo 1º lugar em outro jogo é outro pódio
+  const outro = await chamar('POST', rota, { jogo: outroJogo, categoria_id: sub13.id, colocacao: 1, escola_id: e1.id });
+  conferir(outro.status === 201, `a mesma escola em 1º no ${nomeDo(outroJogo)} Sub 13 é outro pódio`, `${outro.status} ${outro.corpo.erro || ''}`);
+
+  const segundo = await chamar('POST', rota, { ...recorte, colocacao: 2, escola_id: e2.id, atleta_nome: 'Beltrano' });
+  const terceiro = await chamar('POST', rota, { ...recorte, colocacao: 3, escola_id: e3.id });
+  conferir(segundo.status === 201 && terceiro.status === 201 && terceiro.corpo.resultado?.atleta_nome === null,
+    '2º e 3º lançados (o nome do atleta é opcional)', `${segundo.status} ${terceiro.status}`);
+
+  // Tabela Geral: 10 / 8 / 6 e as medalhas
+  const tabela = await exigir('GET', '/tabela-geral', null, 'a tabela geral com o tabuleiro');
+  const depois = [e1, e2, e3].map((e) => linhaDe(tabela, e));
+  const origem = depois[1].origens.find((o) => o.tabuleiro && o.modalidade_nome === nomeDo(jogo));
+  conferir(
+    depois[0].pontos === antes[0].pontos + 20 && depois[0].primeiros === antes[0].primeiros + 2
+      && depois[1].pontos === antes[1].pontos + 8 && depois[1].segundos === antes[1].segundos + 1
+      && depois[2].pontos === antes[2].pontos + 6 && depois[2].terceiros === antes[2].terceiros + 1
+      && origem?.posicao === 2 && origem?.pontos === 8 && origem?.categoria_nome === 'Sub 13' && origem?.genero === 'MISTO'
+      && origem?.atleta_nome === 'Beltrano' && tabela.regras.tabuleiro?.conta_medalha === true,
+    'Tabela Geral: 1º = 10 (dois jogos), 2º = 8, 3º = 6, com as medalhas e a origem (jogo, categoria, misto, atleta) na abertura',
+    `${depois.map((d, i) => `${antes[i].pontos}->${d.pontos}`).join(' ')} ${JSON.stringify(origem)}`
+  );
+
+  // Editar: uma colocação (PUT /:id) e o pódio inteiro (troca o 1º com o 2º)
+  const editaEscolaRepetida = await chamar('PUT', `${rota}/${id1}`, { escola_id: e2.id });
+  const editaColocacaoRepetida = await chamar('PUT', `${rota}/${id1}`, { colocacao: 2 });
+  conferir(editaEscolaRepetida.status === 409 && editaColocacaoRepetida.status === 409,
+    'editar para uma escola ou colocação já usada no jogo -> 409', `${editaEscolaRepetida.status} ${editaColocacaoRepetida.status}`);
+  const edita = await chamar('PUT', `${rota}/${id1}`, { escola_id: e4.id, atleta_nome: 'Ciclano' });
+  const aposEditar = await exigir('GET', '/tabela-geral', null, 'a tabela geral depois de editar');
+  conferir(
+    edita.status === 200 && edita.corpo.resultado?.escola_id === e4.id && edita.corpo.resultado?.jogo === jogo && edita.corpo.resultado?.alterado_em
+      && linhaDe(aposEditar, e1).pontos === antes[0].pontos + 10 && linhaDe(aposEditar, e4).pontos === antes[3].pontos + 10,
+    'editar o 1º lugar (outra escola): o jogo fica, e os 10 pontos mudam de escola na Tabela Geral', `${edita.status} ${edita.corpo.erro || ''}`);
+
+  const linhasPodio = [
+    { colocacao: 1, escola_id: e2.id, atleta_nome: 'Beltrano' },
+    { colocacao: 2, escola_id: e4.id, atleta_nome: 'Ciclano' },
+    { colocacao: 3, escola_id: e3.id }
+  ];
+  const podioEscolaDupla = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [linhasPodio[0], { colocacao: 2, escola_id: e2.id }] });
+  const podioEmpate = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [linhasPodio[0], { colocacao: 1, escola_id: e3.id }] });
+  const podioVazio = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [] });
+  conferir(podioEscolaDupla.status === 409 && podioEmpate.status === 409 && podioVazio.status === 400,
+    'pódio com a mesma escola duas vezes ou com empate -> 409; pódio vazio -> 400',
+    `${podioEscolaDupla.status} ${podioEmpate.status} ${podioVazio.status}`);
+  const podio = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: linhasPodio });
+  const aposPodio = await exigir('GET', '/tabela-geral', null, 'a tabela geral depois do pódio');
+  conferir(
+    podio.status === 200 && podio.corpo.resultados?.map((r) => `${r.colocacao}:${r.escola_id}`).join() === `1:${e2.id},2:${e4.id},3:${e3.id}`
+      && linhaDe(aposPodio, e2).pontos === antes[1].pontos + 10 && linhaDe(aposPodio, e4).pontos === antes[3].pontos + 8,
+    'salvar o pódio inteiro troca o 1º com o 2º numa transação só', `${podio.status} ${podio.corpo.erro || ''}`);
+
+  // Ponto antigo do tabuleiro gravado em pontos_lancados NÃO soma
+  const [[modalidade]] = await db.query('SELECT id FROM modalidades WHERE slug = ?', [jogo]);
+  const [[usuario]] = await db.query('SELECT id FROM usuarios WHERE email = ?', [EMAIL]);
+  await db.query(
+    'INSERT INTO pontos_lancados (modalidade_id, categoria_id, genero, escola_id, pontos, colocacao, criado_por) VALUES (?, ?, ?, ?, 9, 1, ?)',
+    [modalidade.id, sub13.id, 'MASCULINO', e1.id, usuario.id]
+  );
+  const comAntigo = await exigir('GET', '/tabela-geral', null, 'a tabela geral com ponto antigo do tabuleiro');
+  conferir(linhaDe(comAntigo, e1).pontos === linhaDe(aposPodio, e1).pontos
+      && !linhaDe(comAntigo, e1).origens.some((o) => o.lancado),
+    'ponto antigo do tabuleiro gravado em pontos_lancados NÃO soma (não conta duas vezes)',
+    `${linhaDe(aposPodio, e1).pontos} -> ${linhaDe(comAntigo, e1).pontos}`);
+  await db.query('DELETE FROM pontos_lancados WHERE modalidade_id = ? AND criado_por = ?', [modalidade.id, usuario.id]);
+
+  // O atletismo não vê o tabuleiro, e vice-versa
+  const atletismo = await exigir('GET', '/atletismo-colocacoes', null, 'listar o atletismo');
+  conferir(!atletismo.resultados.some((r) => r.prova === nomeDo(jogo)), 'os resultados do tabuleiro não aparecem no atletismo');
+
+  // Apagar
+  const apagaMesa = await comToken(mesa, 'DELETE', `${rota}/${id1}`);
+  const apagaSemLogin = await comToken(null, 'DELETE', `${rota}/${id1}`);
+  conferir(apagaMesa.status === 403 && apagaSemLogin.status === 401, 'apagar: a mesa -> 403, sem login -> 401', `${apagaMesa.status} ${apagaSemLogin.status}`);
+  const lista = await exigir('GET', rota, null, 'listar o tabuleiro');
+  const meus = lista.resultados.filter((r) => r.categoria_id === sub13.id && (r.jogo === jogo || r.jogo === outroJogo));
+  conferir(meus.length === 4, 'a lista pública traz os 4 resultados', `${meus.length}`);
+  for (const r of meus) await exigir('DELETE', `${rota}/${r.id}`, null, 'apagar resultado do tabuleiro');
+  const inexistente = await chamar('DELETE', `${rota}/${meus[0].id}`);
+  const final = await exigir('GET', '/tabela-geral', null, 'a tabela geral sem o tabuleiro');
+  conferir(
+    inexistente.status === 404 && [e1, e2, e3, e4].every((e, i) => linhaDe(final, e).pontos === antes[i].pontos
+      && linhaDe(final, e).primeiros === antes[i].primeiros),
+    'apagados os resultados, a Tabela Geral volta ao que era (e apagar de novo -> 404)', `${inexistente.status}`);
+};
+
+// Atletismo por colocação (db/37, 12/11/2026): o ADMIN lança o 1º, o 2º e o
+// 3º de cada prova + categoria + gênero; valem a pontuação das coletivas
+// (10, 8 e 6) e contam medalha. A rota antiga (pontos por escola) recusa.
+const testarAtletismoPorColocacao = async () => {
+  secao('-- atletismo por colocação');
+
+  const mesa = (await exigir('POST', '/login', { email: EMAIL_MESA, senha: SENHA }, 'login da mesa')).token;
+  const PROVA = `${MARCA} 100 m rasos`;
+  const rota = '/atletismo-colocacoes';
+
+  const publica = await comToken(null, 'GET', rota);
+  const cfg = publica.corpo.configuracao || {};
+  conferir(
+    publica.status === 200 && Array.isArray(publica.corpo.resultados)
+      && (cfg.categorias || []).map((c) => c.nome).join() === 'Sub 7,Sub 8,Sub 9,Sub 11,Sub 13,Sub 15,Sub 17,Aberto'
+      && (cfg.generos || []).join() === 'MASCULINO,FEMININO'
+      && (cfg.pontuacao || []).map((x) => `${x.posicao}:${x.pontos}`).join() === '1:10,2:8,3:6'
+      && ['Corrida 50 metros', 'Salto em distância', 'Corrida 100 metros'].every((s) => cfg.provas_sugeridas.includes(s))
+      && cfg.provas_por_categoria['Sub 8'].join() === 'Corrida 50 metros'
+      && cfg.provas_por_categoria['Sub 13'].join() === 'Salto em distância,Corrida 100 metros',
+    'leitura pública: Sub 7 a Aberto, masculino e feminino, 10/8/6 e as provas do regulamento como sugestão',
+    `${publica.status} ${JSON.stringify(cfg).slice(0, 300)}`
+  );
+
+  const sub13 = cfg.categorias.find((c) => c.nome === 'Sub 13');
+  const [[e1], [e2], [e3], [e4]] = await Promise.all([0, 1, 2, 3].map((n) =>
+    db.query('SELECT id, nome FROM escolas ORDER BY id LIMIT 1 OFFSET ?', [n]).then(([l]) => l)));
+  const recorte = { prova: PROVA, categoria_id: sub13.id, genero: 'MASCULINO' };
+  const linhaDe = (tabela, escola) => tabela.geral.find((e) => e.escola_id === escola.id)
+    || { pontos: 0, primeiros: 0, segundos: 0, terceiros: 0, origens: [] };
+  const tabelaAntes = await exigir('GET', '/tabela-geral', null, 'a tabela geral antes do atletismo');
+  const antes = [e1, e2, e3, e4].map((e) => linhaDe(tabelaAntes, e));
+
+  // 401 e 403
+  const corpo1 = { ...recorte, colocacao: 1, escola_id: e1.id, atleta_nome: '  Fulano   de Tal ' };
+  const semLogin = await comToken(null, 'POST', rota, corpo1);
+  const daMesa = await comToken(mesa, 'POST', rota, corpo1);
+  const podioSemLogin = await comToken(null, 'PUT', `${rota}/podio`, { ...recorte, linhas: [corpo1] });
+  const podioDaMesa = await comToken(mesa, 'PUT', `${rota}/podio`, { ...recorte, linhas: [corpo1] });
+  conferir(semLogin.status === 401 && daMesa.status === 403 && podioSemLogin.status === 401 && podioDaMesa.status === 403,
+    'lançar sem login -> 401; a mesa (PLACAR) -> 403', `${semLogin.status} ${daMesa.status} ${podioSemLogin.status} ${podioDaMesa.status}`);
+
+  // Validação
+  const invalidas = await Promise.all([
+    chamar('POST', rota, { ...corpo1, colocacao: 4 }),
+    chamar('POST', rota, { ...corpo1, colocacao: 0 }),
+    chamar('POST', rota, { ...corpo1, escola_id: 99999999 }),
+    chamar('POST', rota, { ...corpo1, prova: '   ' }),
+    chamar('POST', rota, { ...corpo1, genero: 'MISTO' }),
+    chamar('POST', rota, { ...corpo1, categoria_id: 99999999 })
+  ]);
+  conferir(invalidas.every((r) => r.status === 400),
+    'colocação fora de 1 a 3, escola inexistente, prova vazia, gênero MISTO e categoria inválida -> 400',
+    invalidas.map((r) => r.status).join(' '));
+
+  // Lançar
+  const primeiro = await chamar('POST', rota, corpo1);
+  conferir(primeiro.status === 201 && primeiro.corpo.resultado?.colocacao === 1 && primeiro.corpo.resultado?.atleta_nome === 'Fulano de Tal'
+      && primeiro.corpo.resultado?.escola_nome === e1.nome,
+    'o ADMIN lança o 1º lugar (nome do atleta em texto livre, com os espaços arrumados)', `${primeiro.status} ${primeiro.corpo.erro || ''}`);
+  const id1 = primeiro.corpo.resultado?.id;
+
+  // Colocação repetida (sem empate) e a mesma escola duas vezes
+  const repetida = await chamar('POST', rota, { ...recorte, colocacao: 1, escola_id: e2.id });
+  conferir(repetida.status === 409 && /já tem o 1º lugar/.test(repetida.corpo.erro || '') && (repetida.corpo.erro || '').includes(e1.nome),
+    'colocação repetida na mesma prova + categoria + gênero -> 409, dizendo quem já é o 1º', `${repetida.status} ${repetida.corpo.erro}`);
+  const mesmaEscola = await chamar('POST', rota, { ...recorte, colocacao: 2, escola_id: e1.id });
+  conferir(mesmaEscola.status === 409 && /um atleta só por prova/.test(mesmaEscola.corpo.erro || ''),
+    'a mesma escola em duas colocações da mesma prova -> 409 (1 atleta por escola)', `${mesmaEscola.status} ${mesmaEscola.corpo.erro}`);
+  const outraGrafia = await chamar('POST', rota, { ...recorte, prova: PROVA.toUpperCase() + '  ', colocacao: 1, escola_id: e2.id });
+  conferir(outraGrafia.status === 409, 'a mesma prova com outra grafia (maiúsculas, espaços) é a mesma prova -> 409', `${outraGrafia.status}`);
+
+  // A mesma colocação em outro gênero ou outra categoria é outro pódio
+  const feminino = await chamar('POST', rota, { ...recorte, genero: 'FEMININO', colocacao: 1, escola_id: e1.id });
+  conferir(feminino.status === 201, 'a mesma prova no feminino é outro pódio (1º lugar aceito)', `${feminino.status} ${feminino.corpo.erro || ''}`);
+
+  const segundo = await chamar('POST', rota, { ...recorte, colocacao: 2, escola_id: e2.id, atleta_nome: 'Beltrano' });
+  const terceiro = await chamar('POST', rota, { ...recorte, colocacao: 3, escola_id: e3.id });
+  conferir(segundo.status === 201 && terceiro.status === 201 && terceiro.corpo.resultado?.atleta_nome === null,
+    '2º e 3º lançados (o nome do atleta é opcional)', `${segundo.status} ${terceiro.status}`);
+
+  // Tabela Geral: 10 / 8 / 6 e as medalhas
+  const tabela = await exigir('GET', '/tabela-geral', null, 'a tabela geral com o atletismo');
+  const depois = [e1, e2, e3].map((e) => linhaDe(tabela, e));
+  const origem = depois[1].origens.find((o) => o.atletismo && o.prova === PROVA);
+  conferir(
+    depois[0].pontos === antes[0].pontos + 20 && depois[0].primeiros === antes[0].primeiros + 2
+      && depois[1].pontos === antes[1].pontos + 8 && depois[1].segundos === antes[1].segundos + 1
+      && depois[2].pontos === antes[2].pontos + 6 && depois[2].terceiros === antes[2].terceiros + 1
+      && origem?.posicao === 2 && origem?.pontos === 8 && origem?.modalidade_nome === 'Atletismo' && origem?.categoria_nome === 'Sub 13'
+      && tabela.regras.atletismo?.conta_medalha === true,
+    'Tabela Geral: 1º = 10 (duas vezes: masculino e feminino), 2º = 8, 3º = 6, com as medalhas e a origem na abertura',
+    `${depois.map((d, i) => `${antes[i].pontos}->${d.pontos}`).join(' ')} ${JSON.stringify(origem)}`
+  );
+
+  // Editar: uma colocação (PUT /:id) e o pódio inteiro (troca o 1º com o 2º)
+  const editaEscolaRepetida = await chamar('PUT', `${rota}/${id1}`, { escola_id: e2.id });
+  const editaColocacaoRepetida = await chamar('PUT', `${rota}/${id1}`, { colocacao: 2 });
+  conferir(editaEscolaRepetida.status === 409 && editaColocacaoRepetida.status === 409,
+    'editar para uma escola ou colocação já usada na prova -> 409', `${editaEscolaRepetida.status} ${editaColocacaoRepetida.status}`);
+  const edita = await chamar('PUT', `${rota}/${id1}`, { escola_id: e4.id, atleta_nome: 'Ciclano' });
+  const aposEditar = await exigir('GET', '/tabela-geral', null, 'a tabela geral depois de editar');
+  conferir(
+    edita.status === 200 && edita.corpo.resultado?.escola_id === e4.id && edita.corpo.resultado?.alterado_em
+      && linhaDe(aposEditar, e1).pontos === antes[0].pontos + 10 && linhaDe(aposEditar, e4).pontos === antes[3].pontos + 10,
+    'editar o 1º lugar (outra escola): os 10 pontos mudam de escola na Tabela Geral', `${edita.status} ${edita.corpo.erro || ''}`);
+
+  const linhasPodio = [
+    { colocacao: 1, escola_id: e2.id, atleta_nome: 'Beltrano' },
+    { colocacao: 2, escola_id: e4.id, atleta_nome: 'Ciclano' },
+    { colocacao: 3, escola_id: e3.id }
+  ];
+  const podioEscolaDupla = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [linhasPodio[0], { colocacao: 2, escola_id: e2.id }] });
+  const podioEmpate = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [linhasPodio[0], { colocacao: 1, escola_id: e3.id }] });
+  const podioVazio = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [] });
+  conferir(podioEscolaDupla.status === 409 && podioEmpate.status === 409 && podioVazio.status === 400,
+    'pódio com a mesma escola duas vezes ou com empate -> 409; pódio vazio -> 400',
+    `${podioEscolaDupla.status} ${podioEmpate.status} ${podioVazio.status}`);
+  const podio = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: linhasPodio });
+  const aposPodio = await exigir('GET', '/tabela-geral', null, 'a tabela geral depois do pódio');
+  conferir(
+    podio.status === 200 && podio.corpo.resultados?.map((r) => `${r.colocacao}:${r.escola_id}`).join() === `1:${e2.id},2:${e4.id},3:${e3.id}`
+      && linhaDe(aposPodio, e2).pontos === antes[1].pontos + 10 && linhaDe(aposPodio, e4).pontos === antes[3].pontos + 8,
+    'salvar o pódio inteiro troca o 1º com o 2º numa transação só', `${podio.status} ${podio.corpo.erro || ''}`);
+
+  // Rota antiga: não aceita mais pontos de atletismo, e o que estiver gravado não soma
+  const [[atletismo]] = await db.query("SELECT id FROM modalidades WHERE slug = 'atletismo'");
+  const [[prova]] = await db.query('SELECT id FROM provas_atletismo ORDER BY id LIMIT 1');
+  const antiga = await chamar('PUT', '/pontos-lancados', {
+    modalidade: 'atletismo', categoria_id: sub13.id, genero: 'MASCULINO', prova_id: prova.id,
+    linhas: [{ escola_id: e1.id, pontos: 10 }], base: []
+  });
+  const antigaApagar = await chamar('DELETE', `/pontos-lancados/atletismo/${sub13.id}/MASCULINO?prova_id=${prova.id}`);
+  conferir(antiga.status === 400 && /por colocação/.test(antiga.corpo.erro || '') && antigaApagar.status === 400,
+    'a rota antiga recusa pontos de atletismo (400, com a explicação)', `${antiga.status} ${antiga.corpo.erro} / ${antigaApagar.status}`);
+  const [[usuario]] = await db.query('SELECT id FROM usuarios WHERE email = ?', [EMAIL]);
+  await db.query(
+    'INSERT INTO pontos_lancados (modalidade_id, categoria_id, genero, prova_id, escola_id, pontos, criado_por) VALUES (?, ?, ?, ?, ?, 9, ?)',
+    [atletismo.id, sub13.id, 'MASCULINO', prova.id, e1.id, usuario.id]
+  );
+  const comAntigo = await exigir('GET', '/tabela-geral', null, 'a tabela geral com ponto antigo de atletismo');
+  conferir(linhaDe(comAntigo, e1).pontos === linhaDe(aposPodio, e1).pontos
+      && !linhaDe(comAntigo, e1).origens.some((o) => o.lancado && o.modalidade_nome === 'Atletismo'),
+    'ponto antigo de atletismo gravado em pontos_lancados NÃO soma (o atletismo não conta duas vezes)',
+    `${linhaDe(aposPodio, e1).pontos} -> ${linhaDe(comAntigo, e1).pontos}`);
+  await db.query('DELETE FROM pontos_lancados WHERE modalidade_id = ? AND criado_por = ?', [atletismo.id, usuario.id]);
+
+  // Apagar
+  const apagaMesa = await comToken(mesa, 'DELETE', `${rota}/${id1}`);
+  const apagaSemLogin = await comToken(null, 'DELETE', `${rota}/${id1}`);
+  conferir(apagaMesa.status === 403 && apagaSemLogin.status === 401, 'apagar: a mesa -> 403, sem login -> 401', `${apagaMesa.status} ${apagaSemLogin.status}`);
+  const lista = await exigir('GET', rota, null, 'listar o atletismo');
+  const meus = lista.resultados.filter((r) => r.prova === PROVA);
+  conferir(meus.length === 4 && lista.configuracao.provas_sugeridas.includes(PROVA),
+    'a lista pública traz os 4 resultados, e a prova digitada vira sugestão', `${meus.length}`);
+  for (const r of meus) await exigir('DELETE', `${rota}/${r.id}`, null, 'apagar resultado do atletismo');
+  const inexistente = await chamar('DELETE', `${rota}/${meus[0].id}`);
+  const final = await exigir('GET', '/tabela-geral', null, 'a tabela geral sem o atletismo');
+  conferir(
+    inexistente.status === 404 && [e1, e2, e3, e4].every((e, i) => linhaDe(final, e).pontos === antes[i].pontos
+      && linhaDe(final, e).primeiros === antes[i].primeiros),
+    'apagados os resultados, a Tabela Geral volta ao que era (e apagar de novo -> 404)', `${inexistente.status}`);
+};
+
+// ---------------------------------------------------------------------------
+// Importação de atletas por CSV (28/10/2026) — pela API, com a planilha
+// fictícia de docs/importacao (RGs com a marca do teste)
+// ---------------------------------------------------------------------------
+// Prévia linha a linha sem gravar, confirmar só com as linhas OK, tudo ou nada
+// quando o banco falha no meio, reimportação que pula quem já existe sem
+// alterar ninguém, a escola escolhida na tela e o 403 para quem não é ADMIN.
+const testarImportacaoDeAtletas = async () => {
+  secao('-- importação de atletas por CSV');
+
+  // A planilha fictícia, com os RGs marcados (a limpeza apaga por "FUMACA%")
+  // e o BOM que o Excel põe no começo do arquivo
+  const fs = require('fs');
+  const path = require('path');
+  const original = fs.readFileSync(path.join(__dirname, '..', 'docs', 'importacao', 'exemplo_atletas_ficticio.csv'), 'utf8');
+  const marcarRg = (linha, i) => {
+    if (i === 0 || !linha.trim()) return linha;
+    const campos = linha.split(';');
+    if (campos[2].trim()) campos[2] = `${MARCA}${campos[2]}`;
+    return campos.join(';');
+  };
+  const planilha = `\uFEFF${original.split(/\r?\n/).map(marcarRg).join('\n')}`;
+
+  const enviar = async (acao, csv, query = '', tok = token) => {
+    const resposta = await fetch(`${API}/importar-atletas/${acao}${query}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/csv', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+      body: csv
+    });
+    return { status: resposta.status, corpo: await resposta.json().catch(() => ({})) };
+  };
+  // Só os RGs da planilha: o resto do passeio também cria atletas com a marca
+  const contarMarcados = async () => (await db.query(
+    `SELECT (SELECT COUNT(*) FROM atletas WHERE rg LIKE ?) AS atletas,
+            (SELECT COUNT(*) FROM inscricoes_atletas i INNER JOIN atletas a ON a.id = i.atleta_id
+              WHERE a.rg LIKE ?) AS inscricoes`,
+    [`${MARCA}FIC%`, `${MARCA}FIC%`]
+  ))[0][0];
+
+  // As linhas 14, 33 e 34 testam o teto do elenco (14): a equipe do ACM no Handebol M Sub 8 precisa estar vazia
+  const [[acm]] = await db.query(
+    `SELECT e.id, (SELECT COUNT(*) FROM inscricoes_atletas i WHERE i.equipe_id = e.id) AS inscritos
+       FROM equipes e
+       INNER JOIN escolas es ON es.id = e.escola_id
+       INNER JOIN competicoes c ON c.id = e.competicao_id
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN categorias cat ON cat.id = c.categoria_id
+      WHERE es.nome = 'ACM' AND m.slug = 'handebol' AND cat.nome = 'Sub 8' AND c.genero = 'MASCULINO'`
+  );
+  if (!acm || Number(acm.inscritos) !== 0) {
+    throw new Error('A planilha fictícia precisa da equipe do ACM no Handebol M Sub 8 sem inscritos.');
+  }
+
+  // Sem login: 401. Mesa (PLACAR): 403.
+  await db.query(
+    `INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, 'PLACAR')
+     ON DUPLICATE KEY UPDATE perfil = 'PLACAR', ativo = 1`,
+    [`Mesa (${MARCA})`, EMAIL_MESA, bcrypt.hashSync(SENHA, 10)]
+  );
+  const mesa = (await exigir('POST', '/login', { email: EMAIL_MESA, senha: SENHA }, 'login da mesa')).token;
+  const semLogin = await enviar('previa', planilha, '', null);
+  const daMesa = await enviar('previa', planilha, '', mesa);
+  const mesaConfirma = await enviar('confirmar', planilha, '?apenas_ok=true', mesa);
+  conferir(semLogin.status === 401 && daMesa.status === 403 && mesaConfirma.status === 403,
+    'importar atletas: 401 sem login e 403 para a mesa (prévia e confirmar)',
+    `${semLogin.status} / ${daMesa.status} / ${mesaConfirma.status}`);
+
+  // Prévia: os casos da planilha, sem gravar nada
+  const previa = await enviar('previa', planilha);
+  const r = previa.corpo.resumo || {};
+  conferir(previa.status === 200 && r.linhas === 33 && r.ok === 22 && r.avisos === 1 && r.erros === 10
+    && r.atletas_novos === 20,
+  'prévia (com BOM): 33 linhas, 22 OK, 1 aviso, 10 erros, 20 atletas novos', JSON.stringify(r));
+
+  const linha = (n) => (previa.corpo.linhas || []).find((l) => l.linha === n) || { erros: [], avisos: [] };
+  const motivo = (n) => [...linha(n).erros, ...linha(n).avisos].join(' ');
+  const casos = [
+    [2, 'OK', /^$/, 'categoria pela idade (Handebol Sub 8)'],
+    [14, 'OK', /^$/, 'o 13º atleta da equipe ainda cabe (teto de 14)'],
+    [33, 'OK', /^$/, 'o 14º atleta da equipe ainda cabe (teto de 14)'],
+    [34, 'ERRO', /máximo permitido em Handebol/, 'o 15º atleta estoura o limite da equipe'],
+    [16, 'OK', /^$/, 'categoria escolhida acima da idade (Baleado Sub 11)'],
+    [17, 'AVISO', /Repete a linha 15/, 'mesmo atleta na mesma competição: entra uma vez'],
+    [20, 'ERRO', /2 competições coletivas/, 'terceira competição coletiva'],
+    [21, 'ERRO', /não encontrada/, 'escola errada'],
+    [22, 'ERRO', /aceita nascidos em 2017/, 'idade fora da categoria'],
+    [23, 'ERRO', /Modalidade "Peteca" não encontrada/, 'modalidade inexistente'],
+    [24, 'ERRO', /Gênero "X" inválido/, 'gênero inválido'],
+    [25, 'ERRO', /Nascimento "31\/02\/2016" inválido/, 'nascimento inválido'],
+    [26, 'ERRO', /RG vazio/, 'RG vazio'],
+    [27, 'ERRO', /não tem equipe em Futsal Sub 9 Feminino/, 'escola sem equipe na competição'],
+    [28, 'ERRO', /Mesmo RG da linha 18 com nome diferente/, 'mesmo RG com dados diferentes'],
+    [29, 'OK', /^$/, 'vôlei misto pela idade'],
+    [32, 'OK', /^$/, 'escola e modalidade em minúsculas, RG com espaço, data AAAA-MM-DD']
+  ];
+  const errados = casos.filter(([n, situacao, padrao]) => linha(n).situacao !== situacao || !padrao.test(motivo(n)));
+  conferir(errados.length === 0, 'prévia: cada caso da planilha com a situação e o motivo certos',
+    errados.map(([n]) => `linha ${n}: ${linha(n).situacao} ${motivo(n)}`).join(' | '));
+  conferir(linha(29).competicao === 'Vôlei Sub 15 Misto' && linha(2).categoria_pela_idade && !linha(16).categoria_pela_idade,
+    'prévia: o vôlei cai na competição mista, e a categoria pela idade vem marcada', `${linha(29).competicao}`);
+  const aposPrevia = await contarMarcados();
+  conferir(Number(aposPrevia.atletas) === 0 && Number(aposPrevia.inscricoes) === 0, 'a prévia não grava nada');
+
+  // Exceção autorizada (coluna opcional "Exceção" = SIM): dispensa SÓ a idade da
+  // categoria e o máximo de 2 coletivas, e só na linha marcada
+  const comColunaExcecao = (marcadas, valor = 'SIM') => planilha.split(/\r?\n/)
+    .map((l, i) => (i === 0 ? `${l};Exceção` : (l.trim() ? `${l};${marcadas.includes(i + 1) ? valor : ''}` : l))).join('\n');
+  const exc = await enviar('previa', comColunaExcecao([34, 20, 22, 26]));
+  const lexc = (n) => (exc.corpo.linhas || []).find((l) => l.linha === n) || { erros: [], avisos: [] };
+  const rExc = exc.corpo.resumo || {};
+  conferir(exc.status === 200 && lexc(20).situacao === 'AVISO' && lexc(20).excecao_autorizada
+    && /Exceção autorizada: máximo de 2 competições coletivas/.test(lexc(20).avisos.join(' '))
+    && lexc(22).situacao === 'AVISO' && lexc(22).excecao_autorizada
+    && /Exceção autorizada: idade da categoria/.test(lexc(22).avisos.join(' ')),
+  'exceção SIM: coletivas (linha 20) e idade (linha 22) viram AVISO "exceção autorizada" e entram',
+  `${lexc(20).situacao} ${lexc(20).avisos.join(' ')} / ${lexc(22).situacao} ${lexc(22).avisos.join(' ')}`);
+  conferir(lexc(34).situacao === 'ERRO' && /máximo permitido em Handebol/.test(lexc(34).erros.join(' '))
+    && lexc(26).situacao === 'ERRO' && /RG vazio/.test(lexc(26).erros.join(' ')),
+  'exceção SIM não dispensa elenco cheio (linha 34) nem RG vazio (linha 26)');
+  conferir(rExc.ok === 22 && rExc.excecoes === 2 && rExc.puladas === 1 && rExc.erros === 8 && rExc.inscricoes === 24,
+    'exceção: resumo com 22 OK + 2 exceções (24 inscrições), 1 pulada e 8 erros', JSON.stringify(rExc));
+  const naoSim = await enviar('previa', comColunaExcecao([20, 22], 'NAO'));
+  const ln = (n) => (naoSim.corpo.linhas || []).find((l) => l.linha === n) || { erros: [] };
+  conferir(ln(20).situacao === 'ERRO' && ln(22).situacao === 'ERRO' && naoSim.corpo.resumo.excecoes === 0,
+    'exceção com valor diferente de SIM: as linhas seguem em ERRO como hoje');
+  const mesaExc = await enviar('previa', comColunaExcecao([20, 22]), '', mesa);
+  conferir(mesaExc.status === 403, 'exceção: a mesa (PLACAR) não importa atletas (403)', `${mesaExc.status}`);
+
+  // Planilha de uma escola só (sem a coluna Escola): a escola vem da tela
+  const [[joseDias]] = await db.query("SELECT id FROM escolas WHERE nome = 'JOSE DIAS'");
+  const semColuna = original.split(/\r?\n/).filter((l, i) => i === 0 || /^José Dias;/.test(l))
+    .map((l, i) => marcarRg(l, i).split(';').slice(1).join(';')).join('\n');
+  const semEscola = await enviar('previa', semColuna);
+  const comEscola = await enviar('previa', semColuna, `?escola_id=${joseDias.id}`);
+  conferir(semEscola.status === 400 && /escolha a escola/.test(semEscola.corpo.erro || '')
+    && comEscola.status === 200 && comEscola.corpo.sem_coluna_escola === true
+    && comEscola.corpo.resumo.ok === 2 && comEscola.corpo.resumo.avisos === 1,
+  'sem a coluna Escola: 400 sem escolher, e com a escola da tela a prévia sai (2 OK, 1 aviso)',
+  `${semEscola.status} ${semEscola.corpo.erro || ''} / ${comEscola.status} ${JSON.stringify(comEscola.corpo.resumo)}`);
+
+  // Com linha em ERRO, confirmar sem "apenas_ok" é recusado e não grava
+  const semEscolher = await enviar('confirmar', planilha);
+  conferir(semEscolher.status === 422 && Number((await contarMarcados()).atletas) === 0,
+    'confirmar com erros e sem "só as linhas OK": 422 e nada gravado', `${semEscolher.status} ${semEscolher.corpo.erro || ''}`);
+
+  // Tudo ou nada: um gatilho faz o INSERT do atleta da linha 31 falhar,
+  // depois de 16 atletas já inseridos na mesma transação
+  await db.query(`DROP TRIGGER IF EXISTS ${GATILHO_DE_FALHA}`);
+  await db.query(
+    `CREATE TRIGGER ${GATILHO_DE_FALHA} BEFORE INSERT ON atletas FOR EACH ROW
+     BEGIN
+       IF NEW.rg = 'FUMACAFIC1101' THEN
+         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'falha proposital do teste de fumaca';
+       END IF;
+     END`
+  );
+  let falhaNoMeio;
+  try {
+    falhaNoMeio = await enviar('confirmar', planilha, '?apenas_ok=true');
+  } finally {
+    await db.query(`DROP TRIGGER IF EXISTS ${GATILHO_DE_FALHA}`);
+  }
+  const aposFalha = await contarMarcados();
+  conferir(falhaNoMeio.status === 500 && /Nada foi gravado/.test(falhaNoMeio.corpo.erro || '')
+    && Number(aposFalha.atletas) === 0 && Number(aposFalha.inscricoes) === 0,
+  'falha no banco no meio do confirmar: 500 e NADA gravado (tudo ou nada)',
+  `${falhaNoMeio.status} ${falhaNoMeio.corpo.erro || ''} ${JSON.stringify(aposFalha)}`);
+
+  // Confirmar só as linhas OK
+  const confirmado = await enviar('confirmar', planilha, '?apenas_ok=true');
+  const f = confirmado.corpo.final || {};
+  const gravados = await contarMarcados();
+  const [[elencoAcm]] = await db.query('SELECT COUNT(*) AS n FROM inscricoes_atletas WHERE equipe_id = ?', [acm.id]);
+  conferir(confirmado.status === 201 && f.criados === 20 && f.inscricoes === 22 && f.pulados === 1 && f.com_erro === 10
+    && Number(gravados.atletas) === 20 && Number(gravados.inscricoes) === 22 && Number(elencoAcm.n) === 14,
+  'confirmar só as OK: 20 atletas criados, 22 inscrições, 1 pulada, 10 com erro; o ACM fica com 14',
+  `${confirmado.status} ${JSON.stringify(f)} ${JSON.stringify(gravados)} ACM ${elencoAcm.n}`);
+
+  const [[ana]] = await db.query("SELECT nome, sexo, data_nascimento FROM atletas WHERE rg = 'FUMACAFIC0101'");
+  conferir(ana && ana.nome === 'Ana Ficticia Lima' && ana.sexo === 'F' && ana.data_nascimento === '2017-05-10',
+    'o atleta gravado tem nome, sexo e nascimento da planilha (RG normalizado)', JSON.stringify(ana));
+
+  // Reimportar o mesmo arquivo: quem já existe vira "já cadastrado", 0 criados
+  const reimportado = await enviar('confirmar', planilha, '?apenas_ok=true');
+  const r2 = reimportado.corpo.final || {};
+  const jaCadastrados = (reimportado.corpo.linhas || []).filter((l) => /RG já cadastrado/.test(l.avisos.join(' ')));
+  conferir(reimportado.status === 200 && r2.criados === 0 && r2.inscricoes === 0 && jaCadastrados.length === 25
+    && Number((await contarMarcados()).atletas) === 20,
+  'reimportar o mesmo arquivo: 0 criados, 25 linhas "RG já cadastrado", nada muda',
+  `${reimportado.status} ${JSON.stringify(r2)} já cadastrados: ${jaCadastrados.length}`);
+
+  // RG já cadastrado com outros dados: pula e não altera o atleta existente
+  const alterada = ['Escola;Nome;RG;Nascimento;Gênero;Modalidade;Categoria',
+    `ACM;Ana Nome Trocado;${MARCA}FIC-0101;01/01/2018;F;Handebol;`].join('\n');
+  const tentativa = await enviar('confirmar', alterada, '?apenas_ok=true');
+  const [[anaDepois]] = await db.query("SELECT nome, escola_id, data_nascimento FROM atletas WHERE rg = 'FUMACAFIC0101'");
+  conferir(tentativa.corpo.linhas?.[0]?.situacao === 'AVISO' && tentativa.corpo.final?.criados === 0
+    && anaDepois.nome === 'Ana Ficticia Lima' && anaDepois.data_nascimento === '2017-05-10' && anaDepois.escola_id === joseDias.id,
+  'RG já cadastrado com outro nome, escola e nascimento: linha pulada e o atleta existente não muda',
+  JSON.stringify(anaDepois));
+
+  // Confirmar uma linha com exceção (idade acima da categoria): entra a inscrição e o resumo conta
+  const linhaIdade = planilha.split(/\r?\n/)[21].split(';');
+  const soIdade = [planilha.split(/\r?\n/)[0].replace(/^\uFEFF/, '') + ';Exceção', `${linhaIdade.join(';')};SIM`].join('\n');
+  const antesExc = await db.query('SELECT COUNT(*) AS n FROM inscricoes_atletas');
+  const confirmaExc = await enviar('confirmar', soIdade, '?apenas_ok=true');
+  const depoisExc = await db.query('SELECT COUNT(*) AS n FROM inscricoes_atletas');
+  conferir(confirmaExc.status === 201 && confirmaExc.corpo.final?.com_excecao === 1 && confirmaExc.corpo.final?.criados === 1
+    && Number(depoisExc[0][0].n) === Number(antesExc[0][0].n) + 1,
+  'confirmar linha com exceção autorizada: 201, 1 atleta criado, 1 inscrição por exceção',
+  `${confirmaExc.status} ${JSON.stringify(confirmaExc.corpo.final)} ${confirmaExc.corpo.erro || ''}`);
+
+  // A lista da escola (só para logados) não mostra RG nem nascimento dos importados para a mesa
+  const publica = await comToken(await mesaDaLista(), 'GET', `/atletas/escola/${joseDias.id}`);
+  const importada = (publica.corpo || []).find((a) => a.nome === 'Ana Ficticia Lima');
+  conferir(publica.status === 200 && importada && !('rg' in importada) && !('data_nascimento' in importada) && !('sexo' in importada),
+    'lista da escola (login de mesa): o atleta importado aparece só com id, nome e escola', JSON.stringify(importada));
+};
+
+// ---------------------------------------------------------------------------
+// Trava de mesa por local (db/18, 28/10/2026) — pela API
+// ---------------------------------------------------------------------------
+// A mesa (PLACAR) com local só inicia jogo e lança súmula de jogo daquele
+// local; sem local, sem trava; o ADMIN é livre; Tabuleiro e Atletismo seguem
+// abertos; trocar o local da conta vale na hora, sem novo login.
+const testarTravaDeMesaPorLocal = async () => {
+  secao('-- trava de mesa por local (db/18)');
+
+  const [[comp]] = await db.query(
+    `SELECT c.id, e1.id AS e1, e2.id AS e2
+       FROM competicoes c
+       INNER JOIN modalidades m ON m.id = c.modalidade_id
+       INNER JOIN equipes e1 ON e1.competicao_id = c.id
+       INNER JOIN equipes e2 ON e2.competicao_id = c.id AND e2.grupo_id = e1.grupo_id AND e2.id > e1.id
+      WHERE m.tipo_placar = 'GOLS' AND c.turno = 'UNICO' AND c.id <> ?
+        AND NOT EXISTS (SELECT 1 FROM jogos j WHERE j.competicao_id = c.id)
+      ORDER BY c.id LIMIT 1`,
+    [COMPETICAO_PROTEGIDA]
+  );
+  if (!comp) throw new Error('Não achei uma competição livre para o teste da trava por local.');
+  const [locais] = await db.query('SELECT id, nome FROM locais_disputa ORDER BY id LIMIT 2');
+  const [localA, localB] = locais;
+
+  const agendar = async (local, hora) => {
+    const jogo = await exigir('POST', '/jogos', {
+      competicao_id: comp.id, equipe_1_id: comp.e1, equipe_2_id: comp.e2, fase: 'GRUPOS',
+      ...(local ? { data_hora: `2026-11-21T${hora}`, local_id: local.id } : {})
+    }, `agendar jogo da trava (${local ? local.nome : 'sem local'})`);
+    criados.jogos.push(jogo.id_jogo);
+    return jogo.id_jogo;
+  };
+  const jogoA = await agendar(localA, '06:11');
+  const jogoB = await agendar(localB, '06:13');
+  const jogoSemLocal = await agendar(null);
+  const jogoA2 = await agendar(localA, '06:31');
+
+  // A mesa: conta PLACAR do local A, criada pela tela de usuários (ADMIN)
+  const criada = await exigir('POST', '/usuarios',
+    { nome: `Mesa local (${MARCA})`, email: EMAIL_MESA_LOCAL, senha: SENHA, perfil: 'PLACAR', local_id: localA.id },
+    'criar a mesa do local A');
+  const mesa = (await exigir('POST', '/login', { email: EMAIL_MESA_LOCAL, senha: SENHA }, 'login da mesa')).token;
+
+  const lista = await exigir('GET', '/usuarios', null, 'listar usuários');
+  const daLista = lista.find((u) => u.id === criada.id_usuario);
+  conferir(daLista?.local_id === localA.id && daLista?.local_nome === localA.nome,
+    'a lista de usuários mostra o local da mesa', JSON.stringify(daLista));
+
+  const sumula = (jogo_id) => ({
+    jogo_id, finalizar: false,
+    equipes: [{ equipe_id: comp.e1, atletas: [] }, { equipe_id: comp.e2, atletas: [] }]
+  });
+  const iniciar = (tok, id) => comToken(tok, 'PUT', `/jogos/${id}/iniciar`);
+  const lancar = (tok, id) => comToken(tok, 'POST', '/sumulas', sumula(id));
+
+  // Local A: lança no A; barrada no B e no jogo sem local, nas duas escritas
+  const iniciaA = await iniciar(mesa, jogoA);
+  const lancaA = await lancar(mesa, jogoA);
+  conferir(iniciaA.status === 200 && lancaA.status < 300,
+    'mesa do local A: inicia e lança súmula no jogo do A', `${iniciaA.status} / ${lancaA.status} ${lancaA.corpo.erro || ''}`);
+
+  const iniciaB = await iniciar(mesa, jogoB);
+  const lancaB = await lancar(mesa, jogoB);
+  const mensagemCerta = new RegExp(`Esta mesa é do local ${localA.nome}; este jogo é do local ${localB.nome}`);
+  conferir(iniciaB.status === 403 && lancaB.status === 403
+    && mensagemCerta.test(iniciaB.corpo.erro || '') && mensagemCerta.test(lancaB.corpo.erro || ''),
+  'mesa do local A no jogo do B: 403 em iniciar e em lançar súmula, com os dois locais na mensagem',
+  `${iniciaB.status} ${iniciaB.corpo.erro || ''} / ${lancaB.status}`);
+
+  const iniciaSemLocal = await iniciar(mesa, jogoSemLocal);
+  conferir(iniciaSemLocal.status === 403 && /ainda sem local definido/.test(iniciaSemLocal.corpo.erro || ''),
+    'mesa com local num jogo ainda sem local: 403', `${iniciaSemLocal.status} ${iniciaSemLocal.corpo.erro || ''}`);
+
+  const [[statusB]] = await db.query('SELECT status FROM jogos WHERE id = ?', [jogoB]);
+  conferir(statusB.status === 'AGENDADO', 'o jogo do B não foi tocado pela mesa barrada', statusB.status);
+
+  // Leituras seguem livres para a mesa
+  const leitura = await comToken(mesa, 'GET', `/sumulas/${jogoB}`);
+  conferir(leitura.status === 200, 'a mesa lê a súmula de jogo de outro local (leitura livre)', `${leitura.status}`);
+
+  // Jogo inexistente: o 404 de sempre, não a trava
+  const inexistente = await iniciar(mesa, 99999999);
+  conferir(inexistente.status === 404, 'jogo inexistente: 404 do controller, não 403', `${inexistente.status}`);
+
+  // Tabuleiro (12/11/2026): a mesa não lança mais (é por colocação, só do
+  // ADMIN); com local ou sem, a resposta é a do perfil (403), não a da trava
+  const [[sub13]] = await db.query("SELECT id FROM categorias WHERE nome = 'Sub 13'");
+  const [[escola]] = await db.query('SELECT id FROM escolas ORDER BY id LIMIT 1');
+  const tabuleiro = await comToken(mesa, 'POST', '/tabuleiro-colocacoes', {
+    jogo: 'dama', categoria_id: sub13.id, colocacao: 1, escola_id: escola.id
+  });
+  conferir(tabuleiro.status === 403 && !/Esta mesa é do local/.test(tabuleiro.corpo.erro || ''),
+    'mesa com local no Tabuleiro: 403 do perfil (só o ADMIN lança), não da trava de local',
+    `${tabuleiro.status} ${tabuleiro.corpo.erro || ''}`);
+
+  // ADMIN: livre em qualquer local
+  const adminB = await iniciar(token, jogoB);
+  const adminLancaB = await lancar(token, jogoB);
+  conferir(adminB.status === 200 && adminLancaB.status < 300, 'ADMIN inicia e lança em qualquer local',
+    `${adminB.status} / ${adminLancaB.status}`);
+
+  // Trocar o local da conta vale na hora, com o mesmo token
+  await exigir('PUT', `/usuarios/${criada.id_usuario}`, { local_id: localB.id }, 'mudar a mesa para o local B');
+  const agoraB = await lancar(mesa, jogoB);
+  const agoraA = await iniciar(mesa, jogoA2);
+  const sessao = await comToken(mesa, 'GET', '/eu');
+  conferir(agoraB.status < 300 && agoraA.status === 403 && sessao.corpo.local_id === localB.id
+    && sessao.corpo.local_nome === localB.nome,
+  'mudar o local da conta vale sem novo login: lança no B, barrada no A, e /api/eu já mostra o B',
+  `${agoraB.status} / ${agoraA.status} / ${JSON.stringify(sessao.corpo)}`);
+
+  // Sem local: sem trava
+  await exigir('PUT', `/usuarios/${criada.id_usuario}`, { local_id: null }, 'tirar o local da mesa');
+  const semTrava = await iniciar(mesa, jogoSemLocal);
+  const semTravaA = await iniciar(mesa, jogoA2);
+  conferir(semTrava.status === 200 && semTravaA.status === 200,
+    'mesa sem local: sem trava (inicia o jogo sem local e o do A)', `${semTrava.status} / ${semTravaA.status}`);
+
+  // Validações da conta: local inexistente recusado; ADMIN nunca guarda local
+  const localRuim = await comToken(token, 'PUT', `/usuarios/${criada.id_usuario}`, { local_id: 99999999 });
+  await exigir('PUT', `/usuarios/${criada.id_usuario}`, { perfil: 'ADMIN', local_id: localA.id }, 'promover a ADMIN');
+  const [[promovida]] = await db.query('SELECT perfil, local_id FROM usuarios WHERE id = ?', [criada.id_usuario]);
+  conferir(localRuim.status === 400 && promovida.perfil === 'ADMIN' && promovida.local_id === null,
+    'local inexistente: 400; virando ADMIN, a conta fica sem local', `${localRuim.status} ${JSON.stringify(promovida)}`);
+};
+
+// ---------------------------------------------------------------------------
+// Reiniciar Campeonato em produção (28/10/2026)
+// ---------------------------------------------------------------------------
+// Com NODE_ENV=production o reset é 403, a não ser com PERMITIR_REINICIAR=true.
+// O controller é chamado direto, com o ambiente trocado só durante o teste;
+// sem a palavra de confirmação, nada é apagado em caso nenhum.
+const testarReiniciarCampeonato = async () => {
+  secao('-- reiniciar campeonato em produção');
+  const { resetarCampeonato, reinicioPermitido } = require('../src/controllers/campeonatoController');
+
+  const chamar = async () => {
+    let status = 200;
+    let corpo = null;
+    const res = { status(s) { status = s; return this; }, json(c) { corpo = c; return this; } };
+    await resetarCampeonato({ body: {}, usuario: { perfil: 'ADMIN' } }, res);
+    return { status, corpo };
+  };
+
+  const ambiente = { NODE_ENV: process.env.NODE_ENV, PERMITIR_REINICIAR: process.env.PERMITIR_REINICIAR };
+  try {
+    process.env.NODE_ENV = 'production';
+    delete process.env.PERMITIR_REINICIAR;
+    const bloqueado = await chamar();
+    const flagBloqueado = reinicioPermitido();
+
+    process.env.PERMITIR_REINICIAR = 'true';
+    const liberado = await chamar();
+    const flagLiberado = reinicioPermitido();
+
+    conferir(bloqueado.status === 403 && /desligado em produção/.test(bloqueado.corpo?.erro || '') && flagBloqueado === false,
+      'produção sem PERMITIR_REINICIAR: 403 e a flag diz "não permitido"', `${bloqueado.status} ${bloqueado.corpo?.erro || ''}`);
+    conferir(liberado.status === 400 && /REINICIAR/.test(liberado.corpo?.erro || '') && flagLiberado === true,
+      'produção com PERMITIR_REINICIAR=true: passa a trava e cai na confirmação digitada (400 sem a palavra)',
+      `${liberado.status} ${liberado.corpo?.erro || ''}`);
+  } finally {
+    if (ambiente.NODE_ENV === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = ambiente.NODE_ENV;
+    if (ambiente.PERMITIR_REINICIAR === undefined) delete process.env.PERMITIR_REINICIAR;
+    else process.env.PERMITIR_REINICIAR = ambiente.PERMITIR_REINICIAR;
+  }
+
+  // Na API de desenvolvimento: /saude diz que pode, e a rota exige a palavra
+  const saude = await (await fetch(API.replace(/\/api$/, '/saude'))).json();
+  const semPalavra = await comToken(token, 'DELETE', '/campeonato/reset', {});
+  conferir(saude.reiniciar_permitido === true && semPalavra.status === 400,
+    'em desenvolvimento: /saude diz reiniciar_permitido=true, e sem a palavra digitada a rota recusa (400)',
+    `${JSON.stringify(saude)} / ${semPalavra.status}`);
+};
+
+// ---------------------------------------------------------------------------
+(async () => {
+  // A trava vem antes de tudo e, se recusar, o script sai sem nenhuma
+  // consulta. Antes ela rodava dentro do passeio, e o catch abaixo seguia para
+  // a limpeza: os DELETE rodavam no banco que a trava tinha recusado (21/10/2026).
+  try {
+    conferirQueEhDesenvolvimento();
+  } catch (erro) {
+    console.error(`Recusado: ${erro.message}`);
+    process.exit(1);
+  }
+
+  let erroDoPasseio = null;
+
+  try {
+    await rodar();
+  } catch (erro) {
+    erroDoPasseio = erro;
+    falhou++;
+    console.log(`\n  FALHA ${erro.message}`);
+  }
+
+  secao('-- limpeza');
+  try {
+    await limpar();
+  } catch (erro) {
+    console.log(`  FALHA ao limpar: ${erro.sqlMessage || erro.message}`);
+    falhou++;
+  }
+
+  const [[depois]] = await db.query(
+    `SELECT (SELECT COUNT(*) FROM jogos) AS jogos,
+            (SELECT COUNT(*) FROM atletas) AS atletas,
+            (SELECT COUNT(*) FROM inscricoes_atletas) AS inscricoes,
+            (SELECT COUNT(*) FROM sumula_atletas) AS sumulas,
+            (SELECT COUNT(*) FROM ajustes_pontos_geral) AS ajustes,
+            (SELECT COUNT(*) FROM usuarios) AS usuarios`
+  );
+  console.log(`  ${JSON.stringify(depois)}`);
+
+  const [jogosDepois] = await db.query('SELECT id FROM jogos ORDER BY id');
+  console.log(`  jogos que ficaram: ${jogosDepois.map((j) => j.id).join(', ') || '(nenhum)'}`);
+
+  console.log(
+    `\n${falhou === 0 ? 'TUDO PASSOU' : 'TEM FALHA'} — ${passou} ok, ${falhou} ${falhou === 1 ? 'falha' : 'falhas'}`
+  );
+  if (problemas.length > 0) {
+    console.log(problemas.map((p) => `  - ${p}`).join('\n'));
+  }
+  if (erroDoPasseio) {
+    console.log(`\n${erroDoPasseio.stack}`);
+  }
+
+  process.exit(falhou === 0 ? 0 : 1);
+})();
