@@ -30,11 +30,16 @@ aviso no topo; para liberar, **Editar** → escolha o local → **Salvar** (vale
 
 - **Cabeçalho:** "Mesa: <local>" (ou "Mesa sem local").
 - **Agenda e tabela de jogos da competição:** por padrão só os jogos do local dela; o botão **"Ver todos
-  os locais"** mostra os outros, só para consultar horários (na Agenda a escolha vai na URL, `?local=todos`).
-- **Botões Iniciar, Súmula e Abrir/Continuar súmula:** só nos jogos do local dela, na tabela de jogos e na
-  tela do jogo da Agenda. A impressão/leitura da súmula (`/detalhes-sumula/:id`) segue pública.
-- **`/preencher-sumula/:id` de jogo de outro local:** "Tela restrita". É só a tela: quem vale é o 403 do
-  backend.
+  os locais"** mostra os outros, **só para consultar horários e equipes**. Essa escolha não vai para a URL
+  nem para o navegador: toda vez que a tela abre, a mesa volta a ver só o local dela (um `?local=todos`
+  antigo é ignorado).
+- **Súmula é só do local da mesa, também para ver e imprimir:** "Súmulas em branco" (Agenda), "Abrir/Continuar/
+  Ver súmula" (tela do jogo, tabela de jogos e cartões do mata-mata), Iniciar e a impressão 🖨️ só aparecem nos
+  jogos ou locais da mesa. **Imprimir Súmulas** (menu) lista só o local dela, mesmo que a URL peça outro.
+- **`/preencher-sumula/:id` e `/detalhes-sumula/:id` de jogo de outro local:** "Tela restrita" (e mesa sem local
+  também). Visitante e ADMIN seguem como estavam. Para a **escrita** quem vale é o 403 do backend; a **leitura**
+  `GET /api/sumulas/:jogo_id` segue pública (alimenta a impressão e a tela pública), então a restrição de ver e
+  imprimir é da tela, não do servidor.
 
 ## Adicionar atleta na hora do jogo (`db/45`)
 

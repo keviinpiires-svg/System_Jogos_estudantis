@@ -286,9 +286,10 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
   com o administrador." em todas essas escritas (16/11/2026; antes ficava sem trava).** ADMIN nunca é
   travado; Tabuleiro e Atletismo não têm local. `GET /sumulas/:jogo_id` segue **público** (impressão e
   `/detalhes-sumula`). No frontend a mesa vê por padrão só os jogos do local dela (Agenda e tabela de
-  jogos, com "Ver todos os locais" só para consulta), os botões Iniciar/Súmula/Abrir só aparecem nos jogos
-  do local dela, `/preencher-sumula/:id` de outro local mostra "Tela restrita" e o cabeçalho mostra
-  "Mesa: <local>". Ver `docs/CONTAS_DE_MESA.md`.
+  jogos, com "Ver todos os locais" só para consulta; o "ver todos" fica só em estado da tela, nunca na URL),
+  os botões Iniciar/Súmula/Abrir/Ver súmula, "Súmulas em branco" e a impressão 🖨️ só aparecem nos jogos ou
+  locais dela, "Imprimir Súmulas" lista só o local dela, `/preencher-sumula/:id` e `/detalhes-sumula/:id` de
+  outro local mostram "Tela restrita" (visitante e ADMIN não mudam) e o cabeçalho mostra "Mesa: <local>". Ver `docs/CONTAS_DE_MESA.md`.
 - **Mesa adiciona atleta (`db/45`, escrito em 16/11/2026, ainda não aplicado em produção):** na súmula, "Adicionar atleta" por equipe (busca por nome na mesma escola, ou cadastro novo com documento opcional); a mesa só remove o que ela colocou (`criado_por`); atleta e inscrição ficam marcados "adicionado pela mesa" e o ADMIN confere em `/atletas-das-mesas`. Código provisório novo = `<escolas.sigla>SRG<NNN>`. A extração de `inscricaoService` não mudou o comportamento do ADMIN nem do importador (conferido pelo `fumaca`, 198 ok, e por uma importação com "Exceção"). Rotas na tabela da API acima.
   `exigirPerfil` relê o perfil do banco a cada escrita.
 
