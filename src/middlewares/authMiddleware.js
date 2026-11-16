@@ -58,14 +58,17 @@ const exigirPerfil = (...perfisPermitidos) => async (req, res, next) => {
 // em req.usuario. Vale em toda escrita de jogo que a mesa alcança; leituras
 // não passam por aqui. `jogoDaRequisicao` diz onde está o id do jogo.
 //   * ADMIN: nunca é travado;
-//   * PLACAR sem local: sem trava (a tela /usuarios avisa "sem local definido");
+//   * PLACAR sem local: 403 "Mesa sem local definido. Fale com o administrador."
+//     (16/11/2026; antes ficava sem trava). A tela /usuarios avisa quem está sem local;
 //   * PLACAR com local: só jogo daquele local; outro local, ou jogo ainda sem
 //     local, é 403 com os dois nomes.
 // Id inválido ou jogo inexistente seguem adiante: o controller responde o
 // 400 ou o 404 de sempre.
+const MESA_SEM_LOCAL = 'Mesa sem local definido. Fale com o administrador.';
 const travarMesaPorLocal = (jogoDaRequisicao) => async (req, res, next) => {
   const { perfil, local_id: localDaMesa } = req.usuario || {};
-  if (perfil !== 'PLACAR' || !localDaMesa) return next();
+  if (perfil !== 'PLACAR') return next();
+  if (!localDaMesa) return res.status(403).json({ erro: MESA_SEM_LOCAL });
 
   const jogo_id = Number(jogoDaRequisicao(req));
   if (!Number.isInteger(jogo_id) || jogo_id <= 0) return next();

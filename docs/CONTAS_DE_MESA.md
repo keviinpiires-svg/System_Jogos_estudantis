@@ -7,21 +7,34 @@ Decisão do chefe (12/10/2026): **uma conta de mesa por local de jogo**. Desde o
 
 | Ação | Mesa com local | Mesa sem local | ADMIN |
 |---|---|---|---|
-| Iniciar jogo (`PUT /api/jogos/:id/iniciar`) | só jogo do local dela | qualquer jogo | qualquer jogo |
-| Lançar súmula — placar, gols, cartões, sets, cobranças, finalizar (`POST /api/sumulas`) | só jogo do local dela | qualquer jogo | qualquer jogo |
+| Iniciar jogo (`PUT /api/jogos/:id/iniciar`) | só jogo do local dela | **bloqueada (403)** | qualquer jogo |
+| Lançar súmula — placar, gols, cartões, sets, cobranças, finalizar (`POST /api/sumulas`) | só jogo do local dela | **bloqueada (403)** | qualquer jogo |
+| Número da camisa na hora do jogo (`PUT /api/equipes/:id/camisas`) | só jogo do local dela | **bloqueada (403)** | qualquer jogo |
 | Tabuleiro e Atletismo (`PUT /api/pontos-lancados`) | sim (não têm local) | sim | sim |
-| Ler agenda, súmulas, classificação | tudo | tudo | tudo |
+| Ler agenda, súmulas (`GET /api/sumulas/:jogo_id`, pública), classificação | tudo | tudo | tudo |
 
-Em jogo de outro local (ou jogo ainda sem local), a mesa recebe **403**: "Esta mesa é do local X;
+Em jogo de outro local (ou jogo ainda sem local), a mesa com local recebe **403**: "Esta mesa é do local X;
 este jogo é do local Y." As demais escritas de jogo (agendar, editar, W.O., excluir, mata-mata) já são
 só do ADMIN. Súmula finalizada só o ADMIN reabre, como antes.
 
-A trava é um middleware só (`travarMesaPorLocal`, em `src/middlewares/authMiddleware.js`), nas duas
-rotas acima. O local é **relido do banco a cada escrita** (não vem do token): trocar o local de uma conta
+A trava é um middleware só (`travarMesaPorLocal`, em `src/middlewares/authMiddleware.js`), nas três
+rotas de escrita acima. O local é **relido do banco a cada escrita** (não vem do token): trocar o local de uma conta
 vale na hora, sem a pessoa sair e entrar. A tela também relê a conta ao abrir (`GET /api/eu`).
 
-**Mesa sem local = sem trava**, de propósito: ninguém fica bloqueado por esquecimento. A tela
-`/usuarios` mostra "⚠️ sem local definido" nessas contas e um aviso no topo.
+**Mesa sem local = bloqueada** (desde 16/11/2026; antes ficava sem trava): o backend responde **403**
+"Mesa sem local definido. Fale com o administrador." em todas as escritas acima, e a tela de súmula mostra
+"Tela restrita" com a mesma frase. A tela `/usuarios` mostra "⚠️ sem local definido" nessas contas e um
+aviso no topo; para liberar, **Editar** → escolha o local → **Salvar** (vale na hora).
+
+## O que a mesa vê na tela
+
+- **Cabeçalho:** "Mesa: <local>" (ou "Mesa sem local").
+- **Agenda e tabela de jogos da competição:** por padrão só os jogos do local dela; o botão **"Ver todos
+  os locais"** mostra os outros, só para consultar horários (na Agenda a escolha vai na URL, `?local=todos`).
+- **Botões Iniciar, Súmula e Abrir/Continuar súmula:** só nos jogos do local dela, na tabela de jogos e na
+  tela do jogo da Agenda. A impressão/leitura da súmula (`/detalhes-sumula/:id`) segue pública.
+- **`/preencher-sumula/:id` de jogo de outro local:** "Tela restrita". É só a tela: quem vale é o 403 do
+  backend.
 
 ## Como criar uma conta por local (ADMIN)
 

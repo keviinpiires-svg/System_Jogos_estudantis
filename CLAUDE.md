@@ -181,7 +181,7 @@ db/                       scripts SQL versionados e numerados
 ## API (prefixo `/api`)
 
 Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mesaDoLocalOuAdmin` = `ADMIN`, ou
-`PLACAR` **no jogo do local da conta** (`travarMesaPorLocal`, `db/18`; PLACAR sem local = sem trava).
+`PLACAR` **no jogo do local da conta** (`travarMesaPorLocal`, `db/18`; **PLACAR sem local = 403** "Mesa sem local definido. Fale com o administrador.", desde 16/11/2026).
 
 | Recurso | Rotas |
 |---|---|
@@ -281,8 +281,14 @@ Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro`
 - Perfis: `ADMIN` (cadastra, pune, gerencia usuários) e `PLACAR` (mesa: só inicia jogo e lança súmula).
 - **Contas de mesa (db/18):** uma conta PLACAR por local, com `usuarios.local_id`. A trava é um middleware
   só (`travarMesaPorLocal`, em `authMiddleware.js`) nas escritas de jogo que a mesa alcança (`PUT
-  /jogos/:id/iniciar` e `POST /sumulas`); o local é relido do banco pelo `exigirPerfil`, então trocar o
-  local vale na hora. ADMIN nunca é travado; Tabuleiro e Atletismo não têm local. Ver `docs/CONTAS_DE_MESA.md`.
+  /jogos/:id/iniciar`, `POST /sumulas` e `PUT /equipes/:id/camisas`); o local é relido do banco pelo
+  `exigirPerfil`, então trocar o local vale na hora. **PLACAR sem local = 403 "Mesa sem local definido. Fale
+  com o administrador." em todas essas escritas (16/11/2026; antes ficava sem trava).** ADMIN nunca é
+  travado; Tabuleiro e Atletismo não têm local. `GET /sumulas/:jogo_id` segue **público** (impressão e
+  `/detalhes-sumula`). No frontend a mesa vê por padrão só os jogos do local dela (Agenda e tabela de
+  jogos, com "Ver todos os locais" só para consulta), os botões Iniciar/Súmula/Abrir só aparecem nos jogos
+  do local dela, `/preencher-sumula/:id` de outro local mostra "Tela restrita" e o cabeçalho mostra
+  "Mesa: <local>". Ver `docs/CONTAS_DE_MESA.md`.
   `exigirPerfil` relê o perfil do banco a cada escrita.
 
 ## Como depurar um erro em produção
