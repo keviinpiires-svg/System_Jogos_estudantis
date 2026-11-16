@@ -1,6 +1,9 @@
 const db = require('../config/db');
 const { veDadosPessoais } = require('../middlewares/authMiddleware');
-const { plural, motivoDeInelegibilidade } = require('../config/elegibilidade');
+const { plural } = require('../config/elegibilidade');
+const {
+  lerEquipeTravada, lerCompeticao, lerAtleta, avaliarEntrada, gravarInscricao, avisoDeMinimo
+} = require('../services/inscricaoService');
 
 const CAMISA_MINIMA = 1;
 const CAMISA_MAXIMA = 99;
@@ -32,93 +35,44 @@ const inscreverAtleta = async (req, res) => {
     conexao = await db.getConnection();
     await conexao.beginTransaction();
 
-    // FOR UPDATE trava a equipe: sem isso, duas inscrições simultâneas leriam
-    // o mesmo total de inscritos e o elenco poderia terminar com 15.
-    const [[equipe]] = await conexao.query(
-      'SELECT id, escola_id, competicao_id FROM equipes WHERE id = ? FOR UPDATE',
-      [equipe_id]
-    );
+    // A equipe travada, a competição, o atleta e as regras (sexo x gênero, idade,
+    // 2 coletivas, teto do elenco) vivem em src/services/inscricaoService.js, que a
+    // mesa também usa. Aqui é o ADMIN: criado_por fica NULL, como sempre.
+    const equipe = await lerEquipeTravada(conexao, equipe_id);
 
     if (!equipe) {
       await conexao.rollback();
       return res.status(404).json({ erro: 'Equipe não encontrada.' });
     }
 
-    const [[competicao]] = await conexao.query(
-      `SELECT c.id, c.genero,
-              cat.nome AS categoria_nome, cat.idade_maxima,
-              m.nome AS modalidade_nome, m.tipo AS modalidade_tipo,
-              m.min_atletas, m.max_atletas
-       FROM competicoes c
-       INNER JOIN categorias cat ON cat.id = c.categoria_id
-       INNER JOIN modalidades m ON m.id = c.modalidade_id
-       WHERE c.id = ?`,
-      [equipe.competicao_id]
-    );
-
-    // YEAR() vem do banco de propósito: uma coluna DATE chega ao Node como
-    // Date na hora local, e converter aqui erraria o ano por um dia.
-    const [[atleta]] = await conexao.query(
-      'SELECT id, nome, escola_id, sexo, YEAR(data_nascimento) AS ano_nascimento FROM atletas WHERE id = ?',
-      [atleta_id]
-    );
+    const competicao = await lerCompeticao(conexao, equipe.competicao_id);
+    const atleta = await lerAtleta(conexao, atleta_id);
 
     if (!atleta) {
       await conexao.rollback();
       return res.status(404).json({ erro: 'Atleta não encontrado.' });
     }
 
-    // 1. Atleta e equipe precisam ser da mesma escola. O banco também barra
-    // pela chave composta, mas com uma mensagem que não ajuda o usuário.
-    if (atleta.escola_id !== equipe.escola_id) {
-      await conexao.rollback();
-      return res.status(400).json({ erro: 'Este atleta é de outra escola e não pode entrar nesta equipe.' });
-    }
-
-    // 2 a 5. Sexo x gênero, idade pela categoria, no máximo 2 competições
-    // coletivas e teto do elenco (src/config/elegibilidade.js). A competição
-    // de destino sai da conta das coletivas: se ele já estiver inscrito nela,
-    // quem barra é o índice UNIQUE, com mensagem própria.
-    const [[evento]] = await conexao.query('SELECT ano FROM configuracao_evento WHERE id = 1');
-    const [[{ coletivas }]] = await conexao.query(
-      `SELECT COUNT(DISTINCT c.id) AS coletivas
-       FROM inscricoes_atletas i
-       INNER JOIN equipes e ON e.id = i.equipe_id
-       INNER JOIN competicoes c ON c.id = e.competicao_id
-       INNER JOIN modalidades m ON m.id = c.modalidade_id
-       WHERE i.atleta_id = ? AND m.tipo = 'COLETIVO' AND c.id <> ?`,
-      [atleta_id, competicao.id]
-    );
-    const [[{ inscritos }]] = await conexao.query(
-      'SELECT COUNT(*) AS inscritos FROM inscricoes_atletas WHERE equipe_id = ?',
-      [equipe_id]
-    );
-
-    const recusa = motivoDeInelegibilidade({
-      competicao, atleta, anoDoEvento: evento.ano, coletivas, inscritos
-    });
+    const { recusa, inscritos } = await avaliarEntrada(conexao, { equipe, competicao, atleta });
     if (recusa) {
       await conexao.rollback();
       return res.status(recusa.status).json({ erro: recusa.erro });
     }
 
-    const [resultado] = await conexao.query(
-      'INSERT INTO inscricoes_atletas (equipe_id, atleta_id, escola_id, numero_camisa) VALUES (?, ?, ?, ?)',
-      [equipe_id, atleta_id, atleta.escola_id, numero_camisa]
-    );
+    const id_inscricao = await gravarInscricao(conexao, {
+      equipe_id, atleta_id, escola_id: atleta.escola_id, numero_camisa
+    });
 
     await conexao.commit();
 
     const total = inscritos + 1;
 
     // O mínimo do regulamento é aviso, nunca bloqueio (decisão do usuário)
-    const aviso = competicao.min_atletas !== null && total < competicao.min_atletas
-      ? `A equipe tem ${plural(total, 'atleta', 'atletas')} e ${competicao.modalidade_nome} pede pelo menos ${competicao.min_atletas}.`
-      : null;
+    const aviso = avisoDeMinimo(competicao, total);
 
     res.status(201).json({
       mensagem: 'Inscrição realizada com sucesso!',
-      id_inscricao: resultado.insertId,
+      id_inscricao,
       total_inscritos: total,
       max_atletas: competicao.max_atletas,
       min_atletas: competicao.min_atletas,

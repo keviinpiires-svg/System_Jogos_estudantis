@@ -184,7 +184,7 @@ const buscarSumulaPorJogo = async (req, res) => {
     // LEFT JOIN: quem está inscrito aparece mesmo sem nada lançado ainda.
     // É o que permite imprimir a súmula em branco com o elenco já escrito.
     const [linhas] = await db.query(
-      `SELECT i.id AS inscricao_id, i.equipe_id, i.atleta_id,
+      `SELECT i.id AS inscricao_id, i.equipe_id, i.atleta_id, i.criado_por,
               ${camisa} AS numero_camisa,
               a.nome,
               COALESCE(s.presente, TRUE)        AS presente,
@@ -245,6 +245,9 @@ const buscarSumulaPorJogo = async (req, res) => {
         gols: atletas.reduce((total, atleta) => total + Number(atleta.gols), 0),
         atletas: atletas.map((atleta) => ({
           inscricao_id: atleta.inscricao_id,
+          // Colocado pela mesa na hora do jogo (db/45): a tela marca e só deixa essa mesa retirar
+          adicionado_pela_mesa: atleta.criado_por !== null,
+          adicionado_por_mim: atleta.criado_por !== null && atleta.criado_por === req.usuario?.id,
           atleta_id: atleta.atleta_id,
           nome: atleta.nome,
           numero_camisa: atleta.numero_camisa,

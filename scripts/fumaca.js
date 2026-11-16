@@ -2545,12 +2545,15 @@ const testarTravaDeMesaPorLocal = async () => {
   'mudar o local da conta vale sem novo login: lança no B, barrada no A, e /api/eu já mostra o B',
   `${agoraB.status} / ${agoraA.status} / ${JSON.stringify(sessao.corpo)}`);
 
-  // Sem local: sem trava
+  // Sem local: bloqueada (16/11/2026; antes ficava sem trava)
   await exigir('PUT', `/usuarios/${criada.id_usuario}`, { local_id: null }, 'tirar o local da mesa');
-  const semTrava = await iniciar(mesa, jogoSemLocal);
-  const semTravaA = await iniciar(mesa, jogoA2);
-  conferir(semTrava.status === 200 && semTravaA.status === 200,
-    'mesa sem local: sem trava (inicia o jogo sem local e o do A)', `${semTrava.status} / ${semTravaA.status}`);
+  const semLocal = await iniciar(mesa, jogoSemLocal);
+  const semLocalA = await iniciar(mesa, jogoA2);
+  const MSG_SEM_LOCAL = 'Mesa sem local definido. Fale com o administrador.';
+  conferir(semLocal.status === 403 && semLocalA.status === 403
+    && semLocal.corpo?.erro === MSG_SEM_LOCAL && semLocalA.corpo?.erro === MSG_SEM_LOCAL,
+    'mesa sem local: bloqueada (403 "Mesa sem local definido..." no jogo sem local e no do A)',
+    `${semLocal.status} / ${semLocalA.status} ${JSON.stringify(semLocal.corpo)}`);
 
   // Validações da conta: local inexistente recusado; ADMIN nunca guarda local
   const localRuim = await comToken(token, 'PUT', `/usuarios/${criada.id_usuario}`, { local_id: 99999999 });

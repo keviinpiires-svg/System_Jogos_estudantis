@@ -36,6 +36,25 @@ aviso no topo; para liberar, **Editar** → escolha o local → **Salvar** (vale
 - **`/preencher-sumula/:id` de jogo de outro local:** "Tela restrita". É só a tela: quem vale é o 403 do
   backend.
 
+## Adicionar atleta na hora do jogo (`db/45`)
+
+Na tela da súmula (`/preencher-sumula/:id`), a mesa tem **"Adicionar atleta"** em cada equipe, só no jogo do
+local dela e enquanto o jogo está **agendado ou em andamento** (some com o jogo finalizado ou em W.O.).
+
+- **Atleta já cadastrado na escola:** busca por nome. A lista mostra só o nome e as equipes em que o atleta já
+  está (modalidade, categoria e gênero), para distinguir homônimos. A mesa **nunca vê RG, CPF nem nascimento**.
+- **Atleta novo:** nome, nascimento, sexo e documento (opcional). Sem documento, o sistema gera o código
+  provisório da escola (`<SIGLA>SRG<NNN>`, próximo número livre); o administrador completa em Listar Atletas.
+- **Regras:** as mesmas do cadastro normal, conferidas no backend (idade da categoria, sexo × gênero, máximo de
+  14 por equipe e de 2 competições coletivas). **A mesa não abre exceção**: se uma regra barrar, aparece
+  "Precisa de autorização do administrador." com o motivo, e o administrador resolve pelas telas de sempre.
+- **Remover:** só o atleta que a própria mesa colocou (marcado "adicionado pela mesa"), antes do jogo terminar. Se
+  a mesa tinha cadastrado o atleta e ele fica sem equipe, o cadastro também sai. A ficha e o que outra mesa colocou
+  continuam só com o ADMIN. Quem já aparece em súmula não sai.
+- **Conferência (ADMIN):** `/atletas-das-mesas` ("Atletas das Mesas" na barra) lista data, mesa, escola, equipe e
+  atleta, com a marca "novo" nos que a mesa cadastrou.
+- A impressão das súmulas não muda: o atleta colocado pela mesa sai na folha como os demais.
+
 ## Como criar uma conta por local (ADMIN)
 
 Depois do `db/18` e do backend novo no ar:

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const sumulaController = require('../controllers/sumulaController');
-const { verificarToken, exigirPerfil, travarMesaPorLocal } = require('../middlewares/authMiddleware');
+const { verificarToken, exigirPerfil, travarMesaPorLocal, identificarSeLogado } = require('../middlewares/authMiddleware');
 
 // Lançar a súmula é a razão de existir do perfil PLACAR — no jogo do local
 // da mesa (db/18). É por aqui que passam placar, gols, cartões, sets,
@@ -12,7 +12,8 @@ const mesaDoLocalOuAdmin = [verificarToken, exigirPerfil('ADMIN', 'PLACAR'), tra
 router.post('/', mesaDoLocalOuAdmin, sumulaController.registrarSumula);
 
 // Leitura pública: é o que a impressão consome, em branco ou preenchida
-router.get('/:jogo_id', sumulaController.buscarSumulaPorJogo);
+// (identificarSeLogado só acrescenta, para quem está logado, a marca "adicionado por mim"; o resto é igual)
+router.get('/:jogo_id', identificarSeLogado, sumulaController.buscarSumulaPorJogo);
 
 // GET /atleta/:id/status saiu daqui: o cálculo antigo não seguia o regulamento
 // (2 amarelos = 1 jogo, amarelos zerados na 2ª fase, expulsão = 1 jogo).

@@ -57,6 +57,7 @@ app.use((req, res, next) => {
 const escolaRoutes = require('./src/routes/escolaRoutes');
 
 const jogoRoutes = require('./src/routes/jogoRoutes');
+const mesaAtletasRoutes = require('./src/routes/mesaAtletasRoutes');
 const importacaoJogosRoutes = require('./src/routes/importacaoJogosRoutes');
 const importacaoAtletasRoutes = require('./src/routes/importacaoAtletasRoutes');
 const sumulaRoutes = require('./src/routes/sumulaRoutes');
@@ -94,6 +95,7 @@ app.use('/api/usuarios', usuarioRoutes);
 
 app.use('/api/escolas', escolaRoutes);
 app.use('/api/jogos', jogoRoutes);
+app.use('/api/jogos', mesaAtletasRoutes); // a mesa adiciona/retira atleta no jogo (db/45)
 app.use('/api/agenda', agendaRoutes);
 app.use('/api/importacao-jogos', importacaoJogosRoutes);
 app.use('/api/importar-atletas', importacaoAtletasRoutes);
