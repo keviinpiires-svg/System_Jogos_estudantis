@@ -135,9 +135,72 @@ const listarEscolas = async (req, res) => {
   }
 };
 
+// GET /api/escolas/:id/atletas-por-equipe — só ADMIN (a mesa recebe 403). Alimenta o documento "Atletas (PDF)" da escola: uma entrada
+// por equipe em modalidade COLETIVA (atletismo, xadrez, dama e dominó são
+// individuais e não têm equipe), em ordem de modalidade, categoria e gênero, com
+// os atletas inscritos (nome, data de nascimento e camisa). NUNCA devolve RG,
+// CPF nem o código provisório: o RG não sai desta rota.
+const listarAtletasPorEquipe = async (req, res) => {
+  const escola_id = Number(req.params.id);
+  if (!Number.isInteger(escola_id) || escola_id <= 0) {
+    return res.status(400).json({ erro: 'Escola inválida.' });
+  }
+
+  try {
+    const [[escola]] = await db.query('SELECT id, nome FROM escolas WHERE id = ?', [escola_id]);
+    if (!escola) return res.status(404).json({ erro: 'Escola não encontrada.' });
+
+    const [equipes] = await db.query(
+      `SELECT e.id AS equipe_id, c.id AS competicao_id, c.genero,
+              m.nome AS modalidade_nome, cat.nome AS categoria_nome
+         FROM equipes e
+         INNER JOIN competicoes c ON c.id = e.competicao_id
+         INNER JOIN modalidades m ON m.id = c.modalidade_id AND m.tipo = 'COLETIVO'
+         INNER JOIN categorias cat ON cat.id = c.categoria_id
+        WHERE e.escola_id = ?
+        ORDER BY m.ordem, cat.ordem, FIELD(c.genero, 'MASCULINO', 'FEMININO', 'MISTO')`,
+      [escola_id]
+    );
+
+    const porEquipe = new Map(equipes.map((e) => [e.equipe_id, []]));
+    if (equipes.length > 0) {
+      const [inscritos] = await db.query(
+        `SELECT i.equipe_id, a.id AS atleta_id, a.nome, a.data_nascimento, i.numero_camisa
+           FROM inscricoes_atletas i
+           INNER JOIN atletas a ON a.id = i.atleta_id
+          WHERE i.equipe_id IN (?)
+          ORDER BY a.nome ASC, a.id ASC`,
+        [equipes.map((e) => e.equipe_id)]
+      );
+      for (const inscrito of inscritos) porEquipe.get(inscrito.equipe_id).push(inscrito);
+    }
+
+    // Atletas diferentes da escola nas equipes listadas (o mesmo atleta em duas
+    // equipes conta uma vez)
+    const diferentes = new Set();
+    const lista = equipes.map((e) => {
+      const atletas = porEquipe.get(e.equipe_id).map(({ equipe_id, ...atleta }) => {
+        diferentes.add(atleta.atleta_id);
+        return atleta;
+      });
+      return { ...e, atletas };
+    });
+
+    res.status(200).json({
+      escola,
+      equipes: lista,
+      total_atletas_diferentes: diferentes.size
+    });
+  } catch (erro) {
+    console.error('Erro ao listar os atletas da escola por equipe:', erro);
+    res.status(500).json({ erro: 'Erro ao montar a lista de atletas da escola.' });
+  }
+};
+
 // Exportando as funções para o Router conseguir enxergá-las
 module.exports = {
   cadastrarEscola,
   atualizarEscola,
-  listarEscolas
+  listarEscolas,
+  listarAtletasPorEquipe
 };
