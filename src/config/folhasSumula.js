@@ -68,7 +68,7 @@ const FOLHAS = {
 
   // Basquete: folha própria. Não tem cartão; tem faltas individuais de 0 a 5
   // por atleta e faltas acumulativas até 7 por tempo. A grade de PONTOS do
-  // papel é a pontuação corrida da EQUIPE (2 a 97), não o placar do atleta.
+  // papel é a pontuação corrida da EQUIPE (1 a 126), não o placar do atleta.
   basquete: {
     tipo: 'BASQUETE',
     // O papel escreve BASQUETEBOL, embora a modalidade se chame Basquete
@@ -83,8 +83,11 @@ const FOLHAS = {
     sets: false,
     linhas: LINHAS,
     linhasMaximas: LINHAS,
-    // Grade da pontuação corrida: 8 colunas de 12 números, 2 a 97
-    pontuacaoCorrida: { de: 2, colunas: 8, porColuna: 12 }
+    // Grade da pontuação corrida: começa em 1 e desce coluna por coluna; cada
+    // coluna tem uma linha de atleta de altura (`linhas`), então 9 colunas dão
+    // 1 a 126 (o papel trazia 2 a 97). Só `de` e `colunas` valem: a altura
+    // da coluna é `linhas`.
+    pontuacaoCorrida: { de: 1, colunas: 9 }
   },
 
   // Vôlei: folha de sets, com as duas equipes lado a lado. Sem gols, cartões,
