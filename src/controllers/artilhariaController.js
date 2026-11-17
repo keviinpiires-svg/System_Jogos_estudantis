@@ -45,9 +45,10 @@ const listarPorCompeticao = async (req, res) => {
       return res.status(404).json({ erro: 'Competição não encontrada.' });
     }
 
-    // Baleado: eliminações não são gols, não há artilharia
-    if (competicao.tipo_placar === 'ELIMINADOS') {
-      return res.status(200).json({ competicao, rotulo: ROTULO_PLACAR.ELIMINADOS, artilheiros: [] });
+    // Artilharia é só de gols (futsal, society e handebol: tipo_placar GOLS). Baleado (eliminações),
+    // basquete (pontos) e vôlei (sets) não têm (decisão do usuário, 16/11/2026: sem cestinha).
+    if (competicao.tipo_placar !== 'GOLS') {
+      return res.status(200).json({ competicao, rotulo: ROTULO_PLACAR[competicao.tipo_placar] || 'gols', artilheiros: [], sem_artilharia: true });
     }
 
     // COUNT(DISTINCT) porque um atleta tem uma linha por jogo: sem isso, um
@@ -98,7 +99,7 @@ const listarLideres = async (req, res) => {
             FROM sumula_atletas s
             INNER JOIN jogos j ON j.id = s.jogo_id
             INNER JOIN competicoes cs ON cs.id = j.competicao_id
-            INNER JOIN modalidades ms ON ms.id = cs.modalidade_id AND ms.tipo_placar <> 'ELIMINADOS'
+            INNER JOIN modalidades ms ON ms.id = cs.modalidade_id AND ms.tipo_placar = 'GOLS'
             INNER JOIN atletas a ON a.id = s.atleta_id
             INNER JOIN equipes e ON e.id = s.equipe_id
             INNER JOIN escolas esc ON esc.id = e.escola_id

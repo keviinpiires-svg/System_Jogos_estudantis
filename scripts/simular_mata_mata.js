@@ -326,10 +326,14 @@ const rodar = async () => {
   const [m1] = await equipesDoJogo(j1.id);
   const [m2] = await equipesDoJogo(j2.id);
   conferir(m2 === melhorA, 'a vaga fixa "2º do grupo" fica com a equipe que seria o melhor 2º', `${m2} (esperado ${melhorA})`);
-  conferir(m1 !== melhorA && segundosDosOutros.includes(m1),
-    'o melhor 2º pula a equipe que já está numa vaga fixa e entra o seguinte',
-    `${nomeEscola(d, m1)} (melhor 2º original: ${nomeEscola(d, melhorA)})`);
-  conferir((r1.corpo.avisos || []).some((x) => /já ocupa outra vaga/.test(x.motivo || '')), 'a troca de candidata vem como aviso para o ADMIN', JSON.stringify(r1.corpo.avisos));
+  // Os W.O. desta simulação deixam os 2º dos outros dois grupos idênticos em tudo: pulada a equipe
+  // reservada, as seguintes empatam até o sorteio, e a vaga espera o ADMIN (16/11/2026: antes o
+  // sistema escolhia uma delas em silêncio, pela ordem alfabética)
+  const pendente1 = (r1.corpo.pendentes || []).find((x) => x.jogo_id === j1.id && x.lado === 1);
+  conferir(m1 === null && /sorteio/.test(pendente1?.motivo || '')
+    && segundosDosOutros.every((id) => pendente1.motivo.includes(nomeEscola(d, id))),
+  'o melhor 2º pula a equipe que já está numa vaga fixa; as seguintes empatam em tudo e a vaga fica pendente (sorteio)',
+  `${nomeEscola(d, m1)} ${JSON.stringify(pendente1)}`);
 
   // Todas as segundas já em vagas fixas: a vaga do melhor 2º fica vazia, com aviso
   const outros = d.grupos.filter((g) => g.id !== gMelhor);

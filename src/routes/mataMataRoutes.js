@@ -14,6 +14,8 @@ router.post('/competicao/:competicao_id/gerar', somenteAdmin, mataMataController
 // Vagas do mata-mata cadastrado pela tabela do chefe (db/28): recalcula uma competição ou todas
 router.post('/competicao/:competicao_id/recalcular-vagas', somenteAdmin, mataMataController.recalcularVagas);
 router.post('/recalcular-vagas', somenteAdmin, mataMataController.recalcularVagasDeTodas);
+// Posição de pódio empatada até o sorteio: o ADMIN escolhe (colocacoes_finais, 16/11/2026)
+router.put('/competicao/:competicao_id/colocacao', somenteAdmin, mataMataController.definirColocacao);
 router.delete('/competicao/:competicao_id/:fase', somenteAdmin, mataMataController.desfazerFase);
 
 module.exports = router;

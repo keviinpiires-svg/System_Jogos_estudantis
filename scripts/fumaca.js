@@ -23,7 +23,7 @@ const { REGRAS, desempateDaModalidade } = require('../src/config/regrasProvisori
 const { folhaDaModalidade } = require('../src/config/folhasSumula');
 const { compararEntreGrupos } = require('../src/controllers/classificacaoController');
 const { posicionar } = require('../src/controllers/tabelaGeralController');
-const { colocacoesFinais } = require('../src/controllers/mataMataController');
+const { colocacoesFinais, apurarColocacoes } = require('../src/controllers/mataMataController');
 const { apurarSets } = require('../src/controllers/sumulaController');
 const { lerData, lerHora } = require('../src/controllers/importacaoJogosController');
 const { chaveDaSemifinal, REGRAS_DA_CHAVE } = require('../src/config/chavesMataMata');
@@ -1097,9 +1097,9 @@ const testarFolhasOficiais = () => {
     'handebol tem folha própria, sem aviso de provisória'
   );
   conferir(
-    handebol.caixasEstatistica === 10 && handebol.cartoes && handebol.maxAmarelos === 1
+    handebol.caixasEstatistica === 10 && handebol.cartoes && handebol.maxAmarelos === 2
       && handebol.faltasIndividuais === 0 && handebol.faltasAcumuladas === 0 && handebol.tempoTecnico,
-    'handebol: 10 caixas de gols, um amarelo, sem faltas, com tempo técnico'
+    'handebol: 10 caixas de gols, 2 amarelos (o 2º vira vermelho, 16/11/2026), sem faltas, com tempo técnico'
   );
   conferir(
     handebol.linhas === 14 && handebol.linhasMaximas === 14
@@ -1328,29 +1328,50 @@ const testarSemifinalDeTresGrupos = () => {
 const testarTerceiroSemSemifinal = async () => {
   secao('-- 3º lugar sem semifinal');
 
-  const equipe = equipeDeTeste;
+  // Campanha de mentira: só os pontos mudam (o resto empata)
+  const equipe = (grupo, posicao, equipe_id, pontos = 0) => ({
+    ...equipeDeTeste(grupo, posicao, equipe_id), pontos, saldo: 0, vitorias: 0, marcados: 0,
+    vermelhos: 0, amarelos: 0, jogos: 2
+  });
 
   // Dois grupos, 1º de cada à final: o 3º é o melhor 2º pela campanha
   const final = {
     id: 1, fase: 'FINAL', status: 'FINALIZADO', vencedor_equipe_id: 1,
     equipe_1_id: 1, equipe_2_id: 2, escola_1_nome: 'ESCOLA A1', escola_2_nome: 'ESCOLA B1'
   };
-  const melhorSegundo = equipe('B', 2, 4);
-  const colocacoes = colocacoesFinais({
-    competicao: { proxima_fase: 'FINAL', qtd_grupos: 2 },
+  const chave = (segundoA, segundoB) => ({
+    competicao: { proxima_fase: 'FINAL', qtd_grupos: 2, tipo_placar: 'GOLS' },
     todosOsJogos: [final],
     grupos: [
-      { nome: 'A', equipes: [equipe('A', 1, 1), equipe('A', 2, 3)] },
-      { nome: 'B', equipes: [equipe('B', 1, 2), melhorSegundo] }
+      { id: 65, nome: 'A', equipes: [equipe('A', 1, 1, 6), segundoA] },
+      { id: 66, nome: 'B', equipes: [equipe('B', 1, 2, 6), segundoB] }
     ],
-    comparacoes: { segundos: { ordenadas: [melhorSegundo, equipe('A', 2, 3)] } },
+    criterios: ['saldo', 'vitorias', 'marcados', 'menos_vermelhos', 'menos_amarelos'],
+    jogos: [],
+    escolhas: new Map(),
     faseDeGrupos: { completa: true }
   });
+  const colocacoes = colocacoesFinais(chave(equipe('A', 2, 3, 1), equipe('B', 2, 4, 3)));
   const terceiro = colocacoes.find((c) => c.posicao === 3);
   conferir(
     terceiro?.equipe_id === 4 && terceiro.provisoria === false,
     '3º sem semifinal é o melhor 2º, sem marca de regra provisória',
     JSON.stringify(terceiro)
+  );
+
+  // Os dois segundos empatados em tudo: o 3º não é escolhido em silêncio (16/11/2026)
+  const empate = apurarColocacoes(chave(equipe('A', 2, 3, 3), equipe('B', 2, 4, 3)));
+  conferir(
+    !empate.colocacoes.some((c) => c.posicao === 3) && empate.pendentes[0]?.posicao === 3
+      && empate.pendentes[0].candidatas.map((c) => c.equipe_id).sort().join() === '3,4',
+    '3º empatado até o sorteio: fica pendente para o ADMIN, com as duas candidatas',
+    JSON.stringify(empate)
+  );
+  const escolhido = apurarColocacoes({ ...chave(equipe('A', 2, 3, 3), equipe('B', 2, 4, 3)), escolhas: new Map([[3, 3]]) });
+  conferir(
+    escolhido.colocacoes.find((c) => c.posicao === 3)?.equipe_id === 3 && escolhido.pendentes.length === 0,
+    'com a escolha do ADMIN gravada, o 3º sai com a equipe escolhida',
+    JSON.stringify(escolhido)
   );
 
   const [[pontuacao]] = await db.query('SELECT pontos FROM pontuacao_geral WHERE posicao = 3');

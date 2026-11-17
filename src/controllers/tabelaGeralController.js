@@ -1,5 +1,5 @@
 const db = require('../config/db');
-const { montarChave, colocacoesFinais } = require('./mataMataController');
+const { montarChave, apurarColocacoes } = require('./mataMataController');
 const { ErroDeRegra } = require('./classificacaoController');
 const { REGRAS } = require('../config/regrasProvisorias');
 const { REGRAS_DA_CHAVE } = require('../config/chavesMataMata');
@@ -9,8 +9,8 @@ const { REGRAS_DA_CHAVE } = require('../config/chavesMataMata');
 //
 // Como a classificação e as colocações, nada é guardado: tudo sai dos jogos.
 // Corrigir uma súmula corrige a tabela geral no mesmo instante. A tabela
-// `colocacoes_finais` do schema segue sem uso — ela só faz sentido se um dia
-// o chefe quiser congelar o resultado de uma competição encerrada.
+// `colocacoes_finais` só guarda a escolha do ADMIN para uma posição de pódio
+// empatada até o sorteio (16/11/2026); o resto continua calculado.
 //
 // Desde 06/10/2026 há só a soma geral: a divisão em três blocos (anos
 // iniciais, anos finais e ensino médio) saiu por decisão do chefe.
@@ -91,7 +91,11 @@ const tabelaGeral = async (req, res) => {
       `SELECT c.id, c.genero,
               m.nome AS modalidade_nome, m.slug AS modalidade_slug, m.tipo AS modalidade_tipo,
               cat.nome AS categoria_nome,
-              (SELECT COUNT(*) FROM equipes e WHERE e.competicao_id = c.id) AS total_equipes
+              -- Só conta equipe que tem jogo na competição (16/11/2026): inscrita sem jogo não pontua
+              (SELECT COUNT(*) FROM equipes e WHERE e.competicao_id = c.id
+                 AND EXISTS (SELECT 1 FROM jogos j
+                              WHERE j.competicao_id = c.id
+                                AND (j.equipe_1_id = e.id OR j.equipe_2_id = e.id))) AS total_equipes
          FROM competicoes c
          INNER JOIN modalidades m ON m.id = c.modalidade_id
          INNER JOIN categorias cat ON cat.id = c.categoria_id
@@ -103,6 +107,7 @@ const tabelaGeral = async (req, res) => {
 
     const encerradas = [];
     const semPontuar = [];
+    const pendentesDeSorteio = [];
 
     for (const competicao of competicoes) {
       if (competicao.modalidade_tipo !== 'COLETIVO' && !REGRA.incluiAtletismo) {
@@ -112,12 +117,24 @@ const tabelaGeral = async (req, res) => {
 
       // Regulamento: competição com uma só inscrição não pontua nem premia
       if (competicao.total_equipes < REGRA.minimoDeEquipes) {
-        semPontuar.push({ ...competicao, motivo: 'tem menos de duas equipes inscritas' });
+        semPontuar.push({ ...competicao, motivo: 'tem menos de duas equipes com jogos' });
         continue;
       }
 
       const chave = await montarChave(competicao.id);
-      const colocacoes = colocacoesFinais(chave);
+      const { colocacoes, pendentes } = apurarColocacoes(chave);
+
+      // Posição de pódio empatada até o sorteio, sem escolha do ADMIN: não pontua até ele escolher
+      for (const pendente of pendentes) {
+        pendentesDeSorteio.push({
+          competicao_id: competicao.id,
+          modalidade_nome: competicao.modalidade_nome,
+          categoria_nome: competicao.categoria_nome,
+          genero: competicao.genero,
+          posicao: pendente.posicao,
+          motivo: pendente.motivo
+        });
+      }
 
       if (colocacoes.length === 0) {
         semPontuar.push({ ...competicao, motivo: 'ainda não tem campeão definido' });
@@ -313,7 +330,9 @@ const tabelaGeral = async (req, res) => {
           categoria_nome: c.categoria_nome,
           genero: c.genero,
           motivo: c.motivo
-        }))
+        })),
+        // Pódio empatado até o sorteio esperando a escolha do ADMIN (essa posição ainda não pontua)
+        pendentes_de_sorteio: pendentesDeSorteio
       },
       // O que a tela precisa dizer que ainda não é definitivo
       regras: {

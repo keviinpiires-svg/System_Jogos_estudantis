@@ -684,6 +684,8 @@ const declararWO = async (req, res) => {
 
     res.status(200).json({
       vagas_preenchidas: vagas ? vagas.preenchidas : 0,
+      // Jogo do mata-mata já iniciado ou encerrado que este W.O. deveria mudar: a tela avisa na hora
+      avisos_mata_mata: vagas ? vagas.avisos : [],
       mensagem: 'W.O. declarado.',
       id_jogo: id,
       placar: `${placar_1} x ${placar_2}`,

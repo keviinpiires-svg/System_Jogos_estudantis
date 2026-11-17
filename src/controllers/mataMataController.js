@@ -1,7 +1,7 @@
 const db = require('../config/db');
 const {
   montarClassificacao, compararEntreGrupos, avisoJogosDiferentes, ordenarPorCampanha,
-  vencedorDoJogo, ErroDeRegra
+  blocosDeSorteio, primeiraSemSorteio, vencedorDoJogo, ErroDeRegra
 } = require('./classificacaoController');
 const {
   REGRAS_DA_CHAVE, chaveDaSemifinal, chaveDaFinal, temMataMata
@@ -90,8 +90,15 @@ const montarChave = async (id) => {
     melhoresSegundos: segundos ? segundos.ordenadas.slice(0, competicao.melhores_segundos) : []
   };
 
+  // Posições de pódio empatadas até o sorteio que o ADMIN já decidiu (colocacoes_finais, 16/11/2026)
+  const [escolhidas] = await db.query(
+    'SELECT posicao, equipe_id FROM colocacoes_finais WHERE competicao_id = ?',
+    [id]
+  );
+
   return {
     ...dados,
+    escolhas: new Map(escolhidas.map((e) => [e.posicao, e.equipe_id])),
     todosOsJogos,
     vagasCadastradas: Number(comVagas) > 0,
     jogosDeGrupos: jogos,
@@ -268,9 +275,43 @@ const quartoEQuinto = (chave, semifinais, vice) => {
 // o 3º do grupo único ou, com dois grupos, o melhor dos dois segundos pela
 // campanha (REGRAS_DA_CHAVE.terceiroSemSemifinal, confirmada em 06/10/2026:
 // vale 6 pontos na tabela geral, como qualquer 3º).
-const colocacoesFinais = (chave) => {
-  const { competicao, todosOsJogos, grupos, comparacoes, faseDeGrupos } = chave;
+// O 3º sem semifinal: a melhor equipe que não foi à final. Num grupo único, a ordem do grupo; com
+// mais grupos, a melhor de cada grupo (fora da final) comparada pela campanha. Empate até o sorteio
+// devolve { empatadas } para o ADMIN escolher — nada é decidido em silêncio (16/11/2026).
+const terceiroSemSemifinal = (chave, naFinal) => {
+  const { grupos, criterios, competicao, jogos } = chave;
+  const unico = grupos.length === 1;
+  const candidatas = [];
+  const blocoNoGrupo = new Map(); // equipe -> ids empatadas com ela no grupo (fora da final)
+
+  for (const grupo of grupos) {
+    const fora = grupo.equipes.filter((e) => !naFinal.has(e.equipe_id));
+    if (fora.length === 0) continue;
+    const blocos = blocosDeSorteio(grupo.equipes, criterios, {
+      competicao, jogos: unico ? jogos : jogos.filter((j) => j.grupo_id === grupo.id)
+    });
+    const bloco = blocos.find((ids) => ids.includes(fora[0].equipe_id));
+    const empatadas = bloco ? fora.filter((e) => bloco.includes(e.equipe_id)) : [fora[0]];
+    for (const e of empatadas) blocoNoGrupo.set(e.equipe_id, empatadas.map((x) => x.equipe_id));
+    candidatas.push(...empatadas);
+  }
+
+  if (candidatas.length === 0) return {};
+  if (unico) return candidatas.length > 1 ? { empatadas: candidatas } : { equipe: candidatas[0] };
+
+  const r = primeiraSemSorteio(candidatas, criterios, { competicao, jogos });
+  const doGrupo = blocoNoGrupo.get(r.primeira.equipe_id) || [];
+  const ids = new Set([...(doGrupo.length > 1 ? doGrupo : []), ...r.empatadas.map((e) => e.equipe_id)]);
+  if (ids.size > 1) return { empatadas: candidatas.filter((e) => ids.has(e.equipe_id)) };
+  return { equipe: candidatas.find((e) => e.equipe_id === r.primeira.equipe_id) };
+};
+
+// As colocações decididas e as posições que esperam o ADMIN (empate até o sorteio)
+const apurarColocacoes = (chave) => {
+  const { competicao, todosOsJogos, grupos, faseDeGrupos } = chave;
   const colocacoes = [];
+  const pendentes = [];
+  const pronto = () => ({ colocacoes, pendentes });
 
   const nomeDaEquipe = (equipe_id) => {
     for (const grupo of grupos) {
@@ -285,10 +326,10 @@ const colocacoesFinais = (chave) => {
   // pela classificação (20/10/2026). Antes saía do 1º da tabela, e no baleado,
   // cujo desempate não olha saldo, a soma podia não decidir.
   if (!temMataMata(competicao)) {
-    if (!faseDeGrupos.completa) return [];
+    if (!faseDeGrupos.completa) return pronto();
 
     const [grupo] = grupos;
-    if (!grupo || grupo.equipes.length < 2) return [];
+    if (!grupo || grupo.equipes.length < 2) return pronto();
 
     const [primeiro, segundo] = grupo.equipes;
     const deGrupos = jogosDaFase(todosOsJogos, 'GRUPOS');
@@ -308,14 +349,14 @@ const colocacoesFinais = (chave) => {
       : null;
 
     if (somaEmpatada && !porCobranca) {
-      return [];
+      return pronto();
     }
 
     const lider = soma.get(primeiro.equipe_id) > soma.get(segundo.equipe_id) ? primeiro : segundo;
     const campeao = porCobranca || lider.equipe_id;
     const vice = campeao === primeiro.equipe_id ? segundo.equipe_id : primeiro.equipe_id;
 
-    return [
+    colocacoes.push(
       {
         posicao: 1,
         equipe_id: campeao,
@@ -326,13 +367,14 @@ const colocacoesFinais = (chave) => {
           `${soma.get(campeao)} × ${soma.get(vice)}`)
       },
       { posicao: 2, equipe_id: vice, escola_nome: nomeDaEquipe(vice), como: 'vice' }
-    ];
+    );
+    return pronto();
   }
 
   const finais = jogosDaFase(todosOsJogos, 'FINAL');
   const final = finais.find(decidido);
 
-  if (!final) return [];
+  if (!final) return pronto();
 
   const campeao = final.vencedor_equipe_id;
   const vice = campeao === final.equipe_1_id ? final.equipe_2_id : final.equipe_1_id;
@@ -376,39 +418,54 @@ const colocacoesFinais = (chave) => {
     }
 
     colocacoes.push(...quartoEQuinto(chave, semifinais, vice));
-    return colocacoes;
+    return pronto();
   }
 
-  // Sem semifinal: o 3º vem da fase classificatória
-  if (grupos.length === 1) {
-    const terceiro = grupos[0].equipes[2];
-    if (terceiro) {
-      colocacoes.push({
-        posicao: 3,
-        equipe_id: terceiro.equipe_id,
-        escola_nome: terceiro.escola_nome,
-        como: '3º do grupo (sem semifinal, vale a fase classificatória)',
-        provisoria: REGRAS_DA_CHAVE.terceiroSemSemifinal.provisorio
-      });
-    }
-    return colocacoes;
-  }
+  // Sem semifinal: o 3º vem da fase classificatória (a melhor equipe que não foi à final)
+  const provisoria = REGRAS_DA_CHAVE.terceiroSemSemifinal.provisorio;
+  const terceiro = terceiroSemSemifinal(chave, new Set([final.equipe_1_id, final.equipe_2_id]));
+  const comoDoTerceiro = (e) => (grupos.length === 1
+    ? '3º do grupo (sem semifinal, vale a fase classificatória)'
+    : `${e.posicao === 2 ? 'melhor 2º colocado' : 'melhor campanha fora da final'} (grupo ${e.grupo_nome}), `
+      + 'sem semifinal e sem jogo de 3º lugar');
 
-  const melhorSegundo = comparacoes.segundos?.ordenadas?.[0];
-
-  if (melhorSegundo) {
+  if (terceiro.equipe) {
     colocacoes.push({
       posicao: 3,
-      equipe_id: melhorSegundo.equipe_id,
-      escola_nome: melhorSegundo.escola_nome,
-      como: `melhor 2º colocado (grupo ${melhorSegundo.grupo_nome}), `
-        + 'sem semifinal e sem jogo de 3º lugar',
-      provisoria: REGRAS_DA_CHAVE.terceiroSemSemifinal.provisorio
+      equipe_id: terceiro.equipe.equipe_id,
+      escola_nome: terceiro.equipe.escola_nome,
+      como: comoDoTerceiro(terceiro.equipe),
+      provisoria
     });
+  } else if (terceiro.empatadas) {
+    const nomes = terceiro.empatadas.map((e) => e.escola_nome).join(', ');
+    const escolhida = chave.escolhas?.get(3);
+    const valida = terceiro.empatadas.find((e) => e.equipe_id === escolhida);
+    if (valida) {
+      colocacoes.push({
+        posicao: 3,
+        equipe_id: valida.equipe_id,
+        escola_nome: valida.escola_nome,
+        como: `escolhido pelo administrador (empate até o sorteio entre ${nomes})`,
+        escolhida_pelo_admin: true,
+        provisoria
+      });
+    } else {
+      pendentes.push({
+        posicao: 3,
+        motivo: `empate em todos os critérios (sorteio) entre ${nomes}: o administrador escolhe o 3º lugar`
+          + (escolhida ? '. A escolha gravada antes não vale mais (os resultados mudaram).' : ''),
+        candidatas: terceiro.empatadas.map((e) => ({
+          equipe_id: e.equipe_id, escola_nome: e.escola_nome, grupo_nome: e.grupo_nome
+        }))
+      });
+    }
   }
 
-  return colocacoes;
+  return pronto();
 };
+
+const colocacoesFinais = (chave) => apurarColocacoes(chave).colocacoes;
 
 // ---------------------------------------------------------------------------
 // GET /api/matamata/competicao/:competicao_id
@@ -497,7 +554,10 @@ const chaveDaCompeticao = async (req, res) => {
         semifinal: competicao.proxima_fase === 'SEMIFINAL' ? previsto('SEMIFINAL', semifinais) : null,
         final: previsto('FINAL', finais)
       },
-      colocacoes: colocacoesFinais(chave),
+      ...(() => {
+        const { colocacoes, pendentes } = apurarColocacoes(chave);
+        return { colocacoes, colocacoes_pendentes: pendentes };
+      })(),
       pode_gerar: geracao
     });
   } catch (erro) {
@@ -771,8 +831,63 @@ const recalcularVagasDeTodas = async (req, res) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// PUT /api/matamata/competicao/:competicao_id/colocacao — só ADMIN (16/11/2026)
+// ---------------------------------------------------------------------------
+// Posição de pódio empatada até o sorteio: o ADMIN grava a equipe sorteada
+// ({ posicao, equipe_id }) ou desfaz a escolha ({ posicao, equipe_id: null }).
+// Só vale enquanto a posição estiver de fato empatada, e só entre as candidatas.
+const definirColocacao = async (req, res) => {
+  const id = Number(req.params.competicao_id);
+  const posicao = Number(req.body.posicao);
+  const equipeId = req.body.equipe_id === null || req.body.equipe_id === undefined ? null : Number(req.body.equipe_id);
+
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ erro: 'Identificador de competição inválido.' });
+  if (!Number.isInteger(posicao) || posicao < 1 || posicao > 5) return res.status(400).json({ erro: 'Informe a posição (1 a 5).' });
+
+  try {
+    if (equipeId === null) {
+      await db.query('DELETE FROM colocacoes_finais WHERE competicao_id = ? AND posicao = ?', [id, posicao]);
+      return res.status(200).json({ mensagem: `Escolha do ${posicao}º lugar desfeita.` });
+    }
+
+    const chave = await montarChave(id);
+    chave.escolhas = new Map(); // a conta sem a escolha gravada: o que está empatado de verdade
+    const { pendentes } = apurarColocacoes(chave);
+    const pendente = pendentes.find((p) => p.posicao === posicao);
+    if (!pendente) {
+      return res.status(409).json({ erro: `O ${posicao}º lugar desta competição não está empatado até o sorteio: ele sai dos resultados.` });
+    }
+    const candidata = pendente.candidatas.find((c) => c.equipe_id === equipeId);
+    if (!candidata) {
+      return res.status(400).json({ erro: `Escolha uma das equipes empatadas: ${pendente.candidatas.map((c) => c.escola_nome).join(', ')}.` });
+    }
+
+    const conexao = await db.getConnection();
+    try {
+      await conexao.beginTransaction();
+      await conexao.query('DELETE FROM colocacoes_finais WHERE competicao_id = ? AND (posicao = ? OR equipe_id = ?)', [id, posicao, equipeId]);
+      await conexao.query('INSERT INTO colocacoes_finais (competicao_id, equipe_id, posicao) VALUES (?, ?, ?)', [id, equipeId, posicao]);
+      await conexao.commit();
+    } catch (erro) {
+      await conexao.rollback();
+      throw erro;
+    } finally {
+      conexao.release();
+    }
+
+    res.status(200).json({ mensagem: `${posicao}º lugar: ${candidata.escola_nome} (escolha do administrador).` });
+  } catch (erro) {
+    if (erro instanceof ErroDeRegra) return res.status(erro.status).json({ erro: erro.message });
+    console.error('Erro ao definir a colocação:', erro);
+    res.status(500).json({ erro: 'Erro ao definir a colocação.' });
+  }
+};
+
 module.exports = {
   chaveDaCompeticao,
+  definirColocacao,
+  apurarColocacoes,
   gerarFase,
   desfazerFase,
   recalcularVagas,

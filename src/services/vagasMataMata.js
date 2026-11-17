@@ -27,8 +27,8 @@
 const db = require('../config/db');
 const {
   montarClassificacao,
-  compararEntreGrupos,
-  ordenarPorCampanha
+  blocosDeSorteio,
+  primeiraSemSorteio
 } = require('../controllers/classificacaoController');
 
 const RESOLVIDO = ['FINALIZADO', 'WO'];
@@ -57,15 +57,43 @@ const carregarVagas = async (conexao, competicaoId) => {
   return vagas;
 };
 
-// Quem ocupa a posição de um grupo (ou null com o motivo), olhando a classificação
+// Quem ocupa a posição de um grupo (ou null com o motivo), olhando a classificação.
+// Empate até o sorteio: se o ADMIN já escolheu à mão as outras posições do bloco empatado (numa vaga
+// de grupo), a posição que sobrou fica com a equipe que sobrou — ex.: A e B empatadas em 1º/2º e o
+// ADMIN pôs A no "1º do Grupo" => B é o 2º. Sobrando mais de uma, segue pendente (16/11/2026).
 const equipeDaPosicao = (grupo, posicao, ctx) => {
   const equipe = grupo.equipes[posicao - 1];
   if (!equipe) return { motivo: `o grupo ${grupo.nome} não tem ${posicao}º colocado` };
 
-  const empatada = ctx.empatadas.has(equipe.equipe_id);
-  if (empatada) return { motivo: `empate sem critério (sorteio) na posição ${posicao} do grupo ${grupo.nome}` };
+  const bloco = (ctx.blocos.get(grupo.id) || []).find((ids) => ids.includes(equipe.equipe_id));
+  if (!bloco) return { equipe_id: equipe.equipe_id };
 
-  return { equipe_id: equipe.equipe_id };
+  const sorteio = { motivo: `empate sem critério (sorteio) na posição ${posicao} do grupo ${grupo.nome}` };
+  const posicoes = grupo.equipes.map((e, i) => (bloco.includes(e.equipe_id) ? i + 1 : null)).filter(Boolean);
+  const fixas = new Map();
+  for (const [p, id] of ctx.escolhidasNoGrupo.get(grupo.id) || []) {
+    if (posicoes.includes(p) && bloco.includes(id) && ![...fixas.values()].includes(id)) fixas.set(p, id);
+  }
+  if (fixas.has(posicao)) return { equipe_id: fixas.get(posicao) };
+  const sobram = bloco.filter((id) => ![...fixas.values()].includes(id));
+  const posicoesLivres = posicoes.filter((p) => !fixas.has(p));
+  if (fixas.size > 0 && sobram.length === 1 && posicoesLivres.length === 1 && posicoesLivres[0] === posicao) {
+    return { equipe_id: sobram[0] };
+  }
+  return sorteio;
+};
+
+// Posições de grupo que o ADMIN escolheu à mão (vaga de grupo manual): grupo -> [[posição, equipe]]
+const escolhidasNoGrupo = (vagas) => {
+  const porGrupo = new Map();
+  for (const v of vagas) {
+    if (!v.manual || v.tipo !== 'GRUPO') continue;
+    const equipe = v.lado === 1 ? v.equipe_1_id : v.equipe_2_id;
+    if (!equipe) continue;
+    if (!porGrupo.has(v.grupo_id)) porGrupo.set(v.grupo_id, []);
+    porGrupo.get(v.grupo_id).push([v.posicao, equipe]);
+  }
+  return porGrupo;
 };
 
 // Os grupos que já fecharam (todos os jogos de grupo resolvidos)
@@ -85,20 +113,14 @@ const gruposFechados = async (conexao, competicaoId, grupos) => {
   return { fechado, todosFechados };
 };
 
-// Equipes que empataram em TODOS os critérios (vão a sorteio): a vaga espera o ADMIN
-const empatadasAteOFim = (dados) => {
-  const ids = new Set();
+// Blocos de equipes que empataram em TODOS os critérios (vão a sorteio), por grupo
+const blocosPorGrupo = (dados) => {
   const { competicao, criterios, jogos, grupos } = dados;
   const unico = grupos.length === 1;
-
-  for (const grupo of grupos) {
-    ordenarPorCampanha(grupo.equipes.map((e) => ({ ...e })), criterios, {
-      competicao,
-      jogos: unico ? jogos : jogos.filter((j) => j.grupo_id === grupo.id),
-      aoEmpatarAteOFim: (bloco) => bloco.forEach((e) => ids.add(e.equipe_id))
-    });
-  }
-  return ids;
+  return new Map(grupos.map((grupo) => [grupo.id, blocosDeSorteio(grupo.equipes, criterios, {
+    competicao,
+    jogos: unico ? jogos : jogos.filter((j) => j.grupo_id === grupo.id)
+  })]));
 };
 
 // ---------------------------------------------------------------------------
@@ -134,7 +156,7 @@ const resolverVagas = async (competicaoId, { forcarJogoId = null } = {}) => {
     if (precisaDeGrupos) {
       dados = await montarClassificacao(competicaoId);
       fechamento = await gruposFechados(conexao, competicaoId, dados.grupos);
-      ctx = { empatadas: empatadasAteOFim(dados) };
+      ctx = { blocos: blocosPorGrupo(dados), escolhidasNoGrupo: escolhidasNoGrupo(vagas) };
     }
 
     // Os vencedores dos jogos de origem
@@ -179,21 +201,32 @@ const resolverVagas = async (competicaoId, { forcarJogoId = null } = {}) => {
 
       if (vaga.tipo === 'MELHOR') {
         if (!fechamento.todosFechados) return { motivo: 'a fase de grupos ainda não terminou' };
-        const comparacao = compararEntreGrupos(vaga.posicao, dados);
-        if (comparacao.ordenadas.length === 0) return { motivo: `nenhum grupo tem ${vaga.posicao}º colocado` };
+        // A candidata de cada grupo naquela posição. Se ela depende de um sorteio no grupo que as
+        // escolhas do ADMIN ainda não resolveram, a vaga espera.
+        const candidatas = [];
+        for (const grupo of dados.grupos) {
+          if (!grupo.equipes[vaga.posicao - 1]) continue;
+          const r = equipeDaPosicao(grupo, vaga.posicao, ctx);
+          if (!r.equipe_id) return { motivo: `${r.motivo}: o melhor ${vaga.posicao}º colocado depende dele` };
+          candidatas.push(grupo.equipes.find((e) => e.equipe_id === r.equipe_id));
+        }
+        if (candidatas.length === 0) return { motivo: `nenhum grupo tem ${vaga.posicao}º colocado` };
         const reservadas = reservadasDaFase(vaga.fase);
-        const livres = comparacao.ordenadas.filter((e) => !reservadas.has(e.equipe_id));
-        const [melhor] = livres;
+        const ctxComparacao = { competicao: dados.competicao, jogos: dados.jogos };
+        const todas = primeiraSemSorteio(candidatas, dados.criterios, ctxComparacao);
+        const livres = primeiraSemSorteio(candidatas.filter((e) => !reservadas.has(e.equipe_id)), dados.criterios, ctxComparacao);
+        const melhor = livres.primeira;
         if (!melhor) {
           return {
             motivo: `todas as candidatas ao melhor ${vaga.posicao}º colocado já ocupam outra vaga desta fase: escolha a equipe à mão`,
             aviso: true
           };
         }
-        const pulou = comparacao.ordenadas[0].equipe_id !== melhor.equipe_id;
-        if (ctx.empatadas.has(melhor.equipe_id)) {
-          return { motivo: `empate sem critério (sorteio) no melhor ${vaga.posicao}º colocado` };
+        const pulou = todas.primeira.equipe_id !== melhor.equipe_id;
+        if (livres.empatadas.length > 1) {
+          return { motivo: `empate sem critério (sorteio) no melhor ${vaga.posicao}º colocado (${livres.empatadas.map((e) => e.escola_nome).join(', ')})` };
         }
+        const comparacao = todas;
         return {
           equipe_id: melhor.equipe_id,
           nota: pulou
@@ -401,8 +434,11 @@ const definirVaga = async ({ jogoId, lado, equipeId = null, automatico = false, 
     conexao.release();
   }
 
-  // Voltar ao automático recalcula já; a escolha à mão não precisa
-  const resolucao = automatico ? await resolverVagas(competicaoId, { forcarJogoId: jogoId }) : null;
+  // Voltar ao automático recalcula já. A escolha à mão também recalcula (16/11/2026): ela pode ter
+  // desfeito um sorteio de que outra vaga dependia (ex.: o "Melhor 2º" depois do 1º escolhido à mão)
+  const resolucao = automatico
+    ? await resolverVagas(competicaoId, { forcarJogoId: jogoId })
+    : await resolverVagasSemFalhar(competicaoId);
   return { competicao_id: competicaoId, resolucao };
 };
 

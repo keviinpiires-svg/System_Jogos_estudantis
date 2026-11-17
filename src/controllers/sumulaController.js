@@ -783,6 +783,9 @@ const registrarSumula = async (req, res) => {
 
     res.status(201).json({
       vagas_preenchidas: vagasResolvidas ? vagasResolvidas.preenchidas : 0,
+      // Jogo do mata-mata já iniciado ou encerrado que esta súmula deveria mudar (ex.: o ADMIN corrigiu
+      // um jogo de grupo depois da semifinal): o automático não troca, e a tela avisa na hora
+      avisos_mata_mata: vagasResolvidas ? vagasResolvidas.avisos : [],
       mensagem: finalizar ? 'Súmula finalizada!' : 'Súmula salva.',
       jogo_id,
       placar_1,

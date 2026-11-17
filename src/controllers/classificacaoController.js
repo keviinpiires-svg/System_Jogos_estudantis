@@ -212,10 +212,16 @@ const carregarDados = async (id) => {
     throw new ErroDeRegra(400, `${competicao.modalidade_nome} não tem classificação por grupos.`);
   }
 
-  const [equipes] = await db.query(
+  // Equipe sem NENHUM jogo cadastrado na competição (de qualquer fase e situação) fica fora da
+  // classificação, do pódio e da tabela geral (decisão do usuário, 16/11/2026: o CETI no Basquete F
+  // Sub 17 levava o 3º lugar sem ter jogado). A equipe não é apagada: volta sozinha se ganhar um jogo.
+  const [todasAsEquipes] = await db.query(
     `SELECT e.id AS equipe_id, e.escola_id, esc.nome AS escola_nome,
             g.id AS grupo_id, g.nome AS grupo_nome,
-            (SELECT COUNT(*) FROM inscricoes_atletas i WHERE i.equipe_id = e.id) AS total_inscritos
+            (SELECT COUNT(*) FROM inscricoes_atletas i WHERE i.equipe_id = e.id) AS total_inscritos,
+            EXISTS (SELECT 1 FROM jogos jj
+                     WHERE jj.competicao_id = e.competicao_id
+                       AND (jj.equipe_1_id = e.id OR jj.equipe_2_id = e.id)) AS tem_jogo
        FROM equipes e
        INNER JOIN escolas esc ON esc.id = e.escola_id
        LEFT JOIN grupos g ON g.id = e.grupo_id
@@ -223,6 +229,9 @@ const carregarDados = async (id) => {
       ORDER BY g.nome IS NULL, g.nome, esc.nome`,
     [id]
   );
+  const equipes = todasAsEquipes.filter((e) => Number(e.tem_jogo) === 1).map(({ tem_jogo, ...e }) => e);
+  const equipesSemJogos = todasAsEquipes.filter((e) => Number(e.tem_jogo) !== 1)
+    .map((e) => ({ equipe_id: e.equipe_id, escola_nome: e.escola_nome, grupo_nome: e.grupo_nome }));
 
   // Só a fase de grupos entra na classificação: mata-mata não dá pontos
   const [jogos] = await db.query(
@@ -257,7 +266,7 @@ const carregarDados = async (id) => {
     )
     : [[]];
 
-  return { competicao, criterios, equipes, jogos, cartoes, sets };
+  return { competicao, criterios, equipes, equipesSemJogos, jogos, cartoes, sets };
 };
 
 // Soma a campanha de cada equipe a partir de UMA lista de jogos.
@@ -414,7 +423,7 @@ const montarClassificacao = async (id) => {
 const candidatasDaPosicao = (posicao, grupos) => grupos
   .map((grupo) => grupo.equipes[posicao - 1])
   .filter(Boolean)
-  .map((equipe) => ({ ...equipe, posicao_no_grupo: equipe.posicao }));
+  .map(({ sorteio, criterio_desempate, ...equipe }) => ({ ...equipe, posicao_no_grupo: equipe.posicao }));
 
 // Quantos jogos cada candidata fez, e se esse número varia entre elas
 const jogosDasCandidatas = (candidatas) => ({
@@ -438,6 +447,36 @@ const compararEntreGrupos = (posicao, dados) => {
   };
 };
 
+// Blocos de equipes empatadas em TODOS os critérios (iriam a sorteio), na ordem dada.
+// Devolve uma lista de listas de equipe_id. Não mexe nas linhas recebidas.
+const blocosDeSorteio = (equipes, criterios, ctx) => {
+  const blocos = [];
+  if (!equipes.some((e) => e.jogos > 0)) return blocos;
+  ordenarPorCampanha(equipes.map(({ sorteio, criterio_desempate, ...e }) => ({ ...e })), criterios, {
+    ...ctx,
+    aoEmpatarAteOFim: (bloco) => blocos.push(bloco.map((e) => e.equipe_id))
+  });
+  return blocos;
+};
+
+// Ordena candidatas (cópias) e diz se a primeira está empatada até o sorteio com outra
+// candidata: `empatadas` traz todas as do bloco da primeira (vazio quando não há empate).
+const primeiraSemSorteio = (candidatas, criterios, ctx) => {
+  const blocos = [];
+  const ordenadas = ordenarPorCampanha(
+    candidatas.map(({ sorteio, criterio_desempate, ...e }) => ({ ...e })),
+    criterios,
+    { ...ctx, aoEmpatarAteOFim: (bloco) => blocos.push(bloco.map((e) => e.equipe_id)) }
+  );
+  const [primeira] = ordenadas;
+  const bloco = primeira && primeira.jogos > 0 && blocos.find((ids) => ids.includes(primeira.equipe_id));
+  return {
+    ordenadas,
+    primeira: primeira || null,
+    empatadas: bloco ? ordenadas.filter((e) => bloco.includes(e.equipe_id)) : []
+  };
+};
+
 // Texto do aviso de jogos diferentes, o mesmo na classificação e no mata-mata
 const avisoJogosDiferentes = (jogosPorEquipe) =>
   'As equipes comparadas têm números de jogos diferentes ('
@@ -451,8 +490,16 @@ const avisoJogosDiferentes = (jogosPorEquipe) =>
 
 // Avisos que a tela mostra junto da tabela: o "melhor segundo" comparado com
 // números de jogos diferentes e as regras que o regulamento não fecha.
-const avisosDeRegra = (competicao, grupos) => {
+const avisosDeRegra = (competicao, grupos, equipesSemJogos = []) => {
   const avisos = [];
+
+  if (equipesSemJogos.length > 0) {
+    avisos.push({
+      titulo: equipesSemJogos.length === 1 ? 'Equipe sem jogos' : 'Equipes sem jogos',
+      texto: `${equipesSemJogos.map((e) => e.escola_nome).join(', ')} ${equipesSemJogos.length === 1 ? 'está inscrita' : 'estão inscritas'} `
+        + 'nesta competição, mas sem nenhum jogo: fica(m) fora da classificação, do pódio e da tabela geral.'
+    });
+  }
 
   if (competicao.melhores_segundos > 0 && grupos.length > 1) {
     const segundos = jogosDasCandidatas(candidatasDaPosicao(2, grupos));
@@ -487,7 +534,7 @@ const classificacaoDaCompeticao = async (req, res) => {
   }
 
   try {
-    const { competicao, criterios, equipes, jogos, grupos } = await montarClassificacao(id);
+    const { competicao, criterios, equipes, equipesSemJogos, jogos, grupos } = await montarClassificacao(id);
 
     res.status(200).json({
       competicao: {
@@ -503,7 +550,8 @@ const classificacaoDaCompeticao = async (req, res) => {
       },
       criterios_desempate: criterios.map((c) => CRITERIOS[c].nome),
       total_jogos_computados: jogos.length,
-      avisos: avisosDeRegra({ ...competicao, total_equipes: equipes.length }, grupos),
+      avisos: avisosDeRegra({ ...competicao, total_equipes: equipes.length }, grupos, equipesSemJogos),
+      equipes_sem_jogos: equipesSemJogos,
       grupos
     });
   } catch (erro) {
@@ -523,6 +571,8 @@ module.exports = {
   avisoJogosDiferentes,
   // O 5º lugar provisório ordena os eliminados da fase de grupos
   ordenarPorCampanha,
+  blocosDeSorteio,
+  primeiraSemSorteio,
   vencedorDoJogo,
   ErroDeRegra,
   CRITERIOS
