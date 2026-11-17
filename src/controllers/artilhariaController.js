@@ -11,7 +11,9 @@ const db = require('../config/db');
 // jogos.placar_1/placar_2. É o combinado com o usuário (fatia 5c).
 // ============================================================================
 
-// Em basquete a coluna gols guarda pontos; o tipo_placar diz como rotular.
+// O baleado (tipo_placar ELIMINADOS) guarda ELIMINAÇÕES por atleta nessa mesma coluna (16/11/2026):
+// elas NÃO são gols e nenhuma consulta daqui as conta. Em basquete a coluna gols guarda pontos; o
+// tipo_placar diz como rotular.
 const ROTULO_PLACAR = {
   GOLS: 'gols',
   PONTOS: 'pontos',
@@ -41,6 +43,11 @@ const listarPorCompeticao = async (req, res) => {
 
     if (!competicao) {
       return res.status(404).json({ erro: 'Competição não encontrada.' });
+    }
+
+    // Baleado: eliminações não são gols, não há artilharia
+    if (competicao.tipo_placar === 'ELIMINADOS') {
+      return res.status(200).json({ competicao, rotulo: ROTULO_PLACAR.ELIMINADOS, artilheiros: [] });
     }
 
     // COUNT(DISTINCT) porque um atleta tem uma linha por jogo: sem isso, um
@@ -90,6 +97,8 @@ const listarLideres = async (req, res) => {
                  CAST(SUM(s.gols) AS UNSIGNED) AS gols
             FROM sumula_atletas s
             INNER JOIN jogos j ON j.id = s.jogo_id
+            INNER JOIN competicoes cs ON cs.id = j.competicao_id
+            INNER JOIN modalidades ms ON ms.id = cs.modalidade_id AND ms.tipo_placar <> 'ELIMINADOS'
             INNER JOIN atletas a ON a.id = s.atleta_id
             INNER JOIN equipes e ON e.id = s.equipe_id
             INNER JOIN escolas esc ON esc.id = e.escola_id

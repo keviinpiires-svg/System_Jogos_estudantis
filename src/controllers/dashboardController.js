@@ -26,8 +26,8 @@ const obterEstatisticas = async (req, res) => {
 
       db.query("SELECT status, COUNT(*) AS total FROM jogos GROUP BY status"),
 
-      // Só competições de gol: somar gols de futsal com pontos de basquete
-      // daria um número sem significado. O basquete tem o próprio total na
+      // Só competições de gol (tipo_placar GOLS): somar gols de futsal com pontos de basquete
+      // daria um número sem significado, e o baleado (ELIMINADOS) guarda eliminações nessa coluna. O basquete tem o próprio total na
       // artilharia da competição dele.
       db.query(
         `SELECT CAST(COALESCE(SUM(s.gols), 0) AS UNSIGNED) AS total

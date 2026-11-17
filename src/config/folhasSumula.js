@@ -36,6 +36,13 @@ const folhaDoFutsal = {
   maxAmarelos: 2,
   faltasIndividuais: 0,
   faltasAcumuladas: 5,
+  // 16/11/2026: a mesa lança a falta de cada atleta (sumula_atletas.faltas, de 0 a 20: o regulamento não
+  // define limite individual) e o total da equipe por tempo (sumula_equipes.faltas_1t/2t) é calculado pela
+  // tela conforme o tempo selecionado. O papel tem 5 caixas por tempo; a partir da 6ª é tiro livre e as
+  // 5 caixas ficam marcadas, então a gravação aceita acima de 5 (até faltasAcumuladasMax).
+  faltasPorAtleta: true,
+  maxFaltasPorAtleta: 20,
+  faltasAcumuladasMax: 99,
   tempoTecnico: true,
   sets: false,
   linhas: LINHAS,
@@ -47,17 +54,19 @@ const FOLHAS = {
   'futebol-society': folhaDoFutsal,
 
   // Handebol: folha oficial própria (docs/referencias/SUMULA_HANDEBOL.pdf).
-  // Cartões em duas caixas, "A" e "V" — um amarelo e um vermelho por atleta —,
-  // 10 caixas de gols (contadas no PDF), capitão escrito numa célula só e, no
-  // rodapé, tempo técnico 1º T / 2º T e o técnico. Não tem falta individual
-  // nem falta acumulada.
+  // Cartões em duas caixas, "A" e "V", 10 caixas de gols (contadas no PDF),
+  // capitão escrito numa célula só e, no rodapé, tempo técnico 1º T / 2º T e o
+  // técnico (na tela o tempo técnico e o técnico não são digitados: as caixas e a
+  // linha saem em branco). Não tem falta individual nem falta acumulada.
+  // 16/11/2026 (decisão do usuário): vale também a regra de 2 amarelos = vermelho
+  // (o 2º amarelo é expulsão); a caixa "A" do papel marca de 1 amarelo em diante.
   handebol: {
     tipo: 'HANDEBOL',
     titulo: 'SÚMULA DE HANDEBOL',
     rotuloEstatistica: 'Gols',
     caixasEstatistica: 10,
     cartoes: true,
-    maxAmarelos: 1,
+    maxAmarelos: 2,
     faltasIndividuais: 0,
     faltasAcumuladas: 0,
     tempoTecnico: true,
@@ -80,6 +89,8 @@ const FOLHAS = {
     faltasIndividuais: 5,
     faltasAcumuladas: 7,
     tempoTecnico: true,
+    // só o basquete lança tempo técnico (e as faltas da equipe) à mão na tela
+    lancaTempoTecnico: true,
     sets: false,
     linhas: LINHAS,
     linhasMaximas: LINHAS,
@@ -134,6 +145,12 @@ const FOLHAS = {
     rotuloEstatistica: null,
     caixasEstatistica: 0,
     baleadosPorEquipe: 10,
+    // 16/11/2026: a mesa lança as eliminações de cada atleta (guardadas em
+    // sumula_atletas.gols, de 0 a 10) e o total da equipe é a SOMA delas
+    // (sumula_equipes.baleados, máximo 10). Súmula gravada sem contador por atleta
+    // segue valendo com o total da equipe. Essas "eliminações" NÃO são gols: a
+    // artilharia e o painel ignoram o baleado (tipo_placar ELIMINADOS).
+    eliminacoesPorAtleta: true,
     cartoes: false,
     maxAmarelos: 0,
     faltasIndividuais: 0,

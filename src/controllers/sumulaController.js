@@ -242,7 +242,8 @@ const buscarSumulaPorJogo = async (req, res) => {
         tempo_tecnico_2t: Boolean(rodape?.tempo_tecnico_2t),
         // Baleado: adversárias que ESTA equipe eliminou (db/07; chefe, 12/10/2026)
         baleados: Number(rodape?.baleados ?? 0),
-        gols: atletas.reduce((total, atleta) => total + Number(atleta.gols), 0),
+        // No baleado a coluna do atleta guarda eliminações, não gols: o total da equipe é o contador dela
+        gols: folha.eliminacoesPorAtleta ? 0 : atletas.reduce((total, atleta) => total + Number(atleta.gols), 0),
         atletas: atletas.map((atleta) => ({
           inscricao_id: atleta.inscricao_id,
           // Colocado pela mesa na hora do jogo (db/45): a tela marca e só deixa essa mesa retirar
@@ -421,6 +422,8 @@ const registrarSumula = async (req, res) => {
     // cartão, quantas faltas cabem. Está em src/config/folhasSumula.js.
     const folha = folhaDaModalidade(jogo.modalidade_slug, jogo.modalidade_nome);
     const golsPorEquipe = new Map();
+    // Baleado: total de eliminações de cada equipe (a soma dos atletas, ou o total enviado quando não há contador por atleta)
+    const baleadosFinais = new Map();
 
     // Vôlei: o placar são os sets, e eles são validados antes de qualquer
     // escrita — set em andamento passa no parcial, mas não ao finalizar.
@@ -469,12 +472,13 @@ const registrarSumula = async (req, res) => {
       for (const [campo, rotulo] of [['faltas_1t', '1º tempo'], ['faltas_2t', '2º tempo']]) {
         const faltas = inteiroNaoNegativo(equipe[campo]) ?? 0;
 
-        if (faltas > folha.faltasAcumuladas) {
+        const maxAcumuladas = folha.faltasAcumuladasMax ?? folha.faltasAcumuladas;
+        if (faltas > maxAcumuladas) {
           await conexao.rollback();
           return res.status(400).json({
             erro: folha.faltasAcumuladas === 0
               ? `A folha de ${jogo.modalidade_nome} não tem faltas acumuladas.`
-              : `As faltas acumuladas do ${rotulo} vão até ${folha.faltasAcumuladas} em ${jogo.modalidade_nome}.`
+              : `As faltas acumuladas do ${rotulo} vão até ${maxAcumuladas} em ${jogo.modalidade_nome}.`
           });
         }
       }
@@ -529,14 +533,31 @@ const registrarSumula = async (req, res) => {
           });
         }
 
-        if (folha.baleadosPorEquipe && gols > 0) {
+        // Baleado: as eliminações de cada atleta (0 a 10) são lançamento válido (db: sumula_atletas.gols);
+        // fora dele, a folha que não tem contador por atleta continua recusando
+        if (folha.baleadosPorEquipe && gols > 0 && !folha.eliminacoesPorAtleta) {
           await conexao.rollback();
           return res.status(400).json({
             erro: `Em ${jogo.modalidade_nome} não se lança por atleta: o placar sai do contador de baleados da equipe.`
           });
         }
 
-        if (faltas > folha.faltasIndividuais) {
+        if (folha.eliminacoesPorAtleta && gols > folha.baleadosPorEquipe) {
+          await conexao.rollback();
+          return res.status(400).json({
+            erro: `As eliminações de cada atleta vão de 0 a ${folha.baleadosPorEquipe}.`
+          });
+        }
+
+        // Futsal e society: falta por atleta de 0 a 20 (sem exclusão); basquete: 0 a 5, com 5 o atleta é excluído
+        if (folha.faltasPorAtleta && faltas > folha.maxFaltasPorAtleta) {
+          await conexao.rollback();
+          return res.status(400).json({
+            erro: `As faltas de cada atleta vão de 0 a ${folha.maxFaltasPorAtleta}.`
+          });
+        }
+
+        if (!folha.faltasPorAtleta && faltas > folha.faltasIndividuais) {
           await conexao.rollback();
           return res.status(400).json({
             erro: folha.faltasIndividuais === 0
@@ -556,6 +577,18 @@ const registrarSumula = async (req, res) => {
       }
 
       golsPorEquipe.set(equipe_id, golsDaEquipe);
+
+      // Baleado com contador por atleta: o total da equipe é a soma deles. Sem contador por atleta (súmula
+      // antiga, ou nada lançado por atleta), vale o total enviado da equipe, como sempre foi.
+      if (folha.eliminacoesPorAtleta) {
+        if (golsDaEquipe > folha.baleadosPorEquipe) {
+          await conexao.rollback();
+          return res.status(400).json({
+            erro: `A soma das eliminações dos atletas passa de ${folha.baleadosPorEquipe}: o máximo por equipe é ${folha.baleadosPorEquipe}.`
+          });
+        }
+        baleadosFinais.set(equipe_id, golsDaEquipe > 0 ? golsDaEquipe : baleados);
+      }
     }
 
     // Regravar inteiro é mais simples e mais seguro que casar linha a linha:
@@ -589,7 +622,7 @@ const registrarSumula = async (req, res) => {
           inteiroNaoNegativo(equipe.faltas_1t) ?? 0,
           inteiroNaoNegativo(equipe.faltas_2t) ?? 0,
           booleano(equipe.tempo_tecnico_1t), booleano(equipe.tempo_tecnico_2t),
-          inteiroNaoNegativo(equipe.baleados ?? 0) ?? 0
+          baleadosFinais.has(equipe_id) ? baleadosFinais.get(equipe_id) : (inteiroNaoNegativo(equipe.baleados ?? 0) ?? 0)
         ]
       );
 
@@ -606,7 +639,11 @@ const registrarSumula = async (req, res) => {
             inteiroNaoNegativo(atleta.gols) ?? 0,
             inteiroNaoNegativo(atleta.amarelos) ?? 0,
             inteiroNaoNegativo(atleta.faltas) ?? 0,
-            booleano(atleta.vermelho), booleano(atleta.desqualificado)
+            // Futsal e society (2 caixas de amarelo): o 2º amarelo é expulsão e vira o vermelho, mesmo que a
+            // tela não o tenha marcado. Handebol (1 caixa de amarelo) não tem essa regra escrita.
+            booleano(atleta.vermelho)
+              || (folha.cartoes && folha.maxAmarelos >= 2 && (inteiroNaoNegativo(atleta.amarelos) ?? 0) >= 2),
+            booleano(atleta.desqualificado)
           ]
         );
       }
@@ -616,9 +653,9 @@ const registrarSumula = async (req, res) => {
     // da PRÓPRIA equipe (cada bloco conta as adversárias que aquela equipe
     // eliminou — chefe, 12/10/2026); nas outras, a soma da coluna do atleta
     // (gols ou pontos).
-    const baleadosDe = (equipe_id) => inteiroNaoNegativo(
-      equipesEnviadas.find((e) => Number(e.equipe_id) === equipe_id)?.baleados ?? 0
-    ) ?? 0;
+    const baleadosDe = (equipe_id) => (baleadosFinais.has(equipe_id)
+      ? baleadosFinais.get(equipe_id)
+      : (inteiroNaoNegativo(equipesEnviadas.find((e) => Number(e.equipe_id) === equipe_id)?.baleados ?? 0) ?? 0));
 
     let placar_1 = golsPorEquipe.get(jogo.equipe_1_id) ?? 0;
     let placar_2 = golsPorEquipe.get(jogo.equipe_2_id) ?? 0;

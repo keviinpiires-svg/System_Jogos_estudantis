@@ -41,6 +41,66 @@ aviso no topo; para liberar, **Editar** → escolha o local → **Salvar** (vale
   `GET /api/sumulas/:jogo_id` segue pública (alimenta a impressão e a tela pública), então a restrição de ver e
   imprimir é da tela, não do servidor.
 
+## Duas etapas na súmula: preencher e iniciar
+
+Na súmula (`/preencher-sumula/:id`), com o jogo **agendado**, o topo mostra **"Preencher súmula"** e **"Iniciar partida"**:
+
+- **Preencher súmula** abre a tabela de atletas: camisas, "Adicionar atleta", presença e capitão. O placar
+  (gols, cartões, faltas, sets, eliminadas, cobranças) fica bloqueado. "Salvar parcial" grava as camisas no servidor;
+  presença e capitão ficam como rascunho neste navegador até a partida iniciar. **O nome do técnico não é mais
+  digitado na tela** (a folha impressa tem a linha "Técnico:" em branco, para escrever à mão); o que já estava
+  gravado em súmulas antigas não muda.
+- **Iniciar partida** pede confirmação ("Iniciar a partida agora?"), **salva antes as camisas digitadas e ainda não
+  salvas** (se der erro, por exemplo número repetido, a partida não inicia), inicia o jogo (só no local da mesa) e
+  libera o placar e o "Finalizar súmula". O botão vira "Partida em andamento". Camisas e "Adicionar atleta" seguem
+  liberados. Os números aparecem na coluna Nº ao abrir ou recarregar a súmula, e valem para os próximos jogos da
+  equipe; números digitados e não salvos voltam aos campos se a página for recarregada.
+- **Finalizado ou W.O.:** nenhum dos dois botões. A mesa só consulta (e imprime); o ADMIN pode reabrir e corrigir.
+- Só a tela muda: o backend segue aceitando placar em jogo agendado (e isso inicia o jogo), por isso o fluxo
+  acima é o caminho normal e não uma trava.
+
+### Súmula no celular
+
+No celular (até 640 px) cada atleta aparece como um cartão: Nº e nome em cima, e embaixo Gols, Faltas, Amarelos,
+Vermelho, Capitão e (no pré-jogo) Presente, cada um com o seu rótulo e botões grandes. Não há rolagem lateral, e os
+botões "Preencher súmula", "Iniciar partida", "Salvar parcial" e "Finalizar súmula" ocupam a largura da tela.
+
+### Menu da mesa
+
+"Tabela Geral" e "Artilharia" não aparecem no menu da conta de mesa (nem no menu do celular). Visitante e ADMIN continuam
+vendo os dois, e as páginas seguem públicas (quem digitar o endereço ainda as abre).
+
+### Faltas, elenco e cartões
+
+- **Elenco e camisas só no pré-jogo:** "Adicionar atleta", "Remover" (do atleta que a mesa colocou), "Salvar camisas" e
+  "Editar camisas" ficam na etapa "Preencher súmula". Depois de "Iniciar partida" os números das camisas ficam só
+  leitura (o Iniciar salva antes as camisas digitadas e ainda não salvas).
+- **Futsal e society — faltas por atleta:** depois de iniciar, a coluna "Faltas" tem − / + por atleta (0 a 20) e o botão **"Iniciar 2º tempo"**
+  ao lado do indicador "▶ Partida em andamento" (pede confirmação e não volta; o indicador passa a "▶ 2º tempo").
+  Até o clique toda falta conta no 1º tempo, depois no 2º. Abaixo de cada equipe aparece "Faltas da equipe:
+  1º T n · 2º T n" (calculado). A partir de 5 num tempo aparece "Próxima falta: tiro livre", sem travar. O "−"
+  só desconta do tempo atual. O tempo do jogo fica guardado neste navegador (e é deduzido de faltas do 2º tempo já
+  gravadas): limpar os dados do navegador antes de gravar qualquer falta do 2º tempo volta o jogo ao 1º tempo. Sem os campos "Faltas 1º/2º tempo" e "Tempo técnico" no rodapé (a impressão
+  continua preenchendo as faltas acumuladas; as caixas de tempo técnico saem em branco). **Exige o `db/46`** (aplicado em produção em 16/11/2026, junto com o `db/45`).
+- **Presença:** a coluna "Presente" só existe no pré-jogo. Depois de "Iniciar partida" ela some e a tabela mostra só os
+  atletas presentes; a presença segue gravada na súmula e a impressão não muda. **"Iniciar partida" já grava a
+  súmula parcial** (presença, capitão e camisas), então a presença não se perde se a página for recarregada; se essa
+  gravação falhar, a partida iniciou e a tela avisa para usar "Salvar parcial".
+- **2º amarelo = vermelho (futsal, society e handebol):** o 2º amarelo marca o vermelho sozinho; voltar para 1 desmarca
+  só o vermelho automático. A suspensão calculada vale só para futsal e society.
+- **Basquete** não mudou: faltas por atleta de 0 a 5 e faltas/tempo técnico da equipe digitados à mão.
+
+### Colunas de placar, camisas e baleado
+
+- **Antes de iniciar a partida**, a tabela de atletas só mostra **Nº, Atleta, Cap. e Presente**; Gols, Faltas,
+  Amarelos, 🟥, "Eliminou" (baleado), os campos do rodapé da equipe e os sets ficam escondidos. O placar do topo
+  continua visível. Ao iniciar, tudo aparece sem recarregar e sem perder o que foi digitado.
+- **Camisa salva fica travada.** "Editar camisas" (por equipe) destrava; ao salvar trava de novo; "Cancelar" devolve ao
+  que está salvo. Campo vazio e atleta recém-adicionado pela mesa ficam editáveis até salvar. Jogo finalizado: tudo travado.
+- **Baleado:** coluna "Eliminou" por atleta (0 a 10). O total da equipe é a soma, só leitura, no máximo 10 (com 10 os
+  "+" da equipe travam). Súmulas antigas, gravadas só com o total da equipe, continuam valendo com esse total.
+  Essas eliminações não entram na artilharia nem no card "Balançaram a Rede".
+
 ## Adicionar atleta na hora do jogo (`db/45`)
 
 Na tela da súmula (`/preencher-sumula/:id`), a mesa tem **"Adicionar atleta"** em cada equipe, só no jogo do

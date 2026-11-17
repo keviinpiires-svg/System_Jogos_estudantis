@@ -85,8 +85,13 @@ const calcular = ({ jogos, lancamentos, disciplinares, ateJogo }) => {
     for (const linha of lancados.values()) {
       const atleta = doAtleta(linha.atleta_id, linha);
 
+      // Os 2 amarelos do MESMO jogo que viraram o vermelho (2º amarelo = expulsão) já valem a suspensão da
+      // expulsão: não contam de novo como "2 amarelos". Um vermelho direto (com 0 ou 1 amarelo) segue
+      // somando à parte, e amarelos de jogos diferentes continuam acumulando como antes.
+      const expulsoPeloSegundoAmarelo = Boolean(linha.vermelho) && linha.amarelos >= AMARELOS_POR_SUSPENSAO;
+
       if (linha.amarelos > 0) {
-        atleta.amarelos_na_fase += linha.amarelos;
+        atleta.amarelos_na_fase += expulsoPeloSegundoAmarelo ? linha.amarelos - AMARELOS_POR_SUSPENSAO : linha.amarelos;
         atleta.amarelos_total += linha.amarelos;
 
         while (atleta.amarelos_na_fase >= AMARELOS_POR_SUSPENSAO) {
@@ -99,7 +104,9 @@ const calcular = ({ jogos, lancamentos, disciplinares, ateJogo }) => {
       if (linha.vermelho) {
         atleta.vermelhos += 1;
         atleta.devidos += 1;
-        atleta.motivos.push(`expulsão no jogo #${jogo.numero_jogo}`);
+        atleta.motivos.push(expulsoPeloSegundoAmarelo
+          ? `2º amarelo, expulsão no jogo #${jogo.numero_jogo}`
+          : `expulsão no jogo #${jogo.numero_jogo}`);
       }
     }
 
