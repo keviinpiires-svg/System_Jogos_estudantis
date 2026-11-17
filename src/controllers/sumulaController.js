@@ -184,7 +184,7 @@ const buscarSumulaPorJogo = async (req, res) => {
     // LEFT JOIN: quem está inscrito aparece mesmo sem nada lançado ainda.
     // É o que permite imprimir a súmula em branco com o elenco já escrito.
     const [linhas] = await db.query(
-      `SELECT i.id AS inscricao_id, i.equipe_id, i.atleta_id, i.criado_por,
+      `SELECT i.id AS inscricao_id, i.equipe_id, i.atleta_id, i.criado_por, uc.perfil AS criado_por_perfil,
               ${camisa} AS numero_camisa,
               a.nome,
               COALESCE(s.presente, TRUE)        AS presente,
@@ -196,6 +196,7 @@ const buscarSumulaPorJogo = async (req, res) => {
               COALESCE(s.desqualificado, FALSE) AS desqualificado
          FROM inscricoes_atletas i
          INNER JOIN atletas a ON a.id = i.atleta_id
+         LEFT JOIN usuarios uc ON uc.id = i.criado_por
          LEFT JOIN sumula_atletas s ON s.atleta_id = i.atleta_id AND s.jogo_id = ?
         WHERE i.equipe_id IN (?, ?)
         ORDER BY ${camisa} IS NULL, ${camisa}, a.nome`,
@@ -247,7 +248,9 @@ const buscarSumulaPorJogo = async (req, res) => {
         atletas: atletas.map((atleta) => ({
           inscricao_id: atleta.inscricao_id,
           // Colocado pela mesa na hora do jogo (db/45): a tela marca e só deixa essa mesa retirar
-          adicionado_pela_mesa: atleta.criado_por !== null,
+          adicionado_pela_mesa: atleta.criado_por !== null && atleta.criado_por_perfil === 'PLACAR',
+          // Pela tela da súmula, por qualquer um (mesa ou ADMIN; 17/11/2026): o ADMIN pode retirar
+          adicionado_na_sumula: atleta.criado_por !== null,
           adicionado_por_mim: atleta.criado_por !== null && atleta.criado_por === req.usuario?.id,
           atleta_id: atleta.atleta_id,
           nome: atleta.nome,
@@ -668,7 +671,10 @@ const registrarSumula = async (req, res) => {
     }
 
     const prorrogacao = booleano(req.body.prorrogacao);
-    let status = jogo.status === 'AGENDADO' ? 'EM_ANDAMENTO' : jogo.status;
+    // Salvar súmula de jogo agendado o inicia (a mesa, na quadra). O ADMIN que lança do papel
+    // (17/11/2026, locais sem internet) salva parcial sem mudar o status; ao finalizar o jogo
+    // vai direto de AGENDADO para FINALIZADO.
+    let status = jogo.status === 'AGENDADO' && req.usuario.perfil !== 'ADMIN' ? 'EM_ANDAMENTO' : jogo.status;
     let vencedor_equipe_id = null;
     let penaltis_1 = null;
     let penaltis_2 = null;

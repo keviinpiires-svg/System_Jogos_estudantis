@@ -19,6 +19,10 @@ const {
 
 const PRECISA_DO_ADMIN = 'Precisa de autorização do administrador.';
 const STATUS_QUE_ACEITAM = ['AGENDADO', 'EM_ANDAMENTO'];
+// O ADMIN corrige também a súmula de jogo já finalizado (lança do papel; 17/11/2026)
+const STATUS_QUE_ACEITAM_DO_ADMIN = ['AGENDADO', 'EM_ANDAMENTO', 'FINALIZADO'];
+const ehAdmin = (req) => req.usuario?.perfil === 'ADMIN';
+const sim = (valor) => valor === true || valor === 'true' || valor === 1 || valor === '1';
 const MIN_LETRAS_DA_BUSCA = 3;
 
 const idValido = (valor) => {
@@ -29,7 +33,7 @@ const idValido = (valor) => {
 // O jogo e a equipe da rota: o jogo existe, a equipe é uma das duas dele e o
 // jogo ainda aceita mudança no elenco (agendado ou em andamento). `travar`
 // bloqueia a linha do jogo (usado dentro da transação de escrita).
-const conferirJogoEEquipe = async (conexao, jogo_id, equipe_id, { travar = false } = {}) => {
+const conferirJogoEEquipe = async (conexao, jogo_id, equipe_id, { travar = false, admin = false } = {}) => {
   const [[jogo]] = await conexao.query(
     `SELECT id, status, equipe_1_id, equipe_2_id FROM jogos WHERE id = ?${travar ? ' FOR UPDATE' : ''}`,
     [jogo_id]
@@ -38,8 +42,13 @@ const conferirJogoEEquipe = async (conexao, jogo_id, equipe_id, { travar = false
   if (equipe_id !== null && equipe_id !== jogo.equipe_1_id && equipe_id !== jogo.equipe_2_id) {
     return { status: 400, erro: 'Esta equipe não joga este jogo.' };
   }
-  if (!STATUS_QUE_ACEITAM.includes(jogo.status)) {
-    return { status: 409, erro: 'Este jogo já terminou: não dá mais para mudar o elenco por aqui.' };
+  if (!(admin ? STATUS_QUE_ACEITAM_DO_ADMIN : STATUS_QUE_ACEITAM).includes(jogo.status)) {
+    return {
+      status: 409,
+      erro: jogo.status === 'WO'
+        ? 'Jogo decidido por W.O.: não há elenco para mudar.'
+        : 'Este jogo já terminou: não dá mais para mudar o elenco por aqui.'
+    };
   }
   return { jogo };
 };
@@ -59,7 +68,7 @@ const buscarAtletasDaEscola = async (req, res) => {
   }
 
   try {
-    const conferencia = await conferirJogoEEquipe(db, jogo_id, equipe_id);
+    const conferencia = await conferirJogoEEquipe(db, jogo_id, equipe_id, { admin: ehAdmin(req) });
     if (conferencia.erro) return res.status(conferencia.status).json({ erro: conferencia.erro });
 
     const [[equipe]] = await db.query('SELECT id, escola_id FROM equipes WHERE id = ?', [equipe_id]);
@@ -112,6 +121,9 @@ const adicionarAtleta = async (req, res) => {
   if (!jogo_id || !equipe_id) return res.status(400).json({ erro: 'Jogo ou equipe inválidos.' });
 
   const usuario_id = req.usuario.id;
+  const admin = ehAdmin(req);
+  // Exceção autorizada: só o ADMIN (se a mesa mandar o campo, é ignorado)
+  const excecao = admin && sim(req.body.excecao);
   const existente = req.body.atleta_id !== undefined && req.body.atleta_id !== null && req.body.atleta_id !== '';
   const atleta_id = existente ? idValido(req.body.atleta_id) : null;
   if (existente && !atleta_id) return res.status(400).json({ erro: 'Atleta inválido.' });
@@ -139,7 +151,7 @@ const adicionarAtleta = async (req, res) => {
     conexao = await db.getConnection();
     await conexao.beginTransaction();
 
-    const conferencia = await conferirJogoEEquipe(conexao, jogo_id, equipe_id, { travar: true });
+    const conferencia = await conferirJogoEEquipe(conexao, jogo_id, equipe_id, { travar: true, admin });
     if (conferencia.erro) {
       await conexao.rollback();
       return res.status(conferencia.status).json({ erro: conferencia.erro });
@@ -176,10 +188,12 @@ const adicionarAtleta = async (req, res) => {
       };
     }
 
-    // As mesmas regras do cadastro normal (sexo x gênero, idade, 2 coletivas, 14): sem exceção
-    const { recusa, inscritos } = await avaliarEntrada(conexao, { equipe, competicao, atleta });
+    // As mesmas regras do cadastro normal (sexo x gênero, idade, 2 coletivas, 14). A mesa nunca abre
+    // exceção; o ADMIN pode marcar "Exceção autorizada" (só idade e 2 coletivas, como na importação)
+    const { recusa, inscritos, dispensadas, pode_excecao } = await avaliarEntrada(conexao, { equipe, competicao, atleta, excecao });
     if (recusa) {
       await conexao.rollback();
+      if (admin) return res.status(recusa.status).json({ erro: recusa.erro, pode_excecao });
       return res.status(403).json({ erro: PRECISA_DO_ADMIN, detalhe: recusa.erro });
     }
 
@@ -225,13 +239,17 @@ const adicionarAtleta = async (req, res) => {
 
     const total = inscritos + 1;
     // Sem log com nome nem documento: só ids
-    console.warn(`[MESA ADICIONOU ATLETA] usuário ${usuario_id}: jogo ${jogo_id}, equipe ${equipe_id}, inscrição ${inscricao_id}${existente ? '' : ' (atleta novo)'}`);
+    console.warn(`[${admin ? 'ADMIN' : 'MESA'} ADICIONOU ATLETA] usuário ${usuario_id}: jogo ${jogo_id}, equipe ${equipe_id}, inscrição ${inscricao_id}${existente ? '' : ' (atleta novo)'}`);
+    if (dispensadas.length > 0) {
+      console.warn(`[EXCEÇÃO AUTORIZADA] súmula, usuário ${usuario_id}: jogo ${jogo_id}, inscrição ${inscricao_id} (atleta ${atleta.id}, equipe ${equipe_id}) dispensou ${dispensadas.join(' e ')}`);
+    }
 
     res.status(201).json({
       mensagem: 'Atleta adicionado à equipe.',
       inscricao_id,
       atleta: { id: atleta.id, nome: atleta.nome },
-      adicionado_pela_mesa: true,
+      adicionado_pela_mesa: !admin,
+      excecao_dispensou: dispensadas,
       atleta_novo: !existente,
       sem_documento: semDocumento,
       total_inscritos: total,
@@ -267,6 +285,7 @@ const removerAtleta = async (req, res) => {
   if (!jogo_id || !inscricao_id) return res.status(400).json({ erro: 'Jogo ou inscrição inválidos.' });
 
   const usuario_id = req.usuario.id;
+  const admin = ehAdmin(req);
   let conexao;
   try {
     conexao = await db.getConnection();
@@ -284,13 +303,14 @@ const removerAtleta = async (req, res) => {
       return res.status(404).json({ erro: 'Inscrição não encontrada.' });
     }
 
-    const conferencia = await conferirJogoEEquipe(conexao, jogo_id, inscricao.equipe_id, { travar: true });
+    const conferencia = await conferirJogoEEquipe(conexao, jogo_id, inscricao.equipe_id, { travar: true, admin });
     if (conferencia.erro) {
       await conexao.rollback();
       return res.status(conferencia.status).json({ erro: conferencia.erro });
     }
 
-    if (inscricao.criado_por !== usuario_id) {
+    // O ADMIN retira qualquer inscrição; quem já está numa súmula gravada continua não saindo (409)
+    if (!admin && inscricao.criado_por !== usuario_id) {
       await conexao.rollback();
       return res.status(403).json({ erro: 'A mesa só retira os atletas que ela mesma adicionou. Fale com o administrador.' });
     }
@@ -319,7 +339,7 @@ const removerAtleta = async (req, res) => {
     }
 
     await conexao.commit();
-    console.warn(`[MESA RETIROU ATLETA] usuário ${usuario_id}: jogo ${jogo_id}, inscrição ${inscricao_id}${atletaRemovido ? ' (atleta removido)' : ''}`);
+    console.warn(`[${admin ? 'ADMIN' : 'MESA'} RETIROU ATLETA] usuário ${usuario_id}: jogo ${jogo_id}, inscrição ${inscricao_id}${atletaRemovido ? ' (atleta removido)' : ''}`);
     res.json({ mensagem: 'Atleta retirado da equipe.', atleta_removido: atletaRemovido });
   } catch (erro) {
     if (conexao) await conexao.rollback();
@@ -336,7 +356,7 @@ const removerAtleta = async (req, res) => {
 const listarAdicionadasPelaMesa = async (req, res) => {
   try {
     const [linhas] = await db.query(
-      `SELECT i.id AS inscricao_id, i.criado_em, u.nome AS mesa, u.id AS mesa_id,
+      `SELECT i.id AS inscricao_id, i.criado_em, u.nome AS mesa, u.id AS mesa_id, u.perfil,
               l.nome AS local_da_mesa,
               s.nome AS escola, m.nome AS modalidade, cat.nome AS categoria, c.genero,
               a.id AS atleta_id, a.nome AS atleta,

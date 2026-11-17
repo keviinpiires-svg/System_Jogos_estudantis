@@ -7,7 +7,9 @@
 // src/config/elegibilidade.js. A importação de atletas por CSV tem o seu
 // próprio fluxo (com a coluna "Exceção") e não usa este arquivo.
 
-const { motivoDeInelegibilidade, normalizarRg, plural } = require('../config/elegibilidade');
+const {
+  motivoDeInelegibilidade, normalizarRg, plural, idadeCabe, LIMITE_COMPETICOES_COLETIVAS
+} = require('../config/elegibilidade');
 
 // A equipe, travada (FOR UPDATE): sem isso, duas inscrições simultâneas leriam
 // o mesmo total de inscritos e o elenco poderia terminar com 15.
@@ -46,12 +48,19 @@ const lerAtleta = async (conexao, atleta_id) => {
 
 // Confere as regras de entrada do atleta nesta equipe. `atleta` traz
 // { id (ou null, se ainda não existe), nome, escola_id, sexo, ano_nascimento }.
-// Devolve { recusa: { status, erro } | null, inscritos }. Nunca abre exceção.
-const avaliarEntrada = async (conexao, { equipe, competicao, atleta }) => {
+// Devolve { recusa: { status, erro } | null, inscritos, dispensadas, pode_excecao }.
+// `excecao` (só o ADMIN, 17/11/2026, a mesma regra da coluna "Exceção" da
+// importação): dispensa APENAS a idade da categoria e o máximo de 2 coletivas.
+// `dispensadas` diz quais das duas a exceção dispensou de fato (vai para o log);
+// `pode_excecao` diz se a recusa é uma das que a exceção dispensaria.
+const avaliarEntrada = async (conexao, { equipe, competicao, atleta, excecao = false }) => {
   // 1. Atleta e equipe precisam ser da mesma escola. O banco também barra
   // pela chave composta, mas com uma mensagem que não ajuda o usuário.
   if (atleta.escola_id !== equipe.escola_id) {
-    return { recusa: { status: 400, erro: 'Este atleta é de outra escola e não pode entrar nesta equipe.' }, inscritos: 0 };
+    return {
+      recusa: { status: 400, erro: 'Este atleta é de outra escola e não pode entrar nesta equipe.' },
+      inscritos: 0, dispensadas: [], pode_excecao: false
+    };
   }
 
   // 2 a 5. Sexo x gênero, idade pela categoria, no máximo 2 competições
@@ -77,13 +86,24 @@ const avaliarEntrada = async (conexao, { equipe, competicao, atleta }) => {
   );
 
   const recusa = motivoDeInelegibilidade({
-    competicao, atleta, anoDoEvento: evento.ano, coletivas, inscritos
+    competicao, atleta, anoDoEvento: evento.ano, coletivas, inscritos, excecao
   });
-  return { recusa, inscritos };
+  const foraDaIdade = !idadeCabe(evento.ano, competicao.idade_maxima, atleta.ano_nascimento);
+  const coletivasNoLimite = competicao.modalidade_tipo === 'COLETIVO' && coletivas >= LIMITE_COMPETICOES_COLETIVAS;
+  const dispensadas = [];
+  if (excecao && !recusa) {
+    if (foraDaIdade) dispensadas.push('idade da categoria');
+    if (coletivasNoLimite) dispensadas.push('máximo de competições coletivas');
+  }
+  // A recusa sairia com a exceção? (sexo x gênero e elenco cheio não se dispensam)
+  const pode_excecao = Boolean(recusa) && !excecao && !motivoDeInelegibilidade({
+    competicao, atleta, anoDoEvento: evento.ano, coletivas, inscritos, excecao: true
+  });
+  return { recusa, inscritos, dispensadas, pode_excecao };
 };
 
-// Grava a inscrição. `criado_por` = usuário da mesa que fez; NULL = ADMIN
-// (o comportamento de sempre).
+// Grava a inscrição. `criado_por` = usuário que adicionou pela súmula (a mesa ou,
+// desde 17/11/2026, o ADMIN); NULL = telas de cadastro do ADMIN e importação.
 const gravarInscricao = async (conexao, { equipe_id, atleta_id, escola_id, numero_camisa = null, criado_por = null }) => {
   const [resultado] = await conexao.query(
     'INSERT INTO inscricoes_atletas (equipe_id, atleta_id, escola_id, numero_camisa, criado_por) VALUES (?, ?, ?, ?, ?)',
