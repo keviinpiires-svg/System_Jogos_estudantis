@@ -150,7 +150,7 @@ const buscarSumulaPorJogo = async (req, res) => {
 
   try {
     const [[jogo]] = await db.query(
-      `SELECT j.id, j.competicao_id, j.numero_jogo, j.fase, j.rodada, j.data_hora, j.local_id,
+      `SELECT j.id, j.competicao_id, j.numero_jogo, j.numero_tabela, j.fase, j.rodada, j.data_hora, j.local_id,
               j.status, j.placar_1, j.placar_2, j.penaltis_1, j.penaltis_2, j.baleou_primeiro_equipe_id,
               j.arbitro_1, j.arbitro_2, j.anotador, j.observacoes,
               j.equipe_1_id, j.equipe_2_id, j.vencedor_equipe_id,

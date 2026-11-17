@@ -20,6 +20,10 @@ const AMARELOS_POR_SUSPENSAO = 2;
 // A 2ª fase começa no mata-mata: é onde os amarelos zeram
 const segundaFase = (fase) => fase === 'SEMIFINAL' || fase === 'FINAL';
 
+// Como o motivo cita o jogo: pelo nº da tabela do chefe (o que está no papel e na
+// Agenda); sem ele, pelo nº na competição
+const rotuloDoJogo = (jogo) => (jogo.numero_tabela ? `Nº ${jogo.numero_tabela}` : `#${jogo.numero_jogo}`);
+
 // Ordem cronológica dos jogos: a data manda; sem data, o número do jogo.
 // data_hora chega do banco como texto ("2026-11-24 10:30:00"), e nesse formato
 // a ordem alfabética já é a ordem do relógio.
@@ -100,7 +104,7 @@ const calcular = ({ jogos, lancamentos, disciplinares, ateJogo, amarelosAcumulam
         while (amarelosAcumulam && atleta.amarelos_na_fase >= AMARELOS_POR_SUSPENSAO) {
           atleta.amarelos_na_fase -= AMARELOS_POR_SUSPENSAO;
           atleta.devidos += 1;
-          atleta.motivos.push(`2 amarelos (até o jogo #${jogo.numero_jogo})`);
+          atleta.motivos.push(`2 amarelos (até o jogo ${rotuloDoJogo(jogo)})`);
         }
       }
 
@@ -108,8 +112,8 @@ const calcular = ({ jogos, lancamentos, disciplinares, ateJogo, amarelosAcumulam
         atleta.vermelhos += 1;
         atleta.devidos += 1;
         atleta.motivos.push(expulsoPeloSegundoAmarelo
-          ? `2º amarelo, expulsão no jogo #${jogo.numero_jogo}`
-          : `expulsão no jogo #${jogo.numero_jogo}`);
+          ? `2º amarelo, expulsão no jogo ${rotuloDoJogo(jogo)}`
+          : `expulsão no jogo ${rotuloDoJogo(jogo)}`);
       }
     }
 
@@ -152,7 +156,7 @@ const calcular = ({ jogos, lancamentos, disciplinares, ateJogo, amarelosAcumulam
 // Carrega jogos, lançamentos e suspensões disciplinares de uma competição
 const carregar = async (competicao_id) => {
   const [jogos] = await db.query(
-    `SELECT id, numero_jogo, fase, data_hora, equipe_1_id, equipe_2_id
+    `SELECT id, numero_jogo, numero_tabela, fase, data_hora, equipe_1_id, equipe_2_id
        FROM jogos
       WHERE competicao_id = ? AND status IN ('FINALIZADO', 'WO', 'EM_ANDAMENTO')`,
     [competicao_id]
@@ -292,4 +296,147 @@ const suspensosNoJogo = async (req, res) => {
   }
 };
 
-module.exports = { situacaoDaCompeticao, suspensosNoJogo };
+// GET /api/suspensoes/dia/:data — ADMIN. Lista para imprimir junto com as
+// súmulas em branco do dia (17/11/2026: os locais não têm internet, a mesa
+// anota no papel e o ADMIN lança depois). Para cada atleta com suspensão
+// pendente ANTES do dia, aponta o(s) jogo(s) do dia em que ele cumpre: os
+// próximos jogos da equipe naquele dia, na ordem do relógio. Agrupa pelo local
+// do jogo em que cumpre, na ordem da tabela do chefe (numero_tabela).
+//
+// Limite: só entra o que já foi lançado. Um vermelho de um jogo do próprio dia,
+// ou de súmula anterior ainda não lançada, não aparece; por isso a resposta
+// conta os jogos anteriores dessas competições que ainda estão sem súmula.
+const suspensosDoDia = async (req, res) => {
+  const dia = String(req.params.data || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) {
+    return res.status(400).json({ erro: 'Data inválida. Use AAAA-MM-DD.' });
+  }
+  const inicioDoDia = `${dia} 00:00:00`;
+
+  try {
+    const [jogosDoDia] = await db.query(
+      `SELECT j.id, j.competicao_id, j.numero_jogo, j.numero_tabela, j.data_hora, j.status,
+              j.equipe_1_id, j.equipe_2_id, j.local_id, l.nome AS local_nome
+         FROM jogos j
+         LEFT JOIN locais_disputa l ON l.id = j.local_id
+        WHERE DATE(j.data_hora) = ?`,
+      [dia]
+    );
+
+    // Ordem da tabela: local pelo menor nº do dia, jogo pelo nº
+    const ordemDoLocal = new Map();
+    for (const j of jogosDoDia) {
+      const chave = j.local_id ?? 0;
+      const n = j.numero_tabela ?? Number.MAX_SAFE_INTEGER;
+      if (!ordemDoLocal.has(chave) || n < ordemDoLocal.get(chave)) ordemDoLocal.set(chave, n);
+    }
+
+    const competicoesDoDia = [...new Set(jogosDoDia.map((j) => j.competicao_id))];
+    // Todos os locais do dia, na ordem da tabela, mesmo os sem suspenso
+    const locais = new Map();
+    for (const j of jogosDoDia) {
+      const chave = j.local_id ?? 0;
+      if (!locais.has(chave)) {
+        locais.set(chave, {
+          local_id: j.local_id, local_nome: j.local_nome || 'Local a definir', ordem: ordemDoLocal.get(chave), suspensos: []
+        });
+      }
+    }
+    const semRegra = [];
+    let jogosAnterioresSemSumula = 0;
+
+    for (const competicao_id of competicoesDoDia) {
+      const competicao = await dadosDaCompeticao(competicao_id);
+      const regra = regraDaModalidade(competicao.modalidade_slug);
+      const [[nomes]] = await db.query(
+        `SELECT m.nome AS modalidade, cat.nome AS categoria, c.genero
+           FROM competicoes c
+           INNER JOIN modalidades m ON m.id = c.modalidade_id
+           INNER JOIN categorias cat ON cat.id = c.categoria_id
+          WHERE c.id = ?`,
+        [competicao_id]
+      );
+      if (!regra) {
+        if (!semRegra.includes(competicao.modalidade_nome)) semRegra.push(competicao.modalidade_nome);
+        continue;
+      }
+
+      const [[{ pendentes }]] = await db.query(
+        `SELECT COUNT(*) AS pendentes FROM jogos
+          WHERE competicao_id = ? AND data_hora < ? AND status IN ('AGENDADO', 'EM_ANDAMENTO')
+            AND equipe_1_id IS NOT NULL AND equipe_2_id IS NOT NULL`,
+        [competicao_id, inicioDoDia]
+      );
+      jogosAnterioresSemSumula += Number(pendentes);
+
+      // Só o que aconteceu ANTES do dia pesa (reimprimir no meio do dia não
+      // mistura os jogos de hoje)
+      const { jogos, lancamentos, disciplinares } = await carregar(competicao_id);
+      const anteriores = jogos.filter((j) => !j.data_hora || j.data_hora < inicioDoDia);
+      const anterioresIds = new Set(anteriores.map((j) => j.id));
+      const atletas = calcular({
+        jogos: anteriores,
+        lancamentos: lancamentos.filter((l) => anterioresIds.has(l.jogo_id)),
+        disciplinares,
+        amarelosAcumulam: regra.amarelosAcumulam
+      }).filter((a) => a.pendentes > 0);
+
+      const daCompeticaoHoje = jogosDoDia
+        .filter((j) => j.competicao_id === competicao_id)
+        .sort(ordenarJogos);
+
+      for (const atleta of atletas) {
+        const jogosDaEquipe = daCompeticaoHoje.filter(
+          (j) => j.equipe_1_id === atleta.equipe_id || j.equipe_2_id === atleta.equipe_id
+        );
+        if (jogosDaEquipe.length === 0) continue; // a equipe não joga neste dia
+        const cumpre = jogosDaEquipe.slice(0, atleta.pendentes);
+        // Uma linha por jogo em que cumpre, no local DESSE jogo (a equipe pode
+        // jogar em dois locais no mesmo dia)
+        cumpre.forEach((j, indice) => {
+          const chaveLocal = j.local_id ?? 0;
+          locais.get(chaveLocal).suspensos.push({
+            atleta_id: atleta.atleta_id,
+            atleta_nome: atleta.nome,
+            escola_nome: atleta.escola_nome,
+            competicao_id,
+            competicao: { modalidade: nomes.modalidade, categoria: nomes.categoria, genero: nomes.genero },
+            motivo: atleta.motivos[atleta.motivos.length - 1] || 'suspensão pendente',
+            jogos_pendentes: atleta.pendentes,
+            // 1º, 2º... jogo de suspensão que ele cumpre neste dia
+            cumprimento: indice + 1,
+            jogo: {
+              id: j.id,
+              numero_tabela: j.numero_tabela,
+              hora: j.data_hora ? j.data_hora.slice(11, 16) : null
+            },
+            // Suspensão maior que os jogos da equipe no dia: o resto fica para os próximos dias
+            restam_depois: Math.max(0, atleta.pendentes - cumpre.length)
+          });
+        });
+      }
+    }
+
+    const ordenados = [...locais.values()].sort((a, b) => a.ordem - b.ordem);
+    for (const local of ordenados) {
+      local.suspensos.sort((a, b) =>
+        (a.jogo.numero_tabela ?? Infinity) - (b.jogo.numero_tabela ?? Infinity)
+        || a.atleta_nome.localeCompare(b.atleta_nome, 'pt-BR'));
+      delete local.ordem;
+    }
+
+    res.status(200).json({
+      dia,
+      locais: ordenados,
+      // Linhas (atleta x jogo em que cumpre)
+      total: ordenados.reduce((soma, l) => soma + l.suspensos.length, 0),
+      jogos_anteriores_sem_sumula: jogosAnterioresSemSumula,
+      modalidades_sem_regra: semRegra
+    });
+  } catch (erro) {
+    console.error('Erro ao montar a lista de suspensos do dia:', erro);
+    res.status(500).json({ erro: 'Erro ao montar a lista de suspensos do dia.' });
+  }
+};
+
+module.exports = { situacaoDaCompeticao, suspensosNoJogo, suspensosDoDia };
