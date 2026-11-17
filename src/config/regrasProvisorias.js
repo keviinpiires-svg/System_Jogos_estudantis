@@ -420,6 +420,36 @@ const REGRAS = {
   },
 
   // --------------------------------------------------------------------
+  // 8b. Suspensão por cartões, por modalidade (pendência 13)
+  // --------------------------------------------------------------------
+  // O regulamento escreve a regra para futsal e society: 2 amarelos = 1 jogo,
+  // amarelos zerados na 2ª fase, expulsão = 1 jogo. Decisão do chefe de
+  // 16/11/2026 para o HANDEBOL: o vermelho (direto ou pelos 2 amarelos no mesmo
+  // jogo) suspende o jogo seguinte da equipe, inclusive no mata-mata; amarelos
+  // em jogos diferentes NÃO acumulam. Modalidade fora desta lista (basquete,
+  // vôlei, baleado) não declara ninguém suspenso.
+  suspensaoPorCartoes: {
+    provisorio: false,
+    decididoEm: '16/11/2026',
+    porModalidade: {
+      futsal: {
+        amarelosAcumulam: true,
+        descricao: '2 amarelos = 1 jogo de suspensão, amarelos zerados na 2ª fase, expulsão = 1 jogo automático mais julgamento.'
+      },
+      'futebol-society': {
+        amarelosAcumulam: true,
+        descricao: '2 amarelos = 1 jogo de suspensão, amarelos zerados na 2ª fase, expulsão = 1 jogo automático mais julgamento.'
+      },
+      handebol: {
+        amarelosAcumulam: false,
+        descricao: 'Cartão vermelho (direto ou pelos 2 amarelos no mesmo jogo) = 1 jogo de suspensão; '
+          + 'amarelos em jogos diferentes não acumulam (decisão do chefe, 16/11/2026).'
+      }
+    },
+    aplicadoEm: 'suspensaoController'
+  },
+
+  // --------------------------------------------------------------------
   // 9. Dois jogos no mesmo local — decisão do usuário de 05/10/2026
   // --------------------------------------------------------------------
   // O sistema deixava agendar dois jogos no mesmo local e no mesmo horário.

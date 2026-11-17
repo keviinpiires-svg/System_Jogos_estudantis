@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { REGRAS } = require('../config/regrasProvisorias');
 
 // Suspensão por cartões (regulamento, seção 5 do contexto):
 //   - 2 amarelos acumulados = 1 jogo de suspensão;
@@ -7,11 +8,12 @@ const db = require('../config/db');
 // Nada disso é gravado: é calculado das súmulas, como a classificação.
 // A tabela `suspensoes` guarda só as disciplinares, que entram somadas aqui.
 //
-// O regulamento define esta regra para FUTSAL e FUTEBOL SOCIETY. Handebol,
-// basquete, vôlei e baleado não têm regra escrita de suspensão por cartão:
-// nessas modalidades o cálculo não é aplicado e a tela recebe um aviso, em
-// vez de o código inventar uma regra. [PENDENTE no contexto]
-const MODALIDADES_COM_REGRA = ['futsal', 'futebol-society'];
+// O regulamento define esta regra para FUTSAL e FUTEBOL SOCIETY; o HANDEBOL
+// ganhou a sua em 16/11/2026 (só o vermelho suspende, amarelos de jogos
+// diferentes não acumulam). Basquete, vôlei e baleado não têm regra: nessas
+// o cálculo não é aplicado e a tela recebe um aviso, em vez de o código
+// inventar uma regra. As regras moram em regrasProvisorias.suspensaoPorCartoes.
+const regraDaModalidade = (slug) => REGRAS.suspensaoPorCartoes.porModalidade[slug] || null;
 
 const AMARELOS_POR_SUSPENSAO = 2;
 
@@ -33,7 +35,7 @@ const ordenarJogos = (a, b) => {
 // Percorre os jogos de cada equipe em ordem e devolve, por atleta, o que
 // ele deve e o que já cumpriu. `ateJogo` limita a leitura aos jogos
 // anteriores a um jogo (é o que a súmula precisa: quem não pode entrar hoje).
-const calcular = ({ jogos, lancamentos, disciplinares, ateJogo }) => {
+const calcular = ({ jogos, lancamentos, disciplinares, ateJogo, amarelosAcumulam = true }) => {
   const ordenados = [...jogos].sort(ordenarJogos);
   const corte = ateJogo ? ordenados.findIndex((j) => j.id === ateJogo) : -1;
   const considerados = corte >= 0 ? ordenados.slice(0, corte) : ordenados;
@@ -94,7 +96,8 @@ const calcular = ({ jogos, lancamentos, disciplinares, ateJogo }) => {
         atleta.amarelos_na_fase += expulsoPeloSegundoAmarelo ? linha.amarelos - AMARELOS_POR_SUSPENSAO : linha.amarelos;
         atleta.amarelos_total += linha.amarelos;
 
-        while (atleta.amarelos_na_fase >= AMARELOS_POR_SUSPENSAO) {
+        // Handebol: amarelos de jogos diferentes não acumulam suspensão (só o vermelho conta)
+        while (amarelosAcumulam && atleta.amarelos_na_fase >= AMARELOS_POR_SUSPENSAO) {
           atleta.amarelos_na_fase -= AMARELOS_POR_SUSPENSAO;
           atleta.devidos += 1;
           atleta.motivos.push(`2 amarelos (até o jogo #${jogo.numero_jogo})`);
@@ -193,7 +196,7 @@ const dadosDaCompeticao = async (competicao_id) => {
 const avisoDeRegra = (competicao) => ({
   titulo: 'Suspensão por cartões sem regra definida',
   texto:
-    `O regulamento escreve a suspensão por cartões para futsal e futebol society. ` +
+    `O regulamento escreve a suspensão por cartões para futsal e futebol society (e o chefe definiu a do handebol em 16/11/2026). ` +
     `Em ${competicao.modalidade_nome} não há regra escrita, então o sistema mostra os cartões ` +
     'mas não declara ninguém suspenso. Defina a regra com a Comissão antes de usar isto em quadra.'
 });
@@ -213,9 +216,10 @@ const situacaoDaCompeticao = async (req, res) => {
       return res.status(404).json({ erro: 'Competição não encontrada.' });
     }
 
-    const temRegra = MODALIDADES_COM_REGRA.includes(competicao.modalidade_slug);
+    const regra = regraDaModalidade(competicao.modalidade_slug);
+    const temRegra = Boolean(regra);
     const { jogos, lancamentos, disciplinares } = await carregar(competicao_id);
-    const atletas = calcular({ jogos, lancamentos, disciplinares });
+    const atletas = calcular({ jogos, lancamentos, disciplinares, amarelosAcumulam: regra ? regra.amarelosAcumulam : true });
 
     res.status(200).json({
       competicao: {
@@ -224,6 +228,8 @@ const situacaoDaCompeticao = async (req, res) => {
         modalidade_slug: competicao.modalidade_slug
       },
       regra_definida: temRegra,
+      // O texto da regra da modalidade, para a tela mostrar (futsal e society; handebol desde 16/11/2026)
+      regra: regra ? { amarelos_acumulam: regra.amarelosAcumulam, descricao: regra.descricao } : null,
       avisos: temRegra ? [] : [avisoDeRegra(competicao)],
       // Sem regra escrita, os cartões aparecem mas ninguém fica suspenso
       atletas: temRegra ? atletas : atletas.map((a) => ({ ...a, pendentes: 0, motivos: [] }))
@@ -253,11 +259,14 @@ const suspensosNoJogo = async (req, res) => {
     }
 
     const competicao = await dadosDaCompeticao(jogo.competicao_id);
-    const temRegra = MODALIDADES_COM_REGRA.includes(competicao.modalidade_slug);
+    const regra = regraDaModalidade(competicao.modalidade_slug);
+    const temRegra = Boolean(regra);
     const { jogos, lancamentos, disciplinares } = await carregar(jogo.competicao_id);
 
     // ateJogo corta a leitura neste jogo: só o que veio antes pesa
-    const atletas = calcular({ jogos, lancamentos, disciplinares, ateJogo: jogo_id });
+    const atletas = calcular({
+      jogos, lancamentos, disciplinares, ateJogo: jogo_id, amarelosAcumulam: regra ? regra.amarelosAcumulam : true
+    });
     const equipes = [jogo.equipe_1_id, jogo.equipe_2_id];
 
     const suspensos = temRegra

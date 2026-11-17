@@ -639,8 +639,8 @@ const registrarSumula = async (req, res) => {
             inteiroNaoNegativo(atleta.gols) ?? 0,
             inteiroNaoNegativo(atleta.amarelos) ?? 0,
             inteiroNaoNegativo(atleta.faltas) ?? 0,
-            // Futsal e society (2 caixas de amarelo): o 2º amarelo é expulsão e vira o vermelho, mesmo que a
-            // tela não o tenha marcado. Handebol (1 caixa de amarelo) não tem essa regra escrita.
+            // Futsal, society e handebol (maxAmarelos 2): o 2º amarelo é expulsão e vira o vermelho, mesmo que a
+            // tela não o tenha marcado (no handebol, decisão de 16/11/2026; o vermelho suspende 1 jogo).
             booleano(atleta.vermelho)
               || (folha.cartoes && folha.maxAmarelos >= 2 && (inteiroNaoNegativo(atleta.amarelos) ?? 0) >= 2),
             booleano(atleta.desqualificado)

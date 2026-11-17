@@ -87,7 +87,7 @@ vendo os dois, e as páginas seguem públicas (quem digitar o endereço ainda as
   súmula parcial** (presença, capitão e camisas), então a presença não se perde se a página for recarregada; se essa
   gravação falhar, a partida iniciou e a tela avisa para usar "Salvar parcial".
 - **2º amarelo = vermelho (futsal, society e handebol):** o 2º amarelo marca o vermelho sozinho; voltar para 1 desmarca
-  só o vermelho automático. A suspensão calculada vale só para futsal e society.
+  só o vermelho automático. A suspensão calculada vale para futsal e society (regulamento) e para o handebol, onde só o vermelho suspende (decisão do chefe, 16/11/2026).
 - **Basquete** não mudou: faltas por atleta de 0 a 5 e faltas/tempo técnico da equipe digitados à mão.
 
 ### Colunas de placar, camisas e baleado
