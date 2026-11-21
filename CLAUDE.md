@@ -1,0 +1,424 @@
+# System_jogos — backend do SGE Jogos Estudantis 2026
+
+API do **Sistema de Gestão Esportiva** dos Jogos Estudantis 2026 (Barra do Choça/BA,
+**18 a 21 de novembro de 2026**): escolas, atletas, competições, grupos, jogos, súmulas,
+classificação, mata-mata, suspensões e tabela geral.
+
+Frontend no repositório separado **`F:\web-jogos`** (React + Vite, Vercel).
+
+**Leia o contexto antes de qualquer tarefa de funcionalidade.** Regras do regulamento,
+modelo de dados, fatias, pendências e decisões provisórias estão lá (idêntico nos dois repositórios):
+@docs/CONTEXTO_NOVO_ESCOPO.md
+
+Outros documentos: `db/README.md` (scripts do banco e como aplicar), `docs/MIGRACAO_PRODUCAO.md`
+(roteiro da virada), `db/VALIDACAO_MYSQL9.md` (validação no motor da produção),
+`docs/CONFERENCIA_COMPETICOES.md` (as 50 competições), `docs/referencias/` (regulamento, tabela de
+grupos, modelos de súmula).
+
+---
+
+## Estado atual (atualizado em 16/11/2026)
+
+- **A produção JÁ RODA O SISTEMA NOVO desde a noite de 01/10/2026** (virada entre ~20:59 e 21:50).
+  Render publica a branch **`feat/novo-escopo`** (deploy `eaa50b6`, "Fatia 10d"), a Vercel também
+  (Branch Tracking de produção trocado de `main` para `feat/novo-escopo`; a `main` segue com o
+  sistema antigo) e o banco é **`jogos_2026`** na Railway. Tag do estado anterior:
+  `v1-antes-do-novo-escopo`.
+- ⚠️ **Push na `feat/novo-escopo` = deploy em produção** (Render e Vercel publicam essa branch;
+  confirmar nos painéis se o auto-deploy está ligado e, na dúvida, assuma que está). Não dê push sem
+  o usuário pedir e sem testar antes no banco de dev.
+- Fatias (numeração oficial na seção 9 do contexto): 1–7, 9 e 10 ✅; **8 — tabela geral e o que
+  sobra** 🔄 (falta técnicos/dirigentes, se entrarem); **11 — atletismo, xadrez, dama e dominó**
+  ✅ (12/10/2026: a mesa lança os pontos nas telas `/tabuleiro` e `/atletismo`, as entradas do menu desde 21/10; números provisórios, seção 12.1, item 24). **12 — agenda de jogos** ✅ (20/10/2026: `/agenda` pública). A fatia 10 foi executada com
+  desvios do roteiro (ver "Histórico") e ainda tem pendências de produção (seção abaixo).
+- **Publicado em 20/10/2026:** o trabalho de 20/10 (tabela oficial de jogos, "melhor de dois jogos",
+  Agenda de Jogos, número da tabela, pendência 19) — backend `139e541`, frontend `5368f07`, com os
+  scripts `12` a `15` rodados antes na produção.
+- **Publicado em 28/10/2026:** na produção rodaram `db/16`, `db/17`, a limpeza parte 1, o `db/19` e
+  a importação da **tabela nova do chefe** (240 jogos de grupo, renumerada; 240 equipes); depois o
+  lote dos pontos lançados de 21/10 — backend `691892f`, frontend `0d877c5` — e, no frontend,
+  "Cadastrar Time" saiu do menu (`2cc0925`; a página e a rota `/cadastro` continuam).
+- **Publicado depois de 28/10/2026:** a importação de atletas por CSV, a trava de mesa por local
+  (`db/18`) e o "Reiniciar Campeonato" desligado em produção — backend `d73cd8d`, frontend `db8e15c`.
+  `db/18` e `db/19` **rodados e conferidos no `jogos_2026` em 04/11/2026** (coluna `usuarios.local_id`, índice
+  e chave estrangeira presentes; equipes do `db/19` no lugar). Existem 8 contas PLACAR ativas, uma por local
+  (8 locais), todas com local, e 2 ADMIN.
+- **Evento mudou para 18 a 21/11/2026 (03/11/2026; scripts e código no GitHub desde 04/11/2026):** `db/20_datas_18a21_e_ajustes.sql`
+  (jogos −7 dias, saem os jogos 34, 143 e 208 e as equipes do FRANCISCO AMORIM no Baleado M e no Futsal M
+  Sub 8, jogo 203 com JOSE DIAS, jogo 35 às 17:10, `numero_tabela` renumerado pelo mapa
+  `docs/importacao/mapa_jogos_18a21.csv`, período do evento 18 a 21/11; 237 jogos), a Agenda com os dias
+  novos e o `fumaca` dentro do período novo. Aplicado no dev. **04/11/2026:** `db/21_troca_numeros_27_29.sql`
+  troca o `numero_tabela` dos jogos 27 e 29 da Quadra do CETI em 18/11 (só os números). **`db/20` e `db/21`
+  rodados e conferidos no `jogos_2026` de produção** (antes do `db/22`; registrado em 04/11/2026), e o
+  frontend com a Agenda nos dias novos está no ar; o backend não dependia deles.
+- **Publicado em 04/11/2026** (backend `31d3ad9`, `cfc975e`, `c75364c`; frontend `39fa1c5`, `49cfaab`, `b80fdc3`):
+  (1) **súmulas em branco em lote**, tela `/imprimir-sumulas` (ADMIN e PLACAR; dia + local, caixa de
+  seleção por jogo, uma folha A4 por jogo) e o botão "Súmulas em branco" na Agenda só para quem está
+  logado; (2) ~~handebol e baleado com elenco e folha de 12 linhas~~ (**substituído em 06/11/2026: o teto voltou a 14, ver o bullet de 06/11**) e
+  todas as folhas medidas para caberem em uma A4 (linha de 5,4 mm no futsal, society e basquete); (3) **coluna opcional "Exceção" no importador de atletas** (`SIM` dispensa só
+  a idade da categoria e o máximo de 2 coletivas, linha vira AVISO "exceção autorizada" e entra, log
+  `[EXCEÇÃO AUTORIZADA]` sem dados pessoais; `fumaca` com 174 ok); (4) **`db/22_davi_gomes_3a_modalidade.sql`**
+  (1 atleta do ACM, 3ª modalidade coletiva no Handebol M Sub 8, exceção do chefe; o importador
+  pula RG já cadastrado, por isso foi por script): **rodado e conferido no `jogos_2026` pelo usuário em
+  04/11/2026**. Também em 04/11/2026 foram **importados os atletas de 7 escolas** (ACM, Francisco Amorim, Lucia Rocha, Manoel Ramos, Marlene Santana, Portal do Saber e Teodulo Leite); os **28 alunos do ACM sem RG** usam o **código provisório `ACM-SRG-001` a `ACM-SRG-028`** (guardado normalizado como `ACMSRG001` etc.), a trocar pelo RG real em **Listar Atletas** (`/lista-atletas`, edição do ADMIN). Em **05/11/2026** foram importados os **atletas do CEBN** (122 alunos, 188 inscrições), com dump antes; **3 alunos sem documento válido** usam o **código provisório `CEBN-SRG-001` a `CEBN-SRG-003`** (guardado normalizado como `CEBNSRG001` etc.), a trocar pelo RG ou CPF real em **Listar Atletas**.
+- **04/11/2026, depois:** **`db/23_basquete_f_sub17_dois_jogos.sql`** (Basquete Feminino Sub 17, competição 48: passa a ter só **CEJA e CEBC** e **2 jogos** — nº 102 vira CEJA x CEBC e nº 209 vira CEBC x CEJA; o jogo nº 217 e a equipe CETI saem; data, hora e local não mudam; o `numero_tabela` não é renumerado e fica uma lacuna no 217; 236 jogos no banco): **rodado e conferido no `jogos_2026` pelo usuário em 04/11/2026**.
+  **A regra de disputa dessa competição NÃO mudou:** segue "grupo único, 2 classificados, próxima fase FINAL, turno único", e **falta o chefe decidir se vira "melhor de dois jogos"** (turno `IDA_E_VOLTA`, 0 classificados, sem fase seguinte, como as outras de 2 equipes e 2 jogos: o campeão sai da soma dos dois placares). Sem a mudança, o sistema oferece uma final entre as mesmas duas equipes. Como o `db/20` e o `db/21` conferem 237 jogos, não devem ser rodados de novo depois do `db/23`. **Atualização de 06/11/2026 (`db/26`):** a CETI voltou e o Basquete Sub 17 F tem 3 equipes e 3 jogos (nº 101, 204 e 212), em grupo único A; a dúvida do "melhor de dois jogos" deixa de valer para ele.
+- **05/11/2026:** **`db/24_cebn_sem_society17_e_basquete15.sql`** (o **CEBN sai do Futebol Society Sub 17 Masculino e do Basquete Sub 15 Masculino**: saem os jogos nº 127 e 195 (Society) e nº 103 e 112 (Basquete) e a equipe do CEBN de cada uma; nenhum outro jogo é renumerado; o banco passa a ter **232 jogos**), **rodado e conferido no `jogos_2026` em 05/11/2026, com dump antes**. O Society Sub 17 M ficou com 4 equipes (grupo A: CEBC e CEJA; grupo B: CETI e VITORIA LIMA) e 3 jogos; o **Basquete Sub 15 M ficou com 3 equipes (CEBC, CEJA e Conveniada) e 2 jogos, sem o jogo CEBC x Conveniada**, por **decisão do usuário**. O `numero_jogo` das duas competições ficou **com buraco** (Society 1, 3, 4; Basquete 3, 4), também por decisão do usuário, e o `numero_tabela` ganhou lacunas. A regra de disputa das duas **não mudou** (Society: 2 grupos, 1 classificado por grupo, FINAL; Basquete: grupo único, 2 classificados, FINAL); se o chefe quiser que as três equipes do Basquete se enfrentem, falta cadastrar o jogo CEBC x Conveniada — **resolvido pelo `db/26` (06/11/2026): entrou o nº 206, Conveniada x CEBC; o Basquete Sub 15 M tem 3 equipes e 3 jogos**.
+- **06/11/2026 — teto de 14 atletas em Handebol e Baleado (decisão do usuário em 06/11/2026):** o teto volta a **14**, igual ao regulamento escrito, e substitui o 12 da resposta do chefe de 07/10 (`db/09`); o mínimo continua 10, só aviso. **`db/25_elenco_14_handebol_baleado.sql`** (`UPDATE modalidades SET max_atletas = 14`, idempotente, uma transação, duas travas): validado em banco descartável no MySQL 8.0.46, **rodado e conferido no `jogos_2026` em 06/11/2026, com dump antes** (handebol e baleado com `max_atletas = 14`). As folhas de handebol e baleado voltam a **14 linhas** (`folhasSumula.js`), a 4,9 mm por linha e 287 mm de altura, uma página A4 (medido no Edge em dev, individual e em lote). O `fumaca:banco` aplica o `db/25`, e o `fumaca` (174 ok) conferiu o teto de 14 pela importação. Como o banco já tem o teto de 14, o deploy do backend e do frontend com as folhas de 14 linhas fecha o conjunto.
+- **06/11/2026, depois — tabela de jogos 20264 do chefe (`db/26` e `db/27`), rodados e conferidos no `jogos_2026` em 06/11/2026, com dump antes:** a **tabela de jogos 20264 do chefe** (06/11/2026) foi aplicada no `jogos_2026` pelo **`db/26_tabela_20264.sql`** (`mapa_tabela_20264.csv` e `contexto_tabela_20264.md`, fora do git): 65 jogos mantidos, 123 só renumerados (a tabela inteira foi renumerada, em duas fases por causa do índice único), 36 com mudança de dia, hora, local ou mando, 8 removidos e 10 incluídos, **234 jogos de grupo** (**37/93/79/25** em 18, 19, 20 e 21/11, `numero_tabela` único); a **CETI voltou ao Basquete Sub 17 F** (agora 3 equipes, CETI, CEJA e CEBC, e 3 jogos) e **saiu do Futebol Society Sub 15 M e do Futsal Sub 15 M** (sem atleta, súmula nem colocação); o jogo nº 6 ficou às 17:50 (o 18:50 do mapa era tido como erro: bateria com o nº 7) e **passou a 18:50 no `db/34`, por decisão do usuário em 10/11/2026**; o nº 223 virou o 218 às 17:20; o nº 247 é Lucia Rocha x CETI (Baleado Sub 17 F); o nº 286 (Baleado Sub 8 M, ACM x Marlene Santana) entrou como 2º jogo de GRUPOS, apesar do rótulo "FINAL" do mapa. O **Futebol Society Sub 17 M** teve os 3 jogos antigos trocados por 4 (todos entre os grupos A e B) e, pelo **`db/27_society17_grupo_unico.sql`** (mudança de regra aprovada pelo usuário), passou a **grupo único A com as 4 equipes, 2 classificados e FINAL** (o grupo B foi apagado). Os mata-mata da tabela (75 linhas) **não** foram criados: lançar à mão depois. **Atenção:** a tabela nova deixa a Lucia Rocha com dois jogos no mesmo horário (20/11 às 12:40, nº 170 e nº 202, Vôlei Aberto M e Vôlei Sub 17 Misto), e a tabela tem 89 casos de escola em dois jogos no mesmo horário (86 antes), em categorias e quadras diferentes; é um conflito conhecido, apontado antes de rodar o script, e a tabela segue como está. O `db/20` ao `db/24` conferem estados antigos e **não devem ser repetidos**.
+- **06/11/2026, mais tarde — mata-mata cadastrado de antemão (`db/28` e `db/29`, rodados e conferidos no `jogos_2026` em 06/11/2026, com dump antes):** o mata-mata segue a **tabela do chefe à risca** (número, dia, hora, local e cruzamento de cada jogo). O `db/28` deixou `jogos.equipe_1_id` e `equipe_2_id` aceitarem NULL e criou a tabela **`jogo_vagas`** (origem de cada vaga: posição num grupo, melhor 2º colocado ou vencedor de outro jogo; `manual = 1` quando o ADMIN escolheu a equipe). O `db/29` criou os **75 jogos de mata-mata (32 semifinais e 43 finais) sem equipes, com 150 vagas**, ajustou a regra de disputa de 9 competições (Baleado Sub 9 M, Futsal Sub 15 F, Futsal Aberto M, Handebol Sub 11 M, Handebol Sub 11 F e Handebol Sub 13 M passam a semifinal com 2 classificados; Futsal Sub 8 M, Society Sub 15 M e Vôlei Sub 17 Misto passam a só final com 1 classificado por grupo) e pôs o **Baleado Sub 8 M em "melhor de dois jogos"** (`IDA_E_VOLTA`, 0 classificados, sem fase seguinte). Leituras da tabela: jogo 239 (Baleado Sub 13 M) "1º do Grupo ?" = 1º do Grupo B; finais 269, 301 e 309 (competições de grupo único) = 1º x 2º colocado; finais 294 (Vôlei Sub 17 Misto) e 307 (Society Sub 13 M) = 1º do Grupo A x 1º do Grupo B (dois grupos separados, conferido na produção). **As vagas se preenchem sozinhas:** quando o grupo fecha entram o 1º, o 2º…, o "melhor 2º" só quando todos os grupos fecham, e o vencedor de um jogo (inclusive por cobranças, desempate ou W.O.) vai para a vaga seguinte, ao encerrar a súmula ou o W.O. Empate sem critério (sorteio) deixa a vaga pendente para o ADMIN. O **ADMIN troca qualquer vaga à mão** (`PUT /api/jogos/:id/vagas`, botão "Equipes" na tabela de jogos) e a **troca manual não é desfeita** pelo automático (dá para devolver a vaga ao automático); há o botão **"Recalcular vagas"** no card do mata-mata (`POST /api/matamata/competicao/:id/recalcular-vagas`, e `POST /api/matamata/recalcular-vagas` para todas). Jogo iniciado ou encerrado não muda de equipe sem confirmação (o automático só avisa); jogo sem as duas equipes não inicia nem recebe súmula; um jogo que é origem de outra vaga não se exclui. **Trava: dentro de cada competição e fase, uma equipe só ocupa uma vaga** — o "melhor 2º" pula quem já está numa vaga fixa da fase e, se não sobrar ninguém, a vaga fica pendente com aviso. **Jogo 253 (Futsal Sub 11 M) está como na tabela, "1º do Grupo B x 2º do Grupo C"**, com a trava ativa; **[PENDENTE] o chefe confirmar se é 2º ou 1º do Grupo C** (o 1º do Grupo C não aparece em nenhum jogo da tabela, parece erro de digitação; se for, é trocar a posição dessa vaga em `jogo_vagas`). A Agenda, o detalhe do jogo, a tabela de jogos e a impressão mostram a origem ("1º do Grupo A", "Melhor 2º colocado", "Vencedor do jogo 263") enquanto a equipe não existe. O botão "gerar" por classificação não se aplica a competição com vagas cadastradas. `scripts/simular_mata_mata.js` simula um campeonato (formatos de semifinal, melhor 2º, final direta e grupo único, troca manual, trava) e passou com 33 ok. Backend `b838a7e`, frontend `f3526a5` e `0317e19`. (Depois disso vieram o `db/30` a `db/34`, aplicados em 10/11/2026; **o próximo script de banco é o `47`.**)
+- **10/11/2026 — aplicado em produção (`db/30` a `db/34`, no `jogos_2026`, com dump antes):** (1) `db/30`: ficha atualizada do CEBC (5 remoções e 5 inclusões de inscrição; dois atletas já tinham sido trocados pela página). (2) `db/31`: 29 correções de nome, nascimento e RG/CPF de atletas do CETI. (3) `db/32`: o **Vôlei Aberto passou de MASCULINO para MISTO** (decisão do chefe, 10/11) e entraram 2 inscrições do CETI, uma com exceção de idade autorizada pelo ADMIN (não existe campo de exceção: vale a própria inscrição e o log). (4) `db/33`: ficha atualizada do CEJA (22 remoções e 20 inclusões, com exceções de 3ª coletiva). (5) `db/34`: **tabela de jogos 20266 do chefe** (vigente até 12/11/2026, quando a 20267 do `db/39` a substituiu) (a 20265 nunca foi aplicada): **231 jogos de grupo (36/93/77/25 em 18, 19, 20 e 21/11) e 75 de mata-mata, `numero_tabela` de 1 a 306**; saíram os jogos 33, 101, 189 e 204 e entrou o 102 (Handebol F Sub 8, ACM x JOSE DIAS, 19/11 11:20); o **jogo 6 passou a 18:50** (era 17:50 pela decisão de 03/11, trocada por decisão do usuário em 10/11); a **final 292 do Basquete F Sub 17 tem CEJA x CEBC em vagas manuais**; o rótulo "Vencedor do jogo N" foi regravado com os números novos. **Consequências:** o **Handebol Sub 9 Masculino ficou sem jogos** (a confirmar com o chefe); o **Basquete F Sub 17** só tem CEJA x CEBC (jogo 209 e final 292) e a equipe do CETI continua cadastrada, sem jogos; o Handebol F Sub 17 ficou com 3 jogos de grupo e o Handebol F Sub 8 com 2 (102 e 279). **O `db/26`, o `db/29` e o `db/32` não podem ser repetidos depois do `db/34`.** **O próximo script de banco é o `47`** (o `35` e o `36` foram aplicados em 12/11/2026).
+- **12/11/2026 — `db/35` (ACM Sub 8 Feminino) aplicado em produção, no `jogos_2026`, com dump antes** (arquivo em `docs/importacao/scripts_aplicados/`, fora do git: traz dados de alunos): o **Handebol Sub 8 Feminino ficou sem jogos** (saíram os jogos 102 e 279 e as equipes do ACM e da JOSE DIAS, por decisão do chefe), e o **Baleado Sub 8 Feminino do ACM passou a ter exatamente 11 atletas** (6 inscrições saíram, 5 entraram; uma com exceção de idade já autorizada). Os **jogos de grupo agora são 229 (36/92/77/24 em 18, 19, 20 e 21/11)**; o mata-mata segue com 75; o `numero_tabela` não foi renumerado (lacunas no 102 e no 279). **O `db/34` não pode ser repetido depois do `db/35`** (confere 231 jogos). **O próximo script de banco é o `47`.**
+- **12/11/2026 — `db/36` (CEJA, atualização de 12/11) aplicado em produção, no `jogos_2026`, com dump antes** (arquivo em `docs/importacao/scripts_aplicados/`, fora do git: traz dados de alunos): **17 remoções e 18 inclusões de inscrição** e **5 trocas de RG provisório por CPF** (códigos `CEJA-SRG-003` a `007`), com exceção da 3ª coletiva para um atleta, autorizada pelo chefe. Só inscrições e o campo RG mudaram; nenhum atleta foi apagado. **O próximo script de banco é o `47`.**
+- **12/11/2026 — atletismo por colocação (`db/37`, rodado no `jogos_2026` em 12/11/2026; tabela `atletismo_colocacoes` criada, 0 linhas):** o atletismo deixou de ser lançado por pontos de escola e passou a ser lançado por **colocação**: o **ADMIN** lança o **1º, o 2º e o 3º de cada prova + categoria + gênero** (escola da lista e nome do atleta em texto livre, opcional), na página **`/atletismo`**, que agora é **pública para leitura** (pódios agrupados por prova e categoria; formulário, Editar e Apagar só para o ADMIN; a mesa só vê). A prova é texto, com as do regulamento como sugestão (50 m no Sub 8 e 9; salto e 100 m do Sub 11 ao 17); categorias de Sub 7 a Aberto; gênero só MASCULINO e FEMININO. **Sem empate** (uma escola por colocação) e **uma escola só aparece uma vez em cada prova + categoria + gênero** (409 com mensagem clara; o banco também garante, com dois índices únicos). Na **Tabela Geral**, cada colocação vale a **mesma pontuação das coletivas** (`pontuacao_geral`: 10, 8 e 6) e **conta medalha** (entra no desempate). API: `GET /api/atletismo-colocacoes` (público), `POST /`, `PUT /:id`, `PUT /podio` (o pódio inteiro numa transação; é o que o formulário usa) e `DELETE /:id` (ADMIN). A **rota antiga recusa pontos de atletismo** (`PUT` e `DELETE /api/pontos-lancados` respondem 400 com a explicação) e a Tabela Geral **não soma** ponto de atletismo que estiver em `pontos_lancados` (não conta duas vezes; na produção eram 0 linhas). Xadrez, dama e dominó (Tabuleiro) seguem iguais. As regras moram em `regrasProvisorias.atletismoColocacoes`; o "Reiniciar Campeonato" apaga as colocações; o `fumaca` (194 ok) cobre tudo. **O próximo script de banco é o `47`.**
+- **12/11/2026 — tabuleiro por colocação (`db/38`, rodado no `jogos_2026` em 12/11/2026; tabela `tabuleiro_colocacoes` criada, 0 linhas):** como o atletismo, **xadrez, dama e dominó** deixaram de ser lançados por pontos de escola: o **ADMIN** lança o **1º, o 2º e o 3º de cada jogo + categoria** (escola da lista e nome do atleta em texto livre, opcional), na página **`/tabuleiro`**, agora **pública para leitura** (um cartão por jogo, um pódio por categoria; formulário, Editar e Apagar só para o ADMIN; a mesa só vê; o link "Tabuleiro" da navbar aparece para todos). Pelo regulamento o tabuleiro é **MISTO** (sem campo de gênero; a API devolve `genero: 'MISTO'`) e **todos os jogos são individuais, inclusive o dominó** (um atleta por colocação). Categorias: as que o tabuleiro já usava (Sub 8 a Aberto). **Sem empate** e **uma escola só uma vez em cada jogo + categoria** (409 com mensagem clara; o banco também garante). Na **Tabela Geral**, cada colocação vale **10, 8 e 6** (`pontuacao_geral`) e **conta medalha**. API: `GET /api/tabuleiro-colocacoes` (público), `POST /`, `PUT /:id`, `PUT /podio` e `DELETE /:id` (ADMIN; o jogo vai como `jogo`: `xadrez`, `dama` ou `domino`). A **rota antiga recusa pontos do tabuleiro** (400) e a Tabela Geral **não soma** ponto antigo do tabuleiro. O **atletismo não mudou** (controller, rota, página e teste do fumaça sem nenhuma linha alterada): o tabuleiro tem tabela, controller e página próprios (`tabuleiroColocacoesController.js`, `pages/Tabuleiro.jsx`). Regras em `regrasProvisorias.tabuleiroColocacoes`; o "Reiniciar Campeonato" apaga as colocações; o `fumaca` (198 ok) cobre tudo. **Ficaram sem uso e NÃO foram apagados:** no frontend, `src/pages/PontosLancados.jsx` (sem rota) e `src/services/pontosLancados.js`; no backend, `/api/pontos-lancados` (a leitura segue pública; lançar e apagar pontos de atletismo, xadrez, dama ou dominó responde 400) e as tabelas `pontos_lancados` e `pontos_lancados_historico` (0 linhas na produção; o que estiver gravado não soma na Tabela Geral). **O próximo script de banco é o `47`.**
+- **12/11/2026 — tabela de jogos 20267 do chefe (`db/39`) e ficha da Adelieta (`db/40`), rodados no `jogos_2026` em 12/11/2026:** a **tabela de jogos VIGENTE passou a ser a 20267** (até 14/11/2026, quando a 20268 do `db/41` a substituiu; comparada com a 20266: os mesmos 306 números, sem mudança de dia, hora ou local; só o Baleado Sub 9 mudou). (1) `db/39_baleado_sub9_jose_dias.sql`: a **José Dias passou do Baleado Sub 9 Masculino para o Feminino**, e as duas competições trocaram de formato. **Baleado Sub 9 M:** 5 equipes, grupo A = Adelieta e Marlene Santana (jogos 15 e 166, o mesmo confronto duas vezes; o 166 virou Marlene x Adelieta), grupo B = Teodulo Leite, Maria da Glória e Francisco Amorim (16, 76 e 210), **1 classificado por grupo e FINAL direta** (a final 281, 1º A x 1º B, veio do Feminino); a equipe da José Dias saiu (não tinha atleta). **Baleado Sub 9 F:** 6 equipes, grupo A = Maria da Glória, Portal do Saber e Francisco Amorim (165, 185 e 271), grupo B = José Dias (equipe nova), Adelieta e Emiliano Zapata (167, 211 e 272: o 211 veio do Masculino, José Dias x Adelieta, e o 272 virou José Dias x Emiliano), **2 classificados por grupo e SEMIFINAL** (218: 1º A x 2º B; 233: 1º B x 2º A; final 282: vencedores; os três vieram do Masculino). As vagas passaram a apontar para os grupos da competição nova e o `numero_jogo` das duas foi renumerado por data e hora; nenhum jogo foi criado nem apagado e o `numero_tabela` não mudou: seguem **229 jogos de grupo (36/92/77/24 em 18, 19, 20 e 21/11) e 75 de mata-mata**. Aviso conhecido: a escola Adelieta ficou com dois jogos às 20/11 10:40 (nº 166 e nº 153, Futsal Sub 11 M), em quadras diferentes. (2) `db/40` (fora do git, em `docs/importacao/scripts_aplicados/`, por ter dados de alunos): ficha atualizada da **Adelieta Ramalho**, 13 remoções e 25 inclusões de inscrição (os elencos do Baleado Sub 9 M e F entraram), sem atleta com mais de 2 coletivas além de quem já tinha 3 antes. **O `db/34` não pode ser repetido.** **O próximo script de banco é o `47`.**
+- **14/11/2026 — tabela de jogos 20268 do chefe (`db/41_tabela_20268.sql`), aplicada no `jogos_2026` em 14/11/2026, com dump antes (`F:\backups\jogos_2026_antes_db41.sql`):** a **tabela de jogos passa a ser a 20268** (vigente até 16/11/2026, quando a 20269 do `db/43` a substituiu) (`docs/importacao/contexto_tabela_20268.md`, fora do git). Comparada pelo conteúdo (competição + equipes; no mata-mata, competição + fase + ordem) com a 20267: 112 jogos iguais, 183 alterados (163 só de número e 20 de dia, hora ou local), 5 incluídos e 9 removidos; a tabela inteira foi renumerada, mata-mata incluído, e o rótulo "Vencedor do jogo N" das vagas foi regravado com os números novos. Ficam **300 jogos: 227 de grupo (36/91/76/24 em 18, 19, 20 e 21/11) e 73 de mata-mata (0/0/9/64)**, `numero_tabela` de 1 a 302 sem repetição e sem o 102 e o 275 (Handebol F Sub 8, ACM x José Dias: estão na tabela do chefe, mas seguem fora do sistema desde o `db/35`). (1) A **Emiliano Zapata saiu do Baleado Sub 9 Feminino e do Vôlei Sub 17 Misto** (jogos 167, 272, 114 e 122 e as duas equipes, que não tinham atleta). (2) **Baleado Sub 9 M, Baleado Sub 9 F e Vôlei Sub 17 Misto viraram GRUPO ÚNICO** (só o grupo A, 2 classificados, próxima fase FINAL; o grupo B foi apagado e o `numero_jogo` das três foi renumerado por data e hora), com a **final = 1º colocado x 2º colocado**. **Baleado Sub 9 M:** 5 equipes, jogos 15, 16, 76, 165 e 209, final 277. **Baleado Sub 9 F:** 5 equipes (Maria da Glória, Portal do Saber, Francisco Amorim, José Dias e Adelieta), jogos 164, 166 (o antigo 211, agora 20/11 11:20 na Quadra do Maria da Glória), 184, 267 e 268 (novo: José Dias x Adelieta, 21/11 10:00, Quadra do CETI), final 278; as semifinais 218 e 233 saíram. **Vôlei Sub 17 Misto:** 4 equipes (CEBC, CETI, Lucia Rocha e CEBN); saíram os jogos 123, 193 e 170 e entraram o 121 (CEBC x CETI), o 122 (Lucia Rocha x CEBN), o 169 (CETI x Lucia Rocha) e o 192 (CEBN x CEBC); final 287. (3) Horários (dia e local iguais): em 19/11 na Quadra do CETI os jogos 115 a 121 viraram 114 a 120, 40 min mais cedo; em 21/11 o 216 e o 217 viraram 214 e 215, 40 min mais tarde, e o mata-mata 234 a 240 virou 230 a 236, 40 min mais cedo. (4) As **finais do Society (300 a 302) passaram da Quadra do CETI para o Campo Society do CETI** (a tabela do chefe diz "SOCIETY: CETI" desde a 20267). Avisos conhecidos, que não bloqueiam: escolas e atletas em dois jogos no mesmo dia e hora (o script lista os dois depois do COMMIT; na cópia testada, 64 casos de atleta, 6 deles causados pela 20268, todos do CEBN: 19/11 às 14:00, jogos 46 e 120, e 21/11 às 09:20, jogos 215 e 227). Não entra no banco de fumaça. **O `db/34`, o `db/39` e o `db/41` não podem ser repetidos.** **O próximo script de banco é o `47`.**
+- **14/11/2026 — `db/42_handebol_f_sub8_volta.sql` (Handebol Sub 8 Feminino volta à tabela), aplicado em produção (`jogos_2026`, com dump antes: `F:\backups\jogos_2026_antes_db42.sql`), por decisão do usuário de seguir a tabela do chefe:** recriou, sem atletas, as equipes do ACM e da José Dias no Handebol Sub 8 F (grupo A) e os dois jogos ACM x José Dias, como jogos de GRUPOS (nº 102, 19/11 11:20, Quadra do CEBC; e o 2º jogo, 21/11 14:40, Quadra do CETI, então nº 275). A regra de disputa não mudou ("melhor de dois jogos"). Desfaz, quanto à tabela, o que o `db/35` tinha tirado do sistema. As inscrições da José Dias e do ACM nesta competição são feitas depois pela página. O 2º jogo passou a nº 272 no `db/43`.
+- **16/11/2026 — tabela de jogos 20269 do chefe (`db/43_tabela_20269.sql`), aplicada no `jogos_2026` em 16/11/2026, com dump antes (`F:\backups\antes_db43_tabela20269.sql`) e conferida: 299 jogos, `numero_tabela` de 1 a 299 sem repetição:** a **tabela de jogos passa a ser a 20269** (vigente até 16/11/2026, quando a 202610 do `db/44` a substituiu) (`docs/importacao/contexto_tabela_20269.md`, fora do git). Comparada pelo conteúdo (competição + equipes; no mata-mata, competição + fase + ordem) com a 20268: 199 jogos iguais, 100 alterados (82 só de número, 16 de número e hora, 1 de equipes e 1 de grupo), 3 removidos e nenhum incluído; nenhum jogo mudou de dia nem de local. Ficam **299 jogos: 228 de grupo (36/92/75/25 em 18, 19, 20 e 21/11) e 71 de mata-mata (0/0/9/62)**. (1) **O CEJA saiu do Handebol Sub 11 Feminino:** saíram o jogo Francisco Amorim x CEJA (nº 205) e as duas semifinais (230 e 231); o jogo nº 158 passou a Maria da Glória x Francisco Amorim; a regra virou **2 grupos, 1 classificado por grupo e FINAL**, com a **final nº 232 (21/11 13:20, Quadra da Adelieta) = 1º do Grupo A x 1º do Grupo B** (grupo A = Francisco Amorim e Maria da Glória; grupo B = Marlene Santana, Adelieta e José Dias); a equipe do CEJA saiu junto com as 11 inscrições dela (os atletas continuam cadastrados) e o `numero_jogo` da competição foi renumerado por data e hora. (2) **O Baleado Sub 9 Feminino voltou a ter 2 grupos** (o grupo B foi recriado): A = Maria da Glória, Portal do Saber e Francisco Amorim (jogos 164, 184 e 264); B = José Dias e Adelieta (166 e 265); regra **2 grupos, 1 classificado, FINAL**, com a **final nº 275 = 1º do Grupo A x 1º do Grupo B**. O Baleado Sub 9 M (final 274) e o Vôlei Sub 17 Misto (final 284) seguem em grupo único, 1º colocado x 2º colocado. (3) Horários novos (dia e local iguais): em 19/11 na Quadra do CEJA o Baleado Sub 11 F trocou 92, 93 e 94 (agora 13:20, 14:00 e 14:40); em 20/11 na Quadra do CEBC os jogos 206 a 213 viraram 205 a 212, mais cedo (10:40 a 15:20); em 21/11 na Quadra da Adelieta o mata-mata 232 a 236 virou 229 a 233, mais cedo. (4) Renumeração da tabela inteira (tira o 205, o 230 e o 231 e o resto desce; o Handebol F Sub 8 fica com os jogos 102 e 272) e rótulos "Vencedor do jogo N" regravados. Avisos conhecidos, que não bloqueiam: escolas e atletas em dois jogos no mesmo dia e hora (o script lista os dois depois do COMMIT; os novos casos de atleta vieram de 19/11 às 14:40, jogos 67 e 94, e de 20/11 às 11:20 e 12:00, jogos 179 e 206 e jogos 135 e 207). Não entra no banco de fumaça. **O `db/34`, o `db/39` e o `db/41` não podem ser repetidos.** **O próximo script de banco é o `47`.**
+- **16/11/2026 — tabela de jogos 202610 do chefe (`db/44_tabela_202610.sql`), aplicada no `jogos_2026` em 16/11/2026, com dump antes (`F:\backups\antes_db44_tabela202610.sql`) e conferida: 299 jogos, `numero_tabela` de 1 a 299 sem repetição:** a **tabela de jogos VIGENTE passa a ser a 202610** (igual à 20269 do `db/43`, com uma única diferença: 3 jogos de 19/11 na Quadra da Adelieta Ramalho trocam de número e de horário; dia e local não mudam). **Futsal F Sub 15, CEBC x Conveniada:** nº 64 às 12:40 → nº 62 às 11:20; **Futsal F Sub 13, CEJA x CEBN:** nº 62 às 11:20 → nº 63 às 12:00; **Futsal F Sub 15, CEBN x Emiliano Zapata:** nº 63 às 12:00 → nº 64 às 12:40. O `numero_jogo` das duas competições segue data e hora e foi recalculado só nelas (no Sub 15 os jogos 1 e 2 se invertem; o Sub 13 não muda). Nenhum jogo de mata-mata cita esses números (nenhum rótulo "Vencedor do jogo N" mudou). Continuam **299 jogos: 228 de grupo (36/92/75/25 em 18, 19, 20 e 21/11) e 71 de mata-mata (0/0/9/62)**. Idempotente (APLICAR/FEITO por jogo, achados por competição + par de equipes), renumeração em 2 fases (provisório = 10000 + número novo) e travas `db44_jogo_nao_bate`, `db44_estado_misto`, `db44_jogo_ja_mexido` e `db44_conferencia_divergiu`. Aviso conhecido, que não bloqueia: o CEBN fica com os jogos 64 e 91 no mesmo dia e hora (19/11 às 12:40), em quadras diferentes e sem atleta inscrito nos dois. **O `db/34`, o `db/39` e o `db/41` não podem ser repetidos.** **O próximo script de banco é o `47`.**
+- **Regras respondidas pelo chefe em 06/10/2026** (seção 12.1 do contexto): viraram definitivas o
+  Handebol Masculino Aberto em turno único, a 2ª prorrogação e depois 7 m ou lances livres, o W.O.
+  1x0 declarado só pela Comissão, as cobranças no 2º jogo do ida e volta, "uma só equipe não pontua"
+  e a punição de 5 a 10 pontos. A tabela geral perdeu os três blocos (só soma geral) e o empate na
+  soma divide a posição (1, 1, 3). O "melhor segundo" não descarta mais jogos: usa os critérios
+  normais, com aviso quando os jogos diferem. Numa segunda resposta, no mesmo dia: a **semifinal
+  com 3 grupos** tem confrontos fixos (1ºA × melhor 2º, 1ºB × 1ºC) e o **3º lugar sem semifinal**
+  (melhor 2º pela campanha) vale 6 pontos, ambos definitivos. Não há cobrança genérica de
+  desempate em modalidade nenhuma. **Seguem PENDENTES:** as dúvidas de atletismo/xadrez/dama/dominó
+  (fatia 11). O empate do baleado no ida e volta foi resolvido em 20/10/2026 (abaixo). **Contas de mesa (chefe, 12/10/2026): uma por local de jogo** (8 locais com o `db/12`);
+  a **trava de mesa por local** é o **`db/18`** (28/10/2026, commit local): `usuarios.local_id`, e a mesa
+  com local só inicia e lança súmula de jogo daquele local (ver "Contas de mesa" abaixo e
+  `docs/CONTAS_DE_MESA.md`). Sem o `db/18` na produção, o backend novo não sobe as escritas.
+- **Respostas do chefe de 07/10/2026** (seção 12.1 do contexto, linhas 6, 12, 19, 21, 22 e 23):
+  4º e 5º lugar e a revanche na semifinal viraram **definitivos** (sem aviso); a soma geral desempata por
+  **mais 1ºs, depois 2ºs e 3ºs** (empate em tudo divide a posição: extensão provisória); **baleado**:
+  empate vale na fase de grupos e, na **final**, acréscimo de 4 min com vitória de quem baleia primeiro
+  (`jogos.baleou_primeiro_equipe_id`, `db/08`) — semifinal e ida e volta empatados seguem pendentes;
+  **handebol e baleado com elenco de 12** (`db/09`; mínimo 10 só aviso) e folhas de 12 linhas — ~~substituído em 06/11/2026: o teto voltou a 14 (`db/25`)~~; **grade do vôlei de 1 a 30**
+  (o set segue em 21 até o chefe responder); atletismo, xadrez, dama e dominó: o juiz traz a súmula
+  pronta e o sistema só lançará o resultado (plano na fatia 11, sem implementar).
+- **Respostas do chefe de 12/10/2026** (seção 12.1 do contexto, linhas 20, 22 e 23): a **semifinal do
+  baleado** empatada tem o mesmo acréscimo de 4 min da final (o 409 saiu; segue só no ida e volta, que
+  não está no regulamento: vem da tabela de grupos, Baleado Feminino Sub 08); o **contador de
+  baleados** de cada equipe passa a contar as **adversárias que ela eliminou**, e o placar é o próprio
+  contador (súmula de baleado gravada antes, se houver, guarda o sentido antigo; nada foi migrado);
+  **vôlei**: 3 sets de 21, **o 3º inclusive**, com 2 de vantagem e sem teto (o código já fazia assim).
+  Nenhum script de banco.
+- **Pontos lançados (12/10/2026, fatia 11):** atletismo, xadrez, dama e dominó funcionam fora do sistema;
+  a mesa (ou o ADMIN) digita os pontos de cada escola por categoria e gênero em `/tabuleiro` (xadrez, dama e dominó) e `/atletismo`, e eles
+  somam na Tabela Geral sem entrar no desempate. Pontos esperados (10 ou 20), teto de 99, categorias e
+  combinações ocultas em `regrasProvisorias.pontosLancados`: **padrão adotado sem confirmação do chefe**.
+  Precisa do `db/11` na produção **antes** do backend que o lê.
+  **Lote de 21/10/2026 (commits locais):** no atletismo **cada prova é um lançamento próprio** (Sub 8 e 9:
+  50 m; Sub 11 a 17: salto e 100 m; `pontos_lancados.prova_id`, `db/16`), com aviso acima de 10 por prova,
+  e as provas **somam** na escola; o atletismo **não tem Aberto** (12 combinações; tabuleiro segue com 14).
+  Mudar um valor já gravado pede confirmação ("já tinha X, digitado por Y às HH:MM — substituir?"; sem
+  `substituir: true` o `PUT` responde 422) e grava o valor de antes em `pontos_lancados_historico`
+  (`db/17`), que o ADMIN lê na tela. A grade só tem as escolas da folha, escolhidas por busca de nome
+  ou apelido.
+- **Tabela oficial de jogos do chefe (20/10/2026):** o lote 1 (207 jogos de fase de grupos, CSV em
+  `docs/importacao/`, **fora do git** pelo `.gitignore`: é a programação real). **Prévia no dev, sem
+  importar, com o `db/13` e o `db/14` aplicados:** **207 novas, 0 erros**, 24 com aviso (todos de
+  confronto repetido). O `db/13` renomeou a escola COVENIADA para **"Conveniada"** (com o nome antigo
+  como apelido).
+  **Decisão (20/10): onde o cadastro e a tabela do chefe divergem, vale a tabela** — o `db/14` trocou
+  duas equipes e criou o Handebol M Sub 9 (51 competições; 1 jogo só, que funciona como final única;
+  pendência 18 do contexto; os textos dela falam do jogo, não da soma). Pronto: `db/12` (três locais, no dev); o importador já usava o
+  grupo das equipes com a coluna Grupo vazia (coberto no `fumaca`); grupos de 4 com 4 jogos não precisam
+  de mudança. **"Melhor de dois jogos" corrigido:** o campeão sai da soma direta dos placares, em qualquer
+  modalidade; empatada a soma, cobranças no 2º jogo (futsal e handebol) ou o acréscimo de 4 min do
+  baleado, e a tela de súmula passou a pedir esse desempate (antes não pedia nem no futsal).
+- O banco antigo **`railway`** (18 tabelas do schema antigo, só dados de teste) continua parado e
+  intacto no mesmo servidor, como âncora de volta atrás. **Não é o banco do sistema no ar.**
+
+## Infraestrutura
+
+| Peça | Onde | Detalhe |
+|---|---|---|
+| Frontend | **Vercel** | https://sge-frontend-seven.vercel.app — Branch Tracking de produção = `feat/novo-escopo` |
+| Backend | **Render** (plano free) | https://system-jogos-estudantis.onrender.com — serviço `System_Jogos_estudantis`; publica `feat/novo-escopo`; start `npm start`; health check **`/saude`** (confirmar que ficou salvo no painel) |
+| Banco produção | **Railway**, **MySQL 9.7.2** (era 9.4.0 até a Railway atualizar num "security patch"; conferido com `SELECT VERSION()` em 05/10) | **`jogos_2026`** = banco do sistema no ar (23 tabelas, schema novo); `railway` = banco antigo, parado; collation `utf8mb4_0900_ai_ci` |
+| Banco dev | MariaDB 10.4 (XAMPP), porta 3306 | `jogos_estudantis_dev` |
+| Validação | MySQL 8.0.46 (3307) e 9.4.0 (3308), locais | ver `db/VALIDACAO_MYSQL9.md` (feita em 9.4.0; produção hoje é 9.7.2) |
+
+- Plano free do Render dorme: a 1ª requisição leva ~50s. Mitigação: ping de 5 em 5 min em `/saude`
+  ou plano pago no mês do evento. **Hoje não há ping configurado.**
+- **A Railway NÃO oferece backup neste plano** (criar backup e PITR só no Pro). Só existe um
+  "Pre-Security-Patch Backup" da própria plataforma. **Backup é por `mysqldump`, por nossa conta.**
+- **Crédito gratuito da Railway acaba por volta de 18/10/2026** (lembrete em 12/10, segundo o chat
+  que fez a virada; confirmar em Usage/Billing). Sem plano pago, o banco pode parar e o sistema cai.
+- TLS com a Railway: `DB_SSL=true` → `ssl: { rejectUnauthorized: false }` (certificado autoassinado).
+- Cliente usado para acessar os bancos: **DBeaver** (conexões `localhost` e `railway`) e o `mysql.exe`
+  em `C:\Users\Kevin\mysql8-3307\...` com arquivo de opções **fora do repositório**.
+
+## Stack e estrutura
+
+Node 20+, **Express 5**, **mysql2/promise** (pool), **jsonwebtoken** + **bcryptjs**,
+`express-rate-limit` (login), `cors`, `dotenv`. **CommonJS**. Sem ORM: SQL escrito à mão, sempre com `?`.
+
+```
+server.js                 monta as rotas em /api (e /saude fora de /api)
+src/config/db.js          pool MySQL (DATABASE_URL ou DB_*; dateStrings para DATE/DATETIME)
+src/config/evento.js      fuso do evento (FUSO_EVENTO, padrão America/Bahia) e "agora" do evento
+src/config/regrasProvisorias.js   decisões provisórias de regra (seção 12.1 do contexto)
+src/config/chavesMataMata.js      cruzamentos do mata-mata por formato
+src/config/folhasSumula.js        desenho da súmula por modalidade (validação + tela)
+src/config/elegibilidade.js       regras do atleta e da inscrição (RG, nascimento, sexo × gênero,
+                                  idade × categoria, 2 coletivas, teto do elenco): cadastro,
+                                  inscrição e importação de atletas usam só daqui
+src/controllers/*         um controller por recurso
+src/routes/*              um arquivo de rotas por recurso
+src/middlewares/authMiddleware.js verificarToken + exigirPerfil(...perfis)
+src/controllers/atletismoColocacoesController.js   atletismo por colocação (1º, 2º e 3º por prova; db/37)
+src/controllers/tabuleiroColocacoesController.js   tabuleiro por colocação (xadrez, dama e dominó, misto; db/38)
+src/services/vagasMataMata.js     preenchimento das vagas do mata-mata (resolverVagas, definirVaga; db/28)
+scripts/fumaca.js         teste de fumaça ponta a ponta
+scripts/simular_mata_mata.js   campeonato simulado do mata-mata cadastrado (vagas, troca manual, trava); mesmo ambiente da fumaça
+db/                       scripts SQL versionados e numerados
+```
+
+## API (prefixo `/api`)
+
+Leituras são **públicas**; escrita exige token. `somenteAdmin` = `ADMIN`; `mesaDoLocalOuAdmin` = `ADMIN`, ou
+`PLACAR` **no jogo do local da conta** (`travarMesaPorLocal`, `db/18`; **PLACAR sem local = 403** "Mesa sem local definido. Fale com o administrador.", desde 16/11/2026).
+
+| Recurso | Rotas |
+|---|---|
+| auth | `POST /login` (com rate limit; devolve `local_id`/`local_nome` da mesa); `GET /eu` (logado: a sessão relida do banco — perfil e local —, a tela atualiza sem novo login) |
+| usuarios | `GET/POST /`, `PUT /:id`, `PUT /:id/senha` — tudo ADMIN (não se apaga: desativa) |
+| escolas | `GET /`; `POST /`, `PUT /:id` (ADMIN) |
+| modalidades / competicoes | `GET /modalidades`; `GET /competicoes`, `GET /competicoes/:id` |
+| equipes | `GET /`; `GET /:id/atletas-elegiveis` (ADMIN — traz sexo e ano de nascimento) |
+| atletas | `GET /escola/:escola_id`, `GET /equipe/:escola_id` (alias antigo), `GET /busca?nome=` (todas as escolas, mín. 3 letras, até 50) e `GET /:id/inscricoes`: **exigem login (ADMIN ou PLACAR, desde 11/11/2026)**; a mesa recebe só id, nome e escola; o ADMIN também sexo e nascimento; `POST`, `GET/PUT/DELETE /:id` (ADMIN) |
+| inscricoes | `GET /equipe/:equipe_id` (pública: anônimo recebe só camisa e nome; o ADMIN também sexo e ano); `POST /`, `DELETE /:id` (ADMIN) |
+| mesa-atletas (db/45) | A mesa (PLACAR) adiciona atleta na hora do jogo e retira o que ela mesma colocou, só no jogo do local dela (`travarMesaPorLocal`) e com o jogo AGENDADO ou EM_ANDAMENTO (senão 409): `GET /api/jogos/:jogoId/equipes/:equipeId/atletas-da-escola?nome=` (só id, nome e as equipes em que o atleta já está; nunca RG nem nascimento), `POST /api/jogos/:jogoId/equipes/:equipeId/atletas` (`{ atleta_id }` ou `{ nome, data_nascimento, sexo, documento? }`; sem documento gera o código provisório `<SIGLA>SRG<NNN>`, próximo número livre da escola) e `DELETE /api/jogos/:jogoId/inscricoes/:inscricaoId` (só `criado_por` = a mesa; atleta que ela cadastrou e ficou sem inscrição também sai; quem já está em súmula não sai, 409). **As regras do cadastro normal valem no backend** (sexo × gênero, idade, 2 coletivas, teto de 14; `src/services/inscricaoService.js`, o mesmo do ADMIN) **e a mesa NÃO abre exceção**: 403 "Precisa de autorização do administrador." + `detalhe` com o motivo. **Desde 17/11/2026 o ADMIN também usa essas rotas** (sem trava de local; em jogo AGENDADO, EM_ANDAMENTO ou FINALIZADO; W.O. = 409): `criado_por` = o ADMIN, recusa com o motivo direto + `pode_excecao`, e `excecao: true` ("Exceção autorizada") dispensa só a idade e o limite de 2 coletivas, como a coluna do CSV, com log `[EXCEÇÃO AUTORIZADA] súmula`; o ADMIN retira qualquer inscrição que não esteja numa súmula gravada. `GET /api/inscricoes/adicionadas-pela-mesa` (ADMIN): lista de conferência (tela `/atletas-das-mesas`). `GET /api/sumulas/:jogo_id` passa a trazer, por atleta, `inscricao_id`, `adicionado_pela_mesa` e (logado) `adicionado_por_mim`; a impressão não muda || jogos | `GET /`, `GET /:id`; `POST`, `PUT /:id`, `PUT /:id/wo`, `DELETE /:id` (ADMIN); `PUT /:id/iniciar` (mesa do local do jogo, ou ADMIN); `PUT /:id/vagas` (ADMIN: troca à mão a equipe de uma vaga do mata-mata, `{ lado, equipe_id }` ou `{ lado, automatico: true }`, `confirmar: true` em jogo já iniciado) |
+| importar-atletas | `POST /previa` e `POST /confirmar` (ADMIN; corpo `text/csv`; `?escola_id=` quando a planilha não tem a coluna Escola; `?apenas_ok=true` para gravar só as OK quando há erro, senão 422): atletas e inscrições por CSV, prévia OK/AVISO/ERRO sem gravar e confirmar numa transação única (tudo ou nada). RG já cadastrado é pulado e o atleta existente nunca muda. Coluna opcional **"Exceção"** (`SIM`): dispensa só a idade da categoria e o máximo de 2 coletivas naquela linha (AVISO "exceção autorizada", entra ao confirmar; log `[EXCEÇÃO AUTORIZADA]`). Ver `docs/IMPORTACAO_ATLETAS.md` e o exemplo fictício `docs/importacao/exemplo_atletas_ficticio.csv` (o único arquivo versionado dessa pasta) |
+| importacao-jogos | `POST /previa` e `POST /` (ADMIN; corpo `text/csv`): jogos da fase de grupos por CSV, prévia sem gravar e importação idempotente numa transação; modelo em `docs/modelo_importacao_jogos.csv`. Coluna **opcional "Nº Tabela"** (número do jogo na tabela do chefe, `db/15`): célula vazia aceita, número repetido no arquivo ou já usado no banco é erro, e reimportar só preenche o número de jogo que já existe e está sem — sem mudar mais nada nem trocar número gravado |
+| sumulas | `GET /:jogo_id`; `POST /` (mesa do local do jogo, ou ADMIN; 403 "Esta mesa é do local X; este jogo é do local Y") — a súmula é a **única fonte do placar** |
+| classificacao | `GET /competicao/:id` (calculada dos jogos, nunca gravada) |
+| matamata | `GET /competicao/:id`; `POST /competicao/:id/gerar`, `DELETE /competicao/:id/:fase` (ADMIN; "gerar" e "desfazer" não valem para competição com vagas cadastradas, `db/28`); `POST /competicao/:id/recalcular-vagas` e `POST /recalcular-vagas` (ADMIN: preenchem de novo as vagas do mata-mata, sem desfazer troca manual); `PUT /competicao/:id/colocacao` (ADMIN: posição de pódio empatada até o sorteio, `{ posicao, equipe_id }`; `equipe_id: null` desfaz; grava em `colocacoes_finais`) |
+| suspensoes | `GET /competicao/:id`, `GET /jogo/:id` (calculadas das súmulas); `GET /dia/:data` (ADMIN, 17/11/2026: os suspensos para os jogos do dia, por local na ordem da tabela, com o jogo em que cada um cumpre; só conta jogos de dias anteriores e devolve `jogos_anteriores_sem_sumula`) |
+| artilharia | `GET /lideres`, `GET /competicao/:id` — **só gols** (tipo_placar GOLS: futsal, society e handebol); basquete (pontos), vôlei e baleado devolvem lista vazia (16/11/2026) |
+| tabela-geral | `GET /` (calculada) |
+| agenda | `GET /` e `GET /jogos/:id` — **públicas**, só leitura (tela `/agenda`): a lista inteira numa consulta só (dia, local, hora, competição, fase, escolas, status e placar se encerrado) e o detalhe com os atletas das duas equipes **só com nome e camisa** (nada de RG, nascimento ou sexo: são menores) |
+| ajustes-pontos | `GET /`; `POST /`, `DELETE /:id` (ADMIN; punição de −5 a −10 com motivo) |
+| pontos-lancados | `GET /` (público, com os apelidos das escolas); `PUT /` (ADMIN ou mesa: pontos de atletismo — por prova, `prova_id` —, xadrez, dama e dominó por categoria e gênero; alterar ou tirar valor gravado exige `substituir: true`, senão 422 com a lista); `GET /historico` (ADMIN: correções de um lançamento); `DELETE /:modalidade/:categoria_id/:genero[?prova_id=]` (ADMIN) **Desde 12/11/2026 só xadrez, dama e dominó: pontos de atletismo respondem 400** (o atletismo é por colocação, linha abaixo) **Desde 12/11/2026 (db/38) xadrez, dama e dominó também respondem 400: a rota ficou sem uso** (a leitura segue pública; não foi apagada) |
+| atletismo-colocacoes | `GET /` (público: os resultados e a configuração — categorias, gêneros, pontuação 10/8/6 e provas sugeridas); `POST /` (uma colocação), `PUT /:id` (corrige uma), `PUT /podio` (o pódio inteiro de uma prova + categoria + gênero numa transação: `{ prova, categoria_id, genero, linhas: [{ colocacao, escola_id, atleta_nome }] }`; colocação que não vier é apagada) e `DELETE /:id` — só ADMIN. Colocação de 1 a 3; colocação repetida ou a mesma escola duas vezes na mesma prova + categoria + gênero → 409. `db/37` |
+| tabuleiro-colocacoes | `GET /` (público: os resultados, sempre com `genero: 'MISTO'`, e a configuração — jogos Xadrez, Dama e Dominó, categorias Sub 8 a Aberto, pontuação 10/8/6); `POST /` (uma colocação: `{ jogo, categoria_id, colocacao, escola_id, atleta_nome }`, `jogo` = `xadrez`, `dama` ou `domino`), `PUT /:id`, `PUT /podio` (`{ jogo, categoria_id, linhas: [...] }`, numa transação) e `DELETE /:id` — só ADMIN. Sem gênero (o tabuleiro é misto); colocação repetida ou a mesma escola duas vezes no mesmo jogo + categoria → 409. `db/38` |
+| locais / etapas-ensino / dashboard | `GET /` |
+| campeonato | `DELETE /reset` (ADMIN; apaga só o que o evento produz; exige `{ "confirmacao": "REINICIAR" }`). **Com `NODE_ENV=production`, 403**, a não ser com `PERMITIR_REINICIAR=true` no servidor (ligue só na hora e tire depois) |
+| `/saude` | fora de `/api`; 200 com banco de pé, **503** sem banco; `reiniciar_permitido` (sim/não) diz à tela se mostra o botão de reiniciar |
+
+Erro sempre como `res.status(x).json({ erro: '...' })`; o frontend mostra `erro` direto ao usuário.
+
+## Banco de dados
+
+- **28 tabelas** (a 26ª, `jogo_vagas`, veio no `db/28`; a 27ª, `atletismo_colocacoes`, no `db/37`; a 28ª, `tabuleiro_colocacoes`, no `db/38`): as 23 do schema novo (`db/01_schema.sql`), `pontos_lancados` (`db/11`, com `prova_id` desde o `db/16`) e `pontos_lancados_historico` (`db/17`). As 23: `configuracao_evento`, `usuarios`, `etapas_ensino`,
+  `escolas`, `escola_apelidos`, `modalidades`, `categorias`, `competicoes`, `grupos`, `equipes`,
+  `atletas`, `inscricoes_atletas`, `locais_disputa`, `jogos`, `sumula_atletas`, `sumula_equipes`,
+  `jogo_sets`, `suspensoes`, `pontuacao_geral`, `colocacoes_finais`, `ajustes_pontos_geral`,
+  `provas_atletismo`, `resultados_atletismo`. 33 chaves estrangeiras, 16 `CHECK`.
+- Ordem dos scripts: `00_apagar_tudo` → `01_schema` → `02_carga_base` → `03_importar_grupos` →
+  `04_locais` → `05_faltas_basquete` → `06_ajustes_regras_provisorios` → `07_baleados_por_equipe` →
+  `08_baleado_acrescimo_final` → `09_elenco_handebol_baleado` → `10_locais_cebc_ceja` → `11_pontos_lancados` →
+  `12_locais_adelieta_ceti` → `13_escola_conveniada` →
+  `14_tabela_do_chefe_equipes` → `15_numero_tabela` → `16_pontos_lancados_por_prova` →
+  `17_pontos_lancados_historico` → `18_usuarios_local` → `19_tabela_nova_equipes` → `20_datas_18a21_e_ajustes` →
+  `21_troca_numeros_27_29` → `22_davi_gomes_3a_modalidade` → `23_basquete_f_sub17_dois_jogos` → `24_cebn_sem_society17_e_basquete15` → `25_elenco_14_handebol_baleado` → `26_tabela_20264` → `27_society17_grupo_unico` → `28_mata_mata_vagas` → `29_mata_mata_tabela_20264` → `30_cebc_atualizacao_fichas` → `31_ceti_correcoes_fichas` → `32_volei_aberto_misto_e_excecoes_ceti` → `33_ceja_atualizacao_fichas` → `34_tabela_20266` → `35_acm_sub8_feminino` → `36_ceja_atualizacao_12nov` (os dois fora do git, em `docs/importacao/scripts_aplicados/`) → `37_atletismo_colocacoes` → `38_tabuleiro_colocacoes` → `39_baleado_sub9_jose_dias` → `40_adelieta_atualizacao_12nov` (fora do git) → `41_tabela_20268` → `42_handebol_f_sub8_volta` → `43_tabela_20269` → `44_tabela_202610` → `45_mesa_adiciona_atleta` → `46_faltas_por_atleta_ate_20` (o `37`, o `38`, o `45` e o `46` entram no banco de fumaça, por último; o `39` ao `44` não; o `35` e o `36` não; o `20` a `24`, o `26`, o `27`, o `29` e o `30` a `34` não entram no banco de fumaça; o `25` entra, depois do `19`: conferem os 237 jogos da tabela;
+  o `28` entra, depois do `25`; o `fumaca:banco` aplica do `20` só o período do evento).
+  ⚠️ `00` **apaga tudo**: confira o banco de destino antes de rodar.
+- Usuários **não** vêm na carga: hash com `bcryptjs` na hora (ver `db/README.md`).
+- Scripts **sem `COLLATE`**: usam a padrão do servidor. Produção (`utf8mb4_0900_ai_ci`) é
+  **insensível a acento** ("JOSÉ" = "JOSE" nos índices únicos); o MariaDB do dev **não** é.
+- `DATE`/`DATETIME` são **hora de parede** e viajam como texto (`dateStrings`); `TIMESTAMP`
+  (`criado_em`) é instante e vem como `Date`. Para "agora", use `agoraNoFusoDoEvento()`, nunca `NOW()`.
+- MySQL de produção roda em **modo estrito**: `INSERT` sem coluna `NOT NULL` sem default falha
+  (`ER_NO_DEFAULT_FOR_FIELD`, 1364). O que passa no MariaDB local pode falhar lá.
+
+## Comandos
+
+- `npm run dev` — nodemon na porta 3000. `npm start` — produção.
+- `npm run fumaca` — com a API no ar, monta uma competição inteira pelas rotas, confere cada passo e
+  apaga o que criou. **Só roda em banco com "dev" no nome** (a trava lê o alvo real, inclusive
+  `DATABASE_URL`). **Rode antes de dar uma fatia por pronta.** Não há testes de unidade.
+  **Desde 20/10/2026 ele roda num banco próprio**, porque o `jogos_estudantis_dev` tem a tabela de jogos
+  importada e o teste precisa de competições sem jogos:
+  `npm run fumaca:banco` (recria o `jogos_fumaca_dev` com `db/01`–`db/19`, o `db/25` e o período do `db/20`; só apaga banco com "fumaca"
+  e "dev" no nome) → `PORT=3001 DB_NAME=jogos_fumaca_dev npm start` (API de teste, sem derrubar a 3000) →
+  `DB_NAME=jogos_fumaca_dev FUMACA_API=http://localhost:3001/api npm run fumaca`. O `DB_NAME` no ambiente
+  vence o do `.env`, que usa `DB_*`.
+
+## Variáveis de ambiente (ver `.env.example`)
+
+`PORT` (Render injeta; não definir na nuvem) · `DATABASE_URL` **ou** `DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME`
+· `DB_SSL` · `DB_POOL_LIMIT` · **`JWT_SECRET`** (obrigatória; sem ela não sobe) · **`CORS_ORIGIN`**
+(obrigatória com `NODE_ENV=production`; vírgula separa domínios) · `FUSO_EVENTO` · `NODE_ENV` ·
+`PERMITIR_REINICIAR` (só `true` libera o "Reiniciar Campeonato" em produção; **não definir** no Render).
+
+## Regras de trabalho
+
+- **Não leia nem exiba `.env`.** Nunca comite segredos (nem host/senha da Railway).
+- Não faça commit/push sem o usuário pedir. Trabalhe na branch `feat/novo-escopo`.
+- **Não mexa na produção** (Railway/Render/Vercel) sem ordem explícita: nada de script, migração,
+  deploy ou comando apontado para lá. Teste sempre no banco de desenvolvimento primeiro.
+- **`jogos_2026` é o banco do sistema no ar. NUNCA rode `00_apagar_tudo.sql` nele** (nem qualquer
+  script de escrita) sem ordem explícita e sem dump conferido antes. Na conexão `railway` do DBeaver,
+  só `SELECT`/`SHOW` por padrão; confira o banco ativo antes de executar qualquer coisa.
+- Mudança de banco é **sempre script SQL versionado e numerado** em `db/` (o próximo é o `47`),
+  nunca alteração manual.
+- Dúvida de regra do campeonato: **pare e pergunte**. Itens **[PENDENTE]** (seção 12 do contexto) não
+  se implementam por conta própria. Decisão provisória mora em `src/config/` e na seção 12.1, nunca
+  copiada dentro de um controller.
+- **Fatias:** só a tabela da seção 9 do contexto numera. Cite número e nome ("fatia 8 — tabela geral
+  e o que sobra") e atualize o estado dela no mesmo commit que conclui a fatia.
+- Nomes, comentários e mensagens em **português**.
+- Várias escritas relacionadas = **transação** (`getConnection` + `beginTransaction`), com `release`
+  no `finally`.
+- Classificação, suspensões por cartão, colocações e tabela geral são **calculadas**, nunca gravadas.
+- Todo `catch` de controller faz `console.error('<contexto>:', erro)` antes de responder 500: é o que
+  aparece nos logs do Render.
+- Perfis: `ADMIN` (cadastra, pune, gerencia usuários) e `PLACAR` (mesa: só inicia jogo e lança súmula).
+- **Contas de mesa (db/18):** uma conta PLACAR por local, com `usuarios.local_id`. A trava é um middleware
+  só (`travarMesaPorLocal`, em `authMiddleware.js`) nas escritas de jogo que a mesa alcança (`PUT
+  /jogos/:id/iniciar`, `POST /sumulas` e `PUT /equipes/:id/camisas`); o local é relido do banco pelo
+  `exigirPerfil`, então trocar o local vale na hora. **PLACAR sem local = 403 "Mesa sem local definido. Fale
+  com o administrador." em todas essas escritas (16/11/2026; antes ficava sem trava).** ADMIN nunca é
+  travado; Tabuleiro e Atletismo não têm local. `GET /sumulas/:jogo_id` segue **público** (impressão e
+  `/detalhes-sumula`). No frontend a mesa vê por padrão só os jogos do local dela (Agenda e tabela de
+  jogos, com "Ver todos os locais" só para consulta; o "ver todos" fica só em estado da tela, nunca na URL),
+  os botões Iniciar/Súmula/Abrir/Ver súmula, "Súmulas em branco" e a impressão 🖨️ só aparecem nos jogos ou
+  locais dela, "Imprimir Súmulas" lista só o local dela, `/preencher-sumula/:id` e `/detalhes-sumula/:id` de
+  outro local mostram "Tela restrita" (visitante e ADMIN não mudam) e o cabeçalho mostra "Mesa: <local>". Ver `docs/CONTAS_DE_MESA.md`.
+- **Súmula em duas etapas (16/11/2026, só tela):** `/preencher-sumula/:id` tem **"Preencher súmula"** (pré-jogo, jogo AGENDADO: abre a tabela de atletas — camisas, "Adicionar atleta", presença, capitão; o placar fica bloqueado; "Salvar parcial" grava só as camisas e deixa o resto no rascunho do navegador, sem chamar `POST /sumulas`, que iniciaria o jogo sozinho) e **"Iniciar partida"** (confirma e chama `PUT /jogos/:id/iniciar`, com a trava de local; vira o indicador "Partida em andamento" e libera placar e "Finalizar súmula", sem recarregar a tela). FINALIZADO e W.O. não mostram nenhum dos dois: a mesa só consulta; o ADMIN segue podendo reabrir e corrigir. **"Iniciar partida" grava antes as camisas digitadas e ainda não salvas** (o mesmo `PUT /equipes/:id/camisas`; se alguma der erro, a partida não inicia), e as camisas digitadas e não salvas que estavam no rascunho do navegador **voltam sozinhas aos campos** ao recarregar a súmula (a coluna Nº também vem com as camisas já gravadas na equipe, que valem para os próximos jogos). O backend não mudou (placar de jogo agendado ainda é aceito pela API).
+- **Súmula — colunas de placar e camisas (16/11/2026, só tela + baleado):** as colunas e campos de placar (Gols/Pontos, Faltas, Amarelos, 🟥, "Eliminou" no baleado, faltas e tempo técnico da equipe, sets) ficam **escondidos** até "Iniciar partida" (no pré-jogo a tabela só tem Nº, Atleta, Cap. e Presente; o placar do topo continua visível). O **Nº da camisa já salvo fica travado**; "Editar camisas" (por equipe) destrava e "Cancelar" devolve ao salvo; campo vazio e atleta adicionado pela mesa seguem editáveis até salvar. **Baleado — eliminações por atleta:** cada atleta tem um contador (0 a 10) guardado em `sumula_atletas.gols` e o total da equipe (`sumula_equipes.baleados`, máximo 10) é a SOMA deles; súmula antiga, só com o total da equipe, segue valendo e não é recalculada (flag `eliminacoesPorAtleta` em `folhasSumula.js`). **Essas eliminações NÃO são gols:** a artilharia (`/api/artilharia/lideres` e `/competicao/:id`) ignora `tipo_placar = 'ELIMINADOS'`, o card "Balançaram a Rede" só soma `GOLS`, a classificação e as suspensões não leem `gols`, e o `GET /sumulas/:id` devolve `gols: 0` para a equipe de baleado. A folha impressa do baleado não mudou (sem coluna por atleta). Sem migração.
+- **Cartões — 2º amarelo é expulsão (16/11/2026), só futsal e society:** o regulamento escreve "2 amarelos = 1 jogo de suspensão" e "expulsão = 1 jogo" só para **Futsal e Futebol Society**, e as duas folhas têm 2 caixas de amarelo (`maxAmarelos: 2`). Na súmula, o 2º amarelo marca o vermelho sozinho (e trava o "+" do amarelo e o vermelho); voltar para 1 amarelo desmarca só o vermelho automático (o direto, marcado à mão, fica). O backend grava o vermelho quando chegam 2 amarelos, e a suspensão calculada conta **um jogo só** para os 2 amarelos do mesmo jogo que viraram expulsão (vermelho direto e 1 amarelo + 1 amarelo em jogos diferentes seguem como antes). **Handebol:** ver o item (3) abaixo (2 amarelos = vermelho) e a suspensão do handebol (16/11/2026, decisão do chefe). Basquete, vôlei e baleado não têm cartão.
+- **Súmula — faltas por atleta, elenco só no pré-jogo e 2 amarelos no handebol (16/11/2026):** (1) depois de "Iniciar partida" somem "Salvar camisas", "Editar camisas", "Adicionar atleta" e "Remover" (a mesa só mexe no elenco e nas camisas no pré-jogo; as camisas ficam só leitura e o Iniciar salva as pendentes antes). (2) **Futsal e society:** coluna "Faltas" por atleta (0 a 20, `folhasSumula.faltasPorAtleta`; o CHECK do banco foi alargado de 0-5 para 0-20 pelo **`db/46`**, aplicado em produção em 16/11/2026), botão **"Iniciar 2º tempo"** ao lado do indicador "▶ Partida em andamento" (confirma "Iniciar o 2º tempo?", não volta, e o indicador passa a "▶ 2º tempo"; até o clique toda falta conta no 1º tempo, depois no 2º; o tempo fica guardado no navegador, por jogo, e também é deduzido de faltas do 2º tempo já gravadas, sem migração) e resumo "Faltas da equipe: 1º T n · 2º T n", com aviso "Próxima falta: tiro livre" a partir de 5 (sem travar; a gravação aceita até 99 por tempo, e a folha marca só as 5 caixas do papel). Cada falta lançada soma no tempo atual, e o "−" só desconta do tempo atual (trava quando o total da equipe nesse tempo é 0). **Presença (todas as modalidades):** a coluna "Presente" só existe no pré-jogo; depois de "Iniciar partida" ela some e a tabela mostra só os atletas presentes (a presença continua gravada na súmula e a impressão não muda). **O "Iniciar partida" grava também a súmula parcial** (presença, capitão e camisas), logo depois do `PUT /jogos/:id/iniciar`: assim a presença não depende de um "Salvar parcial" e não se perde ao recarregar; se essa gravação falhar, a partida já iniciou e a tela avisa "Partida iniciada, mas a súmula parcial … NÃO foi salva" (use "Salvar parcial"). Grava em `sumula_atletas.faltas` (por atleta) e `sumula_equipes.faltas_1t/2t` (total por tempo, o que a impressão lê); súmula antiga com faltas só da equipe segue valendo. Saem do rodapé das equipes "Faltas 1º/2º tempo" e "Tempo técnico" (futsal, society e handebol; as caixas de tempo técnico da folha saem em branco). **Basquete não mudou** (faltas 0-5 por atleta e faltas/tempo técnico da equipe digitados à mão). (3) **Handebol também segue 2 amarelos = vermelho** (`maxAmarelos: 2`; a folha oficial tem uma caixa "A" que marca de 1 amarelo em diante e uma "V"). **Suspensão no handebol (decisão do chefe, 16/11/2026; pendência 13 resolvida):** o vermelho (direto ou pelos 2 amarelos no mesmo jogo) suspende o jogo seguinte da equipe, inclusive no mata-mata, cumprido como no futsal; amarelos em jogos diferentes NÃO acumulam. O aviso "Suspensão por cartões sem regra definida" saiu do handebol (fica só no baleado). Regras por modalidade em `regrasProvisorias.suspensaoPorCartoes`; o `GET /suspensoes/competicao/:id` devolve `regra` (`amarelos_acumulam`, `descricao`), que a tela mostra na legenda.
+- **Súmula no celular (16/11/2026):** até 640 px a linha de cada atleta (e a tabela de sets do vôlei, e a conferência `/atletas-das-mesas`) vira um cartão — Nº e nome em cima, contadores e caixas com o rótulo em cima, botões de 40 px —, sem rolagem lateral nem colunas escondidas (classe `tabela-sumula` + `data-rotulo` nas células, CSS no fim de `index.css`). **Toda tela ou coluna nova da súmula precisa ser conferida em 390 px.**
+- **Conferência de pontuação e correções (16/11/2026, cópia local da produção):** (1) **equipe sem nenhum jogo** cadastrado na competição fica **fora da classificação, do pódio e da tabela geral** (aviso "Equipe sem jogos" na classificação, `equipes_sem_jogos` na resposta; a equipe não é apagada; caso do CETI no Basquete F Sub 17, que levava o 3º sem jogar); a tabela geral conta "equipes com jogos" para o mínimo de 2. (2) **Posição de pódio empatada até o sorteio** (hoje só o 3º sem semifinal) **fica pendente** (`colocacoes_pendentes` no `GET /matamata/competicao/:id`, `pendentes_de_sorteio` na tabela geral, sem pontuar) até o ADMIN escolher no card do mata-mata (`PUT /matamata/competicao/:id/colocacao`, guardado em `colocacoes_finais`, que deixou de ser "sem uso"); a escolha só vale enquanto o empate existir. (3) A súmula (`POST /sumulas`) e o W.O. devolvem `avisos_mata_mata`: jogo do mata-mata já iniciado ou encerrado que a mudança deveria trocar; a tela avisa na hora (alerta). (4) Vagas: quando o ADMIN resolve à mão um sorteio de grupo, a posição que sobrou no bloco empatado se preenche sozinha (ex.: o "Melhor 2º" depois do 1º escolhido), e a escolha à mão já recalcula as outras vagas; empate em tudo entre candidatas de grupos diferentes ao "Melhor 2º" agora deixa a vaga pendente (antes escolhia em silêncio, pela ordem alfabética). (5) Artilharia só de gols (sem cestinha do basquete). Decisões do usuário no mesmo dia: o 3º que sobra de um empate triplo depois do 2º escolhido à mão também é escolhido pelo ADMIN (sem novo desempate), e a **pontuação da fase de grupos é 3/1/0** (pendência 4 resolvida, sem mudar código). `npm run fumaca` (200 ok) e `scripts/simular_mata_mata.js` (32 ok).
+- **Locais sem internet (17/11/2026), parte 1 — impressão:** a mesa anota à mão na súmula impressa e o ADMIN lança depois. (1) **Ordem da tabela do chefe (`numero_tabela`) em toda lista de jogos:** Agenda (locais de cada dia pelo menor nº, jogos pelo nº, selo "Nº 62"; o local da mesa não sobe para o topo), tabela de jogos da competição (colunas "Nº" da tabela e "Jogo" da competição) e Imprimir Súmulas. A ordem é calculada no frontend; `GET /api/agenda` não mudou. Na tabela 202610 só o jogo 6 (18:50) vem antes do 7 (18:30) fora da ordem de horário. (2) **Imprimir Súmulas por dia (ADMIN):** "Todos os locais do dia" (padrão do ADMIN), separados por local na ordem da tabela, com uma **folha de abertura por local** (lista dos jogos e atletas suspensos neles; desligável); a mesa segue só com o local dela e sem abertura. As folhas trazem elenco e camisas atuais; mata-mata sem equipe sai com o texto da vaga e linhas em branco. (3) O "Nº DO JOGO" das folhas impressas passou a ser o `numero_tabela` (o da competição se faltar), e o motivo das suspensões cita "jogo Nº 7" (tabela) em vez de "#3". (4) **`/imprimir-suspensos`** (ADMIN): lista do dia por local, com o aviso de que só entra o que já foi lançado (expulsão do próprio dia não aparece; mostra quantos jogos anteriores estão sem súmula). Baleado, basquete e vôlei não têm regra de suspensão.
+- **Locais sem internet (17/11/2026), parte 2 — o ADMIN lança a súmula do papel:** para o ADMIN, `/preencher-sumula/:id` abre direto em modo completo, sem "Preencher súmula", "Iniciar partida" nem "Iniciar 2º tempo": camisas, presença (todos os inscritos, com a coluna Presente), capitão, gols, cartões (2º amarelo = vermelho), eliminações, sets, prorrogação, cobranças e acréscimo. Futsal e society: por equipe, o ADMIN escolhe em que tempo caem as faltas lançadas nos atletas e pode digitar direto o total da equipe em cada tempo (o total do papel; aviso se ficar abaixo da soma dos atletas). **`POST /sumulas` do ADMIN não muda o status ao salvar parcial** (jogo agendado continua AGENDADO) e, ao finalizar, vai de AGENDADO direto a FINALIZADO; a mesa segue como antes (salvar inicia o jogo). "Adicionar atleta" do ADMIN tem a caixa "Exceção autorizada"; `adicionado_pela_mesa` no `GET /sumulas/:id` passou a valer só para quem é PLACAR, e `adicionado_na_sumula` marca o que entrou pela súmula (o ADMIN pode retirar); `/atletas-das-mesas` marca as linhas do ADMIN. Sem script de banco.
+- **Menu da mesa (16/11/2026):** "Tabela Geral" e "Artilharia" saem do menu (desktop e celular) só para PLACAR; visitante e ADMIN continuam vendo, e as duas páginas seguem públicas (a rota não é bloqueada; é só o menu, flag `semMesa` em `Navbar.jsx`).
+- **Mesa adiciona atleta (`db/45`, aplicado em produção em 16/11/2026, `jogos_2026`, com dump antes):** na súmula, "Adicionar atleta" por equipe (busca por nome na mesma escola, ou cadastro novo com documento opcional); a mesa só remove o que ela colocou (`criado_por`); atleta e inscrição ficam marcados "adicionado pela mesa" e o ADMIN confere em `/atletas-das-mesas`. Código provisório novo = `<escolas.sigla>SRG<NNN>`. A extração de `inscricaoService` não mudou o comportamento do ADMIN nem do importador (conferido pelo `fumaca`, 198 ok, e por uma importação com "Exceção"). Rotas na tabela da API acima.
+  `exigirPerfil` relê o perfil do banco a cada escrita.
+
+## Como depurar um erro em produção
+
+1. DevTools → **Rede** → requisição com erro → abas **Requisição** e **Resposta**.
+2. 500 = erro no backend. Render → serviço → **Logs** (não "Deploys"), em tempo real, e reproduza o
+   erro. O log traz `code`, `sqlMessage` e o SQL executado.
+3. Colunas obrigatórias sem default (causa de erro 1364):
+   ```sql
+   SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS
+   WHERE TABLE_SCHEMA = DATABASE() AND IS_NULLABLE = 'NO' AND COLUMN_DEFAULT IS NULL
+     AND EXTRA NOT LIKE '%auto_increment%' AND TABLE_NAME NOT LIKE '%\_bkp'
+   ORDER BY TABLE_NAME;
+   ```
+4. No DBeaver, execute **um comando por vez** (Ctrl+Enter), nunca o script inteiro (Alt+X).
+
+## Histórico de produção
+
+**01/10/2026, noite — virada para o sistema novo (fatia 10).** Feita pelo usuário no DBeaver, guiada
+por outro chat. Passos: dump do banco antigo (`C:\Users\Kevin\dump-railway-202610012059.sql`, 17.618
+bytes, completo), registro da versão (9.4.0 na época), criação do `jogos_2026`, scripts `01`–`06`
+(o `00` foi pulado porque o banco estava vazio; o `06` falhou na primeira tentativa por ter sido
+rodado no banco errado, `railway`, sem escrever nada, e foi refeito no `jogos_2026`), conferência
+das contagens, **1 usuário ADMIN** (SemedAdmin, id 1) e, no Render, troca de `DB_NAME` para
+`jogos_2026`, novo `JWT_SECRET` e health check `/saude`. Só se testou `/saude` (status ok, banco ok).
+**Desvios do roteiro `docs/MIGRACAO_PRODUCAO.md`:** (1) a Vercel publicava a `main` (frontend
+antigo), então o Branch Tracking de produção foi trocado para `feat/novo-escopo` e feito Redeploy,
+ao contrário do que o roteiro dizia; (2) só 1 ADMIN criado e **nenhuma conta de mesa (PLACAR)**;
+(3) **o `jogos_2026` nunca foi copiado em backup**.
+
+**05/10/2026 — conferência (esta sessão).** `SELECT VERSION()` na produção = **9.7.2**. O
+`jogos_2026` tem as 23 tabelas, a carga base (18 escolas, 16 apelidos, 50 competições, 77 grupos, 240
+equipes, 4 locais, 3 provas) e **dados de uso criados depois da virada**: 15 atletas, 24 inscrições,
+17 jogos, 41 `sumula_atletas`, 32 `sumula_equipes`, 2 usuários. **Ainda não confirmado se são
+testes** (o usuário deve dizer). Dump do banco antigo refeito em `F:\backups\producao_2026-10-05.sql`.
+
+**Set/2026 — incidente do sistema antigo (banco `railway`).** Banco reimportado sem estrutura: perdeu
+`PRIMARY KEY`, `AUTO_INCREMENT` e `DEFAULT`. Sintoma: "Falha ao salvar a súmula", 500 por
+`Field 'criado_em' doesn't have a default value` no `INSERT INTO sumulas`. Corrigido à mão pelo
+DBeaver (PK + `AUTO_INCREMENT` e `DEFAULT CURRENT_TIMESTAMP` em `sumulas.criado_em`,
+`alunos.criado_em`, `usuarios.criado_em`, `equipes.data_cadastro`). Esse schema foi aposentado na
+virada; a lição valeu: o banco novo nasce dos scripts `00`–`06` (DDL completo), nunca de import só
+de dados.
+
+## Pendências de produção (05/10/2026)
+
+1. **Backup do `jogos_2026`:** feito em 05/10, repetir antes do evento e depois de cada dia de
+   jogos. Comando: `mysqldump --single-transaction --routines --triggers --events
+   --set-gtid-purged=OFF --databases jogos_2026 --result-file=...` com `--defaults-extra-file` fora
+   dos repositórios; conferir tamanho, `-- Dump completed` e a contagem de `CREATE TABLE` (23);
+   guardar uma cópia fora do disco `F:`.
+2. **Crédito da Railway acaba ~18/10**: decidir plano pago (o Pro também libera backups).
+3. **Senha do root da Railway foi exposta em print**: ordem segura = criar usuário só da aplicação
+   (permissão apenas em `jogos_2026`), trocar no Render, testar, e só então trocar a senha do root.
+4. **Confirmar no painel do Render** (valores cobertos): se a conexão usa `DATABASE_URL` ou `DB_*`
+   (o `db.js` dá prioridade à `DATABASE_URL`, e trocar só `DB_NAME` não teria efeito), qual usuário do
+   banco ela usa, e se `NODE_ENV=production`, `CORS_ORIGIN`, `JWT_SECRET` novo e `FUSO_EVENTO`
+   estão definidos. Conferir também se o health check `/saude` foi salvo.
+5. Conferir no `jogos_2026`: coluna `sumula_atletas.faltas` (script 05), `competicoes` id 24
+   (script 06: 1 grupo, 2 classificados, 0 melhores segundos, próxima fase FINAL, turno único),
+   `SELECT COUNT(*) FROM configuracao_evento` (esperado 1) e a lista de usuários (sem a coluna `senha`).
+6. **Contas (conferido em 04/11/2026):** existem **2 ADMIN** e **8 contas PLACAR ativas, cada uma com um
+   local diferente (8 de 8 locais)**, depois do `db/18`. Passo a passo em `docs/CONTAS_DE_MESA.md`.
+7. **Ping em `/saude`** (5 em 5 min) ou plano pago do Render.
+8. O banco antigo `railway` ainda tem a conta de teste `admin@sge.com` (senha padrão antiga): remover o banco
+   (ou a conta) quando a volta atrás deixar de ser necessária.
+9. Atualizar `db/README.md` e `db/VALIDACAO_MYSQL9.md` (versão 9.7.2) e o `docs/MIGRACAO_PRODUCAO.md`
+   (desvio da Vercel e a execução real).
+10. ✅ **`db/07_baleados_por_equipe.sql` feito em 06/10/2026:** validado no MySQL 9.4.0 (instância local
+    da porta 3308, em banco descartável) e aplicado na produção (`jogos_2026`), com dump antes. A coluna
+    `sumula_equipes.baleados` já existe lá, então o backend que a lê pode ir ao ar.
+11. **`db/08_baleado_acrescimo_final.sql` e `db/09_elenco_handebol_baleado.sql` (07/10/2026): rodar no
+    `jogos_2026` ANTES do push do backend** (o backend de 07/10 já foi publicado em `63964e4`:
+    **confirmar** que os dois rodaram lá), com dump antes. O backend novo grava
+    `jogos.baleou_primeiro_equipe_id` ao lançar qualquer súmula: sem o `08`, toda súmula falha. Os dois
+    são compatíveis com o backend que está no ar (coluna nula e só dados). Aplicados no banco de
+    desenvolvimento e **validados no MySQL 8.0.46 em 07/10/2026** (`01`–`09` em banco descartável: chave
+    estrangeira do `08` recusa equipe de outra competição e inexistente; teto do `09` em 12). Ainda não
+    passaram por um MySQL 9 (a produção é 9.7.2).
+12. **`db/10_locais_cebc_ceja.sql` (12/10/2026): rodar no `jogos_2026`**, com dump antes. Só dados e
+    idempotente (lá a Quadra do CEJA já existe: entra só a do CEBC). Validado no MySQL 8.0.46.
+13. **`db/11_pontos_lancados.sql` (12/10/2026): rodar no `jogos_2026` ANTES do push do backend**, com dump
+    antes. Sem a tabela, a Tabela Geral (pública) responde 500. Idempotente e só acrescenta; validado no
+    MySQL 8.0.46 (`01`–`11` em banco descartável). O reset do campeonato passa a apagar os pontos lançados.
+14. **`db/12_locais_adelieta_ceti.sql` (20/10/2026): rodar no `jogos_2026` ANTES de importar a tabela de
+    jogos do chefe**, com dump antes. Só dados e idempotente (três locais: Quadra da Adelieta Ramalho,
+    Quadra do CETI e Campo Society do CETI). Aplicado no dev; **validado no MySQL 8.0.46 em 20/10/2026** (`01`–`14`).
+15. **`db/14_tabela_do_chefe_equipes.sql` (20/10/2026): rodar no `jogos_2026` ANTES de importar a tabela de
+    jogos do chefe**, com dump antes. Troca duas equipes e cria o Handebol M Sub 9. **Se uma equipe a remover
+    tiver jogo, súmula, atleta inscrito ou colocação, o script para com erro** (`CHECK`
+    `equipe_a_remover_tem_jogos_sumulas_ou_inscritos`) e não grava nada: aí, conferir os dados antes de
+    decidir. Idempotente. Aplicado no dev; **validado no MySQL 8.0.46 em 20/10/2026** (a trava parou com o
+    erro 3819 sem apagar nada).
+16. **`db/13_escola_conveniada.sql` (20/10/2026): rodar no `jogos_2026` ANTES de importar a tabela de
+    jogos do chefe**, com dump antes. Renomeia a escola COVENIADA para "Conveniada" e guarda o nome antigo
+    como apelido; o id não muda. Idempotente. Aplicado no dev; validado no MySQL 8.0.46 em 20/10/2026.
+    **Ordem na produção:** `12`, `13`, `14` e `15`, depois a prévia (o esperado é zero erros) e só então a
+    importação.
+17. **`db/15_numero_tabela.sql` (20/10/2026): rodar no `jogos_2026` ANTES do push do backend**, com dump antes.
+    O backend novo lê `jogos.numero_tabela` na agenda e na importação: sem o `15`, a `/api/agenda` e a
+    importação respondem 500. Roda uma vez (de novo dá erro 3822 sem mudar nada). Validado no MySQL 8.0.46
+    em 20/10/2026 (`00`–`11`, limpeza, `12`–`15` em banco descartável) e aplicado no dev, onde a reimportação
+    do CSV com a coluna "Nº Tabela" preencheu 206 dos 207 jogos (um veio em branco de propósito).
+    (Os itens 14 a 17 rodaram na produção antes do deploy de 20/10/2026.)
+18. **`db/16_pontos_lancados_por_prova.sql` e `db/17_pontos_lancados_historico.sql` (21/10/2026): rodar no
+    `jogos_2026` ANTES do push do backend**, nessa ordem, com dump antes. O backend novo lê e grava
+    `pontos_lancados.prova_id` (sem o `16`, a Tabela Geral, pública, responde 500) e grava o histórico ao
+    corrigir (sem o `17`, toda correção falha). Os dois são compatíveis com o backend no ar. O `16` troca o
+    índice único pelo que inclui a prova (coluna gerada `prova_chave`) e **roda uma vez**; o `17` é
+    idempotente. Se a produção já tiver ponto de atletismo lançado, a conferência do `16` mostra quantos
+    ficaram sem prova (esperado 0): aí, decidir antes do deploy. Aplicados no dev e cobertos pelo `fumaca`
+    (140 ok) no banco de fumaça montado com `01`–`17`; **validados no MySQL 8.0.46 em 21/10/2026** (cadeia
+    `00`–`17` com dados em todas as tabelas; e `16`/`17` sobre um banco no estado da produção, com o backend
+    no ar seguindo funcionando, inclusive o `fumaca` dele). Ainda não passaram por um MySQL 9.
+    ⚠️ **Pontos de atletismo já gravados ficam sem prova** depois do `16`: o backend novo os soma na Tabela
+    Geral, mas a tela não os mostra. **Antes do `16`, contar os pontos de atletismo na produção** (consulta
+    no cabeçalho do script, só leitura); se houver algum, decidir antes do deploy.
+    ⚠️ **O `db/00_apagar_tudo.sql` não tem trava**: roda em qualquer banco, inclusive o `jogos_2026`.
+
+<!-- deepspace:workspace-instructions:begin -->
+Time preparado para entregar engenharia de produto com planejamento, implementação, revisão e validação independentes.
+<!-- deepspace:workspace-instructions:end -->
