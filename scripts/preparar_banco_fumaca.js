@@ -32,7 +32,9 @@ const SCRIPTS = [
   '12_locais_adelieta_ceti', '13_escola_conveniada', '14_tabela_do_chefe_equipes',
   '15_numero_tabela', '16_pontos_lancados_por_prova', '17_pontos_lancados_historico',
   '18_usuarios_local', '19_tabela_nova_equipes', '25_elenco_14_handebol_baleado', '28_mata_mata_vagas',
-  '37_atletismo_colocacoes', '38_tabuleiro_colocacoes', '45_mesa_adiciona_atleta', '46_faltas_por_atleta_ate_20'
+  '37_atletismo_colocacoes', '38_tabuleiro_colocacoes', '45_mesa_adiciona_atleta', '46_faltas_por_atleta_ate_20',
+  // Atletismo e tabuleiro por etapa, do 1º ao 5º (21/11/2026)
+  '47_atletismo_tabuleiro_ate_5', '48_tabuleiro_colocacao_unica', '49_categorias_por_etapa', '50_atletismo_misto'
 ];
 
 // Os scripts não têm ";" dentro de texto nem procedures: dá para separar os

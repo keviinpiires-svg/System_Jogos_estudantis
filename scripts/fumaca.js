@@ -1905,9 +1905,11 @@ const testarPontosLancadosRecusados = async () => {
   conferir(Number(gravados.n) === 0, 'nada foi gravado em pontos_lancados pelo teste', `${gravados.n}`);
 };
 
-// Tabuleiro por colocação (db/38, 12/11/2026): xadrez, dama e dominó, MISTO;
-// o ADMIN lança o 1º, o 2º e o 3º de cada jogo + categoria; valem a pontuação
-// das coletivas (10, 8 e 6) e contam medalha. Pontos antigos não somam.
+// Tabuleiro por colocação (db/38, 12/11/2026; desde 21/11/2026, db/47 a db/49):
+// uma colocação só para o tabuleiro inteiro (modalidade 'tabuleiro', sem dividir
+// por xadrez, dama e dominó), por etapa (Anos Iniciais, Anos Finais, Ensino
+// Médio), do 1º ao 5º, MISTO e sem nome de atleta. Valem 10/8/6/4/2 na Tabela
+// Geral; o 1º, o 2º e o 3º contam medalha. Pontos antigos não somam.
 const testarTabuleiroPorColocacao = async () => {
   secao('-- tabuleiro por colocação');
 
@@ -1918,33 +1920,31 @@ const testarTabuleiroPorColocacao = async () => {
   const cfg = publica.corpo.configuracao || {};
   conferir(
     publica.status === 200 && Array.isArray(publica.corpo.resultados)
-      && (cfg.jogos || []).map((j) => `${j.slug}:${j.nome}`).join() === 'xadrez:Xadrez,dama:Dama,domino:Dominó'
-      && (cfg.categorias || []).map((c) => c.nome).join() === 'Sub 8,Sub 9,Sub 11,Sub 13,Sub 15,Sub 17,Aberto'
+      && (cfg.jogos || []).map((j) => `${j.slug}:${j.nome}`).join() === 'tabuleiro:Tabuleiro'
+      && (cfg.categorias || []).map((c) => c.nome).join() === 'Anos Iniciais,Anos Finais,Ensino Médio'
       && cfg.genero === 'MISTO'
-      && (cfg.pontuacao || []).map((x) => `${x.posicao}:${x.pontos}`).join() === '1:10,2:8,3:6',
-    'leitura pública: Xadrez, Dama e Dominó, Sub 8 a Aberto, gênero MISTO e 10/8/6',
+      && (cfg.pontuacao || []).map((x) => `${x.posicao}:${x.pontos}`).join() === '1:10,2:8,3:6,4:4,5:2',
+    'leitura pública: Tabuleiro (um só), Anos Iniciais a Ensino Médio, gênero MISTO e 10/8/6/4/2',
     `${publica.status} ${JSON.stringify(cfg).slice(0, 300)}`
   );
 
-  // Um jogo + categoria ainda sem resultado
-  const ocupados = new Set(publica.corpo.resultados.map((r) => `${r.jogo}|${r.categoria_id}`));
-  const sub13 = cfg.categorias.find((c) => c.nome === 'Sub 13');
-  const jogo = ['xadrez', 'dama', 'domino'].find((j) => !ocupados.has(`${j}|${sub13.id}`));
-  const outroJogo = ['xadrez', 'dama', 'domino'].find((j) => j !== jogo && !ocupados.has(`${j}|${sub13.id}`));
-  if (!jogo || !outroJogo) throw new Error('Não achei jogo livre no Sub 13 para o teste do tabuleiro.');
-  const nomeDo = (slug) => cfg.jogos.find((j) => j.slug === slug).nome;
-  const ROTULO = `${nomeDo(jogo)} Sub 13`;
+  const ocupadas = new Set(publica.corpo.resultados.map((r) => r.categoria_id));
+  const livres = cfg.categorias.filter((c) => !ocupadas.has(c.id));
+  if (livres.length < 2) throw new Error('Não achei duas etapas livres para o teste do tabuleiro.');
+  const [etapa, outraEtapa] = livres;
+  const ROTULO = `Tabuleiro ${etapa.nome}`;
 
-  const [[e1], [e2], [e3], [e4]] = await Promise.all([0, 1, 2, 3].map((n) =>
-    db.query('SELECT id, nome FROM escolas ORDER BY id LIMIT 1 OFFSET ?', [n]).then(([l]) => l)));
-  const recorte = { jogo, categoria_id: sub13.id };
+  const escolas = await Promise.all([0, 1, 2, 3, 4].map((n) =>
+    db.query('SELECT id, nome FROM escolas ORDER BY id LIMIT 1 OFFSET ?', [n]).then(([[l]]) => l)));
+  const [e1, e2, e3] = escolas;
+  const recorte = { categoria_id: etapa.id };
   const linhaDe = (tabela, escola) => tabela.geral.find((e) => e.escola_id === escola.id)
-    || { pontos: 0, primeiros: 0, segundos: 0, terceiros: 0, origens: [] };
+    || { pontos: 0, primeiros: 0, segundos: 0, terceiros: 0, quartos: 0, quintos: 0, origens: [] };
   const tabelaAntes = await exigir('GET', '/tabela-geral', null, 'a tabela geral antes do tabuleiro');
-  const antes = [e1, e2, e3, e4].map((e) => linhaDe(tabelaAntes, e));
+  const antes = escolas.map((e) => linhaDe(tabelaAntes, e));
 
   // 401 e 403
-  const corpo1 = { ...recorte, colocacao: 1, escola_id: e1.id, atleta_nome: '  Fulano   de Tal ' };
+  const corpo1 = { ...recorte, colocacao: 1, escola_id: e1.id };
   const semLogin = await comToken(null, 'POST', rota, corpo1);
   const daMesa = await comToken(mesa, 'POST', rota, corpo1);
   const podioSemLogin = await comToken(null, 'PUT', `${rota}/podio`, { ...recorte, linhas: [corpo1] });
@@ -1953,160 +1953,151 @@ const testarTabuleiroPorColocacao = async () => {
     'lançar sem login -> 401; a mesa (PLACAR) -> 403', `${semLogin.status} ${daMesa.status} ${podioSemLogin.status} ${podioDaMesa.status}`);
 
   // Validação
-  const [[futsal]] = await db.query("SELECT id FROM modalidades WHERE slug = 'futsal'");
-  const [[sub7]] = await db.query("SELECT id FROM categorias WHERE nome = 'Sub 7'");
+  const [[sub13]] = await db.query("SELECT id FROM categorias WHERE nome = 'Sub 13'");
   const invalidas = await Promise.all([
-    chamar('POST', rota, { ...corpo1, colocacao: 4 }),
+    chamar('POST', rota, { ...corpo1, colocacao: 6 }),
     chamar('POST', rota, { ...corpo1, colocacao: 0 }),
     chamar('POST', rota, { ...corpo1, escola_id: 99999999 }),
     chamar('POST', rota, { ...corpo1, jogo: 'futsal' }),
-    chamar('POST', rota, { ...corpo1, jogo: undefined, modalidade_id: futsal.id }),
-    chamar('POST', rota, { ...corpo1, jogo: 'atletismo' }),
-    chamar('POST', rota, { ...corpo1, categoria_id: sub7.id }),
+    chamar('POST', rota, { ...corpo1, jogo: 'xadrez' }),
+    chamar('POST', rota, { ...corpo1, categoria_id: sub13.id }),
     chamar('POST', rota, { ...corpo1, categoria_id: 99999999 })
   ]);
   conferir(invalidas.every((r) => r.status === 400),
-    'colocação fora de 1 a 3, escola inexistente, jogo fora dos três (futsal, atletismo) e categoria fora do tabuleiro (Sub 7) -> 400',
+    'colocação fora de 1 a 5, escola inexistente, jogo separado (futsal, xadrez) e categoria fora das etapas (Sub 13) -> 400',
     invalidas.map((r) => `${r.status} ${r.corpo.erro || ''}`).join(' | '));
 
-  // Lançar
+  // Lançar (sem mandar o jogo: o tabuleiro é um só)
   const primeiro = await chamar('POST', rota, corpo1);
-  conferir(primeiro.status === 201 && primeiro.corpo.resultado?.colocacao === 1 && primeiro.corpo.resultado?.atleta_nome === 'Fulano de Tal'
-      && primeiro.corpo.resultado?.genero === 'MISTO' && primeiro.corpo.resultado?.jogo === jogo
+  conferir(primeiro.status === 201 && primeiro.corpo.resultado?.colocacao === 1 && primeiro.corpo.resultado?.atleta_nome === null
+      && primeiro.corpo.resultado?.genero === 'MISTO' && primeiro.corpo.resultado?.jogo === 'tabuleiro'
       && primeiro.corpo.mensagem === `1º lugar de ${ROTULO} lançado.`,
-    `o ADMIN lança o 1º lugar de ${ROTULO} (misto; nome do atleta com os espaços arrumados)`, `${primeiro.status} ${primeiro.corpo.erro || primeiro.corpo.mensagem}`);
+    `o ADMIN lança o 1º lugar de ${ROTULO} sem informar o jogo (misto, sem atleta)`, `${primeiro.status} ${primeiro.corpo.erro || primeiro.corpo.mensagem}`);
   const id1 = primeiro.corpo.resultado?.id;
 
   // Colocação repetida (sem empate) e a mesma escola duas vezes
   const repetida = await chamar('POST', rota, { ...recorte, colocacao: 1, escola_id: e2.id });
   conferir(repetida.status === 409 && repetida.corpo.erro === `${ROTULO} já tem o 1º lugar (${e1.nome}). Não há empate: edite ou apague esse resultado antes.`,
-    'colocação repetida no mesmo jogo + categoria -> 409, dizendo quem já é o 1º', `${repetida.status} ${repetida.corpo.erro}`);
+    'colocação repetida na mesma etapa -> 409, dizendo quem já é o 1º', `${repetida.status} ${repetida.corpo.erro}`);
   const mesmaEscola = await chamar('POST', rota, { ...recorte, colocacao: 2, escola_id: e1.id });
-  conferir(mesmaEscola.status === 409 && mesmaEscola.corpo.erro === `${e1.nome} já está em ${ROTULO}, no 1º lugar. Cada escola tem um atleta só por jogo e categoria.`,
-    'a mesma escola em duas colocações do mesmo jogo + categoria -> 409', `${mesmaEscola.status} ${mesmaEscola.corpo.erro}`);
+  conferir(mesmaEscola.status === 409 && mesmaEscola.corpo.erro === `${e1.nome} já está em ${ROTULO}, no 1º lugar. Cada escola tem uma colocação só por categoria.`,
+    'a mesma escola em duas colocações da mesma etapa -> 409', `${mesmaEscola.status} ${mesmaEscola.corpo.erro}`);
 
-  // O mesmo 1º lugar em outro jogo é outro pódio
-  const outro = await chamar('POST', rota, { jogo: outroJogo, categoria_id: sub13.id, colocacao: 1, escola_id: e1.id });
-  conferir(outro.status === 201, `a mesma escola em 1º no ${nomeDo(outroJogo)} Sub 13 é outro pódio`, `${outro.status} ${outro.corpo.erro || ''}`);
+  // O mesmo 1º lugar em outra etapa é outra colocação
+  const outro = await chamar('POST', rota, { categoria_id: outraEtapa.id, colocacao: 1, escola_id: e1.id });
+  conferir(outro.status === 201, `a mesma escola em 1º no Tabuleiro ${outraEtapa.nome} é outra colocação`, `${outro.status} ${outro.corpo.erro || ''}`);
 
-  const segundo = await chamar('POST', rota, { ...recorte, colocacao: 2, escola_id: e2.id, atleta_nome: 'Beltrano' });
-  const terceiro = await chamar('POST', rota, { ...recorte, colocacao: 3, escola_id: e3.id });
-  conferir(segundo.status === 201 && terceiro.status === 201 && terceiro.corpo.resultado?.atleta_nome === null,
-    '2º e 3º lançados (o nome do atleta é opcional)', `${segundo.status} ${terceiro.status}`);
+  // O resto do 1º ao 5º pelo pódio inteiro (é o que a tela usa)
+  const podioCheio = await chamar('PUT', `${rota}/podio`, {
+    ...recorte, linhas: escolas.map((e, i) => ({ colocacao: i + 1, escola_id: e.id }))
+  });
+  conferir(podioCheio.status === 200 && podioCheio.corpo.resultados?.map((r) => r.colocacao).join() === '1,2,3,4,5',
+    'o pódio inteiro do 1º ao 5º é salvo', `${podioCheio.status} ${podioCheio.corpo.erro || ''}`);
 
-  // Tabela Geral: 10 / 8 / 6 e as medalhas
+  // Tabela Geral: 10 / 8 / 6 / 4 / 2, uma vez só; medalha só do 1º ao 3º
   const tabela = await exigir('GET', '/tabela-geral', null, 'a tabela geral com o tabuleiro');
-  const depois = [e1, e2, e3].map((e) => linhaDe(tabela, e));
-  const origem = depois[1].origens.find((o) => o.tabuleiro && o.modalidade_nome === nomeDo(jogo));
+  const depois = escolas.map((e) => linhaDe(tabela, e));
+  const origem = depois[3].origens.find((o) => o.tabuleiro && o.categoria_nome === etapa.nome);
   conferir(
     depois[0].pontos === antes[0].pontos + 20 && depois[0].primeiros === antes[0].primeiros + 2
       && depois[1].pontos === antes[1].pontos + 8 && depois[1].segundos === antes[1].segundos + 1
       && depois[2].pontos === antes[2].pontos + 6 && depois[2].terceiros === antes[2].terceiros + 1
-      && origem?.posicao === 2 && origem?.pontos === 8 && origem?.categoria_nome === 'Sub 13' && origem?.genero === 'MISTO'
-      && origem?.atleta_nome === 'Beltrano' && tabela.regras.tabuleiro?.conta_medalha === true,
-    'Tabela Geral: 1º = 10 (dois jogos), 2º = 8, 3º = 6, com as medalhas e a origem (jogo, categoria, misto, atleta) na abertura',
+      && depois[3].pontos === antes[3].pontos + 4 && depois[3].quartos === antes[3].quartos + 1
+      && depois[4].pontos === antes[4].pontos + 2 && depois[4].quintos === antes[4].quintos + 1
+      && origem?.posicao === 4 && origem?.pontos === 4 && origem?.modalidade_nome === 'Tabuleiro' && origem?.genero === 'MISTO'
+      && depois[3].origens.filter((o) => o.tabuleiro).length === 1
+      && tabela.regras.tabuleiro?.conta_medalha === true,
+    'Tabela Geral: 1º = 10 (duas etapas), 2º = 8, 3º = 6, 4º = 4, 5º = 2, uma vez só, com a origem (Tabuleiro, etapa, misto)',
     `${depois.map((d, i) => `${antes[i].pontos}->${d.pontos}`).join(' ')} ${JSON.stringify(origem)}`
   );
 
-  // Editar: uma colocação (PUT /:id) e o pódio inteiro (troca o 1º com o 2º)
-  const editaEscolaRepetida = await chamar('PUT', `${rota}/${id1}`, { escola_id: e2.id });
-  const editaColocacaoRepetida = await chamar('PUT', `${rota}/${id1}`, { colocacao: 2 });
+  // Editar: uma colocação (PUT /:id) e o pódio inteiro
+  const [[idDoPrimeiro]] = await db.query(
+    'SELECT id FROM tabuleiro_colocacoes WHERE categoria_id = ? AND colocacao = 1', [etapa.id]);
+  const editaEscolaRepetida = await chamar('PUT', `${rota}/${idDoPrimeiro.id}`, { escola_id: e2.id });
+  const editaColocacaoRepetida = await chamar('PUT', `${rota}/${idDoPrimeiro.id}`, { colocacao: 2 });
   conferir(editaEscolaRepetida.status === 409 && editaColocacaoRepetida.status === 409,
-    'editar para uma escola ou colocação já usada no jogo -> 409', `${editaEscolaRepetida.status} ${editaColocacaoRepetida.status}`);
-  const edita = await chamar('PUT', `${rota}/${id1}`, { escola_id: e4.id, atleta_nome: 'Ciclano' });
-  const aposEditar = await exigir('GET', '/tabela-geral', null, 'a tabela geral depois de editar');
-  conferir(
-    edita.status === 200 && edita.corpo.resultado?.escola_id === e4.id && edita.corpo.resultado?.jogo === jogo && edita.corpo.resultado?.alterado_em
-      && linhaDe(aposEditar, e1).pontos === antes[0].pontos + 10 && linhaDe(aposEditar, e4).pontos === antes[3].pontos + 10,
-    'editar o 1º lugar (outra escola): o jogo fica, e os 10 pontos mudam de escola na Tabela Geral', `${edita.status} ${edita.corpo.erro || ''}`);
-
-  const linhasPodio = [
-    { colocacao: 1, escola_id: e2.id, atleta_nome: 'Beltrano' },
-    { colocacao: 2, escola_id: e4.id, atleta_nome: 'Ciclano' },
-    { colocacao: 3, escola_id: e3.id }
-  ];
-  const podioEscolaDupla = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [linhasPodio[0], { colocacao: 2, escola_id: e2.id }] });
-  const podioEmpate = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [linhasPodio[0], { colocacao: 1, escola_id: e3.id }] });
+    'editar para uma escola ou colocação já usada na etapa -> 409', `${editaEscolaRepetida.status} ${editaColocacaoRepetida.status}`);
+  const podioEscolaDupla = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [{ colocacao: 1, escola_id: e2.id }, { colocacao: 2, escola_id: e2.id }] });
+  const podioEmpate = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [{ colocacao: 1, escola_id: e2.id }, { colocacao: 1, escola_id: e3.id }] });
   const podioVazio = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [] });
   conferir(podioEscolaDupla.status === 409 && podioEmpate.status === 409 && podioVazio.status === 400,
     'pódio com a mesma escola duas vezes ou com empate -> 409; pódio vazio -> 400',
     `${podioEscolaDupla.status} ${podioEmpate.status} ${podioVazio.status}`);
-  const podio = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: linhasPodio });
-  const aposPodio = await exigir('GET', '/tabela-geral', null, 'a tabela geral depois do pódio');
-  conferir(
-    podio.status === 200 && podio.corpo.resultados?.map((r) => `${r.colocacao}:${r.escola_id}`).join() === `1:${e2.id},2:${e4.id},3:${e3.id}`
-      && linhaDe(aposPodio, e2).pontos === antes[1].pontos + 10 && linhaDe(aposPodio, e4).pontos === antes[3].pontos + 8,
-    'salvar o pódio inteiro troca o 1º com o 2º numa transação só', `${podio.status} ${podio.corpo.erro || ''}`);
 
-  // Ponto antigo do tabuleiro gravado em pontos_lancados NÃO soma
-  const [[modalidade]] = await db.query('SELECT id FROM modalidades WHERE slug = ?', [jogo]);
+  // Ponto antigo do tabuleiro (xadrez) gravado em pontos_lancados NÃO soma
+  const [[xadrez]] = await db.query("SELECT id FROM modalidades WHERE slug = 'xadrez'");
   const [[usuario]] = await db.query('SELECT id FROM usuarios WHERE email = ?', [EMAIL]);
   await db.query(
     'INSERT INTO pontos_lancados (modalidade_id, categoria_id, genero, escola_id, pontos, colocacao, criado_por) VALUES (?, ?, ?, ?, 9, 1, ?)',
-    [modalidade.id, sub13.id, 'MASCULINO', e1.id, usuario.id]
+    [xadrez.id, sub13.id, 'MASCULINO', e1.id, usuario.id]
   );
   const comAntigo = await exigir('GET', '/tabela-geral', null, 'a tabela geral com ponto antigo do tabuleiro');
-  conferir(linhaDe(comAntigo, e1).pontos === linhaDe(aposPodio, e1).pontos
-      && !linhaDe(comAntigo, e1).origens.some((o) => o.lancado),
+  conferir(linhaDe(comAntigo, e1).pontos === depois[0].pontos && !linhaDe(comAntigo, e1).origens.some((o) => o.lancado),
     'ponto antigo do tabuleiro gravado em pontos_lancados NÃO soma (não conta duas vezes)',
-    `${linhaDe(aposPodio, e1).pontos} -> ${linhaDe(comAntigo, e1).pontos}`);
-  await db.query('DELETE FROM pontos_lancados WHERE modalidade_id = ? AND criado_por = ?', [modalidade.id, usuario.id]);
+    `${depois[0].pontos} -> ${linhaDe(comAntigo, e1).pontos}`);
+  await db.query('DELETE FROM pontos_lancados WHERE modalidade_id = ? AND criado_por = ?', [xadrez.id, usuario.id]);
 
-  // O atletismo não vê o tabuleiro, e vice-versa
+  // O atletismo não vê o tabuleiro
   const atletismo = await exigir('GET', '/atletismo-colocacoes', null, 'listar o atletismo');
-  conferir(!atletismo.resultados.some((r) => r.prova === nomeDo(jogo)), 'os resultados do tabuleiro não aparecem no atletismo');
+  conferir(!atletismo.resultados.some((r) => r.prova === 'Tabuleiro'), 'os resultados do tabuleiro não aparecem no atletismo');
 
   // Apagar
-  const apagaMesa = await comToken(mesa, 'DELETE', `${rota}/${id1}`);
-  const apagaSemLogin = await comToken(null, 'DELETE', `${rota}/${id1}`);
+  const apagaMesa = await comToken(mesa, 'DELETE', `${rota}/${idDoPrimeiro.id}`);
+  const apagaSemLogin = await comToken(null, 'DELETE', `${rota}/${idDoPrimeiro.id}`);
   conferir(apagaMesa.status === 403 && apagaSemLogin.status === 401, 'apagar: a mesa -> 403, sem login -> 401', `${apagaMesa.status} ${apagaSemLogin.status}`);
   const lista = await exigir('GET', rota, null, 'listar o tabuleiro');
-  const meus = lista.resultados.filter((r) => r.categoria_id === sub13.id && (r.jogo === jogo || r.jogo === outroJogo));
-  conferir(meus.length === 4, 'a lista pública traz os 4 resultados', `${meus.length}`);
+  const meus = lista.resultados.filter((r) => r.categoria_id === etapa.id || r.categoria_id === outraEtapa.id);
+  conferir(meus.length === 6, 'a lista pública traz os 6 resultados (5 numa etapa, 1 na outra)', `${meus.length}`);
   for (const r of meus) await exigir('DELETE', `${rota}/${r.id}`, null, 'apagar resultado do tabuleiro');
   const inexistente = await chamar('DELETE', `${rota}/${meus[0].id}`);
   const final = await exigir('GET', '/tabela-geral', null, 'a tabela geral sem o tabuleiro');
   conferir(
-    inexistente.status === 404 && [e1, e2, e3, e4].every((e, i) => linhaDe(final, e).pontos === antes[i].pontos
-      && linhaDe(final, e).primeiros === antes[i].primeiros),
-    'apagados os resultados, a Tabela Geral volta ao que era (e apagar de novo -> 404)', `${inexistente.status}`);
+    inexistente.status === 404 && escolas.every((e, i) => linhaDe(final, e).pontos === antes[i].pontos
+      && linhaDe(final, e).primeiros === antes[i].primeiros && (linhaDe(final, e).quartos || 0) === (antes[i].quartos || 0)),
+    'apagados os resultados, a Tabela Geral volta ao que era (e apagar de novo -> 404)', `${inexistente.status} ${id1}`);
 };
 
-// Atletismo por colocação (db/37, 12/11/2026): o ADMIN lança o 1º, o 2º e o
-// 3º de cada prova + categoria + gênero; valem a pontuação das coletivas
-// (10, 8 e 6) e contam medalha. A rota antiga (pontos por escola) recusa.
+// Atletismo por colocação (db/37, 12/11/2026; desde 21/11/2026, db/47 a db/50):
+// a colocação final de cada escola por etapa (Anos Iniciais e Anos Finais; o
+// atletismo não tem Ensino Médio), do 1º ao 5º, sem prova, sem gênero (MISTO)
+// e sem nome de atleta. Valem 10/8/6/4/2 na Tabela Geral; medalha do 1º ao 3º.
+// A rota antiga (pontos por escola) recusa.
 const testarAtletismoPorColocacao = async () => {
   secao('-- atletismo por colocação');
 
   const mesa = (await exigir('POST', '/login', { email: EMAIL_MESA, senha: SENHA }, 'login da mesa')).token;
-  const PROVA = `${MARCA} 100 m rasos`;
   const rota = '/atletismo-colocacoes';
 
   const publica = await comToken(null, 'GET', rota);
   const cfg = publica.corpo.configuracao || {};
   conferir(
     publica.status === 200 && Array.isArray(publica.corpo.resultados)
-      && (cfg.categorias || []).map((c) => c.nome).join() === 'Sub 7,Sub 8,Sub 9,Sub 11,Sub 13,Sub 15,Sub 17,Aberto'
-      && (cfg.generos || []).join() === 'MASCULINO,FEMININO'
-      && (cfg.pontuacao || []).map((x) => `${x.posicao}:${x.pontos}`).join() === '1:10,2:8,3:6'
-      && ['Corrida 50 metros', 'Salto em distância', 'Corrida 100 metros'].every((s) => cfg.provas_sugeridas.includes(s))
-      && cfg.provas_por_categoria['Sub 8'].join() === 'Corrida 50 metros'
-      && cfg.provas_por_categoria['Sub 13'].join() === 'Salto em distância,Corrida 100 metros',
-    'leitura pública: Sub 7 a Aberto, masculino e feminino, 10/8/6 e as provas do regulamento como sugestão',
+      && (cfg.categorias || []).map((c) => c.nome).join() === 'Anos Iniciais,Anos Finais'
+      && (cfg.generos || []).join() === 'MISTO'
+      && cfg.prova_unica === 'Atletismo'
+      && (cfg.pontuacao || []).map((x) => `${x.posicao}:${x.pontos}`).join() === '1:10,2:8,3:6,4:4,5:2',
+    'leitura pública: Anos Iniciais e Anos Finais, sem prova nem gênero (MISTO) e 10/8/6/4/2',
     `${publica.status} ${JSON.stringify(cfg).slice(0, 300)}`
   );
 
-  const sub13 = cfg.categorias.find((c) => c.nome === 'Sub 13');
-  const [[e1], [e2], [e3], [e4]] = await Promise.all([0, 1, 2, 3].map((n) =>
-    db.query('SELECT id, nome FROM escolas ORDER BY id LIMIT 1 OFFSET ?', [n]).then(([l]) => l)));
-  const recorte = { prova: PROVA, categoria_id: sub13.id, genero: 'MASCULINO' };
+  const ocupadas = new Set(publica.corpo.resultados.map((r) => r.categoria_id));
+  const livres = cfg.categorias.filter((c) => !ocupadas.has(c.id));
+  if (livres.length < 2) throw new Error('Não achei duas etapas livres para o teste do atletismo.');
+  const [etapa, outraEtapa] = livres;
+  const ROTULO = `Atletismo ${etapa.nome}`;
+
+  const escolas = await Promise.all([0, 1, 2, 3, 4].map((n) =>
+    db.query('SELECT id, nome FROM escolas ORDER BY id LIMIT 1 OFFSET ?', [n]).then(([[l]]) => l)));
+  const [e1, e2, e3] = escolas;
+  const recorte = { categoria_id: etapa.id };
   const linhaDe = (tabela, escola) => tabela.geral.find((e) => e.escola_id === escola.id)
-    || { pontos: 0, primeiros: 0, segundos: 0, terceiros: 0, origens: [] };
+    || { pontos: 0, primeiros: 0, segundos: 0, terceiros: 0, quartos: 0, quintos: 0, origens: [] };
   const tabelaAntes = await exigir('GET', '/tabela-geral', null, 'a tabela geral antes do atletismo');
-  const antes = [e1, e2, e3, e4].map((e) => linhaDe(tabelaAntes, e));
+  const antes = escolas.map((e) => linhaDe(tabelaAntes, e));
 
   // 401 e 403
-  const corpo1 = { ...recorte, colocacao: 1, escola_id: e1.id, atleta_nome: '  Fulano   de Tal ' };
+  const corpo1 = { ...recorte, colocacao: 1, escola_id: e1.id };
   const semLogin = await comToken(null, 'POST', rota, corpo1);
   const daMesa = await comToken(mesa, 'POST', rota, corpo1);
   const podioSemLogin = await comToken(null, 'PUT', `${rota}/podio`, { ...recorte, linhas: [corpo1] });
@@ -2115,91 +2106,74 @@ const testarAtletismoPorColocacao = async () => {
     'lançar sem login -> 401; a mesa (PLACAR) -> 403', `${semLogin.status} ${daMesa.status} ${podioSemLogin.status} ${podioDaMesa.status}`);
 
   // Validação
+  const [[medio]] = await db.query("SELECT id FROM categorias WHERE nome = 'Ensino Médio'");
   const invalidas = await Promise.all([
-    chamar('POST', rota, { ...corpo1, colocacao: 4 }),
+    chamar('POST', rota, { ...corpo1, colocacao: 6 }),
     chamar('POST', rota, { ...corpo1, colocacao: 0 }),
     chamar('POST', rota, { ...corpo1, escola_id: 99999999 }),
-    chamar('POST', rota, { ...corpo1, prova: '   ' }),
-    chamar('POST', rota, { ...corpo1, genero: 'MISTO' }),
+    chamar('POST', rota, { ...corpo1, genero: 'MASCULINO' }),
+    chamar('POST', rota, { ...corpo1, categoria_id: medio.id }),
     chamar('POST', rota, { ...corpo1, categoria_id: 99999999 })
   ]);
   conferir(invalidas.every((r) => r.status === 400),
-    'colocação fora de 1 a 3, escola inexistente, prova vazia, gênero MISTO e categoria inválida -> 400',
-    invalidas.map((r) => r.status).join(' '));
+    'colocação fora de 1 a 5, escola inexistente, gênero MASCULINO e categoria fora do atletismo (Ensino Médio) -> 400',
+    invalidas.map((r) => `${r.status} ${r.corpo.erro || ''}`).join(' | '));
 
-  // Lançar
+  // Lançar (sem prova e sem gênero)
   const primeiro = await chamar('POST', rota, corpo1);
-  conferir(primeiro.status === 201 && primeiro.corpo.resultado?.colocacao === 1 && primeiro.corpo.resultado?.atleta_nome === 'Fulano de Tal'
-      && primeiro.corpo.resultado?.escola_nome === e1.nome,
-    'o ADMIN lança o 1º lugar (nome do atleta em texto livre, com os espaços arrumados)', `${primeiro.status} ${primeiro.corpo.erro || ''}`);
-  const id1 = primeiro.corpo.resultado?.id;
+  conferir(primeiro.status === 201 && primeiro.corpo.resultado?.colocacao === 1 && primeiro.corpo.resultado?.prova === 'Atletismo'
+      && primeiro.corpo.resultado?.genero === 'MISTO' && primeiro.corpo.resultado?.atleta_nome === null
+      && primeiro.corpo.mensagem === `1º lugar de ${ROTULO} lançado.`,
+    `o ADMIN lança o 1º lugar de ${ROTULO} sem prova e sem gênero (grava Atletismo, misto)`, `${primeiro.status} ${primeiro.corpo.erro || primeiro.corpo.mensagem}`);
 
   // Colocação repetida (sem empate) e a mesma escola duas vezes
   const repetida = await chamar('POST', rota, { ...recorte, colocacao: 1, escola_id: e2.id });
   conferir(repetida.status === 409 && /já tem o 1º lugar/.test(repetida.corpo.erro || '') && (repetida.corpo.erro || '').includes(e1.nome),
-    'colocação repetida na mesma prova + categoria + gênero -> 409, dizendo quem já é o 1º', `${repetida.status} ${repetida.corpo.erro}`);
+    'colocação repetida na mesma etapa -> 409, dizendo quem já é o 1º', `${repetida.status} ${repetida.corpo.erro}`);
   const mesmaEscola = await chamar('POST', rota, { ...recorte, colocacao: 2, escola_id: e1.id });
-  conferir(mesmaEscola.status === 409 && /um atleta só por prova/.test(mesmaEscola.corpo.erro || ''),
-    'a mesma escola em duas colocações da mesma prova -> 409 (1 atleta por escola)', `${mesmaEscola.status} ${mesmaEscola.corpo.erro}`);
-  const outraGrafia = await chamar('POST', rota, { ...recorte, prova: PROVA.toUpperCase() + '  ', colocacao: 1, escola_id: e2.id });
-  conferir(outraGrafia.status === 409, 'a mesma prova com outra grafia (maiúsculas, espaços) é a mesma prova -> 409', `${outraGrafia.status}`);
+  conferir(mesmaEscola.status === 409 && /uma colocação só por categoria/.test(mesmaEscola.corpo.erro || ''),
+    'a mesma escola em duas colocações da mesma etapa -> 409', `${mesmaEscola.status} ${mesmaEscola.corpo.erro}`);
 
-  // A mesma colocação em outro gênero ou outra categoria é outro pódio
-  const feminino = await chamar('POST', rota, { ...recorte, genero: 'FEMININO', colocacao: 1, escola_id: e1.id });
-  conferir(feminino.status === 201, 'a mesma prova no feminino é outro pódio (1º lugar aceito)', `${feminino.status} ${feminino.corpo.erro || ''}`);
+  // A mesma colocação na outra etapa é outra colocação
+  const outra = await chamar('POST', rota, { categoria_id: outraEtapa.id, colocacao: 1, escola_id: e1.id });
+  conferir(outra.status === 201, `a mesma escola em 1º no Atletismo ${outraEtapa.nome} é outra colocação`, `${outra.status} ${outra.corpo.erro || ''}`);
 
-  const segundo = await chamar('POST', rota, { ...recorte, colocacao: 2, escola_id: e2.id, atleta_nome: 'Beltrano' });
-  const terceiro = await chamar('POST', rota, { ...recorte, colocacao: 3, escola_id: e3.id });
-  conferir(segundo.status === 201 && terceiro.status === 201 && terceiro.corpo.resultado?.atleta_nome === null,
-    '2º e 3º lançados (o nome do atleta é opcional)', `${segundo.status} ${terceiro.status}`);
+  // O resto do 1º ao 5º pelo pódio inteiro
+  const podioCheio = await chamar('PUT', `${rota}/podio`, {
+    ...recorte, linhas: escolas.map((e, i) => ({ colocacao: i + 1, escola_id: e.id }))
+  });
+  conferir(podioCheio.status === 200 && podioCheio.corpo.resultados?.map((r) => r.colocacao).join() === '1,2,3,4,5',
+    'o pódio inteiro do 1º ao 5º é salvo', `${podioCheio.status} ${podioCheio.corpo.erro || ''}`);
 
-  // Tabela Geral: 10 / 8 / 6 e as medalhas
+  // Tabela Geral: 10 / 8 / 6 / 4 / 2, uma vez só; medalha só do 1º ao 3º
   const tabela = await exigir('GET', '/tabela-geral', null, 'a tabela geral com o atletismo');
-  const depois = [e1, e2, e3].map((e) => linhaDe(tabela, e));
-  const origem = depois[1].origens.find((o) => o.atletismo && o.prova === PROVA);
+  const depois = escolas.map((e) => linhaDe(tabela, e));
+  const origem = depois[4].origens.find((o) => o.atletismo && o.categoria_nome === etapa.nome);
   conferir(
     depois[0].pontos === antes[0].pontos + 20 && depois[0].primeiros === antes[0].primeiros + 2
       && depois[1].pontos === antes[1].pontos + 8 && depois[1].segundos === antes[1].segundos + 1
       && depois[2].pontos === antes[2].pontos + 6 && depois[2].terceiros === antes[2].terceiros + 1
-      && origem?.posicao === 2 && origem?.pontos === 8 && origem?.modalidade_nome === 'Atletismo' && origem?.categoria_nome === 'Sub 13'
+      && depois[3].pontos === antes[3].pontos + 4 && depois[3].quartos === antes[3].quartos + 1
+      && depois[4].pontos === antes[4].pontos + 2 && depois[4].quintos === antes[4].quintos + 1
+      && origem?.posicao === 5 && origem?.pontos === 2 && origem?.modalidade_nome === 'Atletismo' && origem?.prova === null
+      && depois[4].origens.filter((o) => o.atletismo).length === 1
       && tabela.regras.atletismo?.conta_medalha === true,
-    'Tabela Geral: 1º = 10 (duas vezes: masculino e feminino), 2º = 8, 3º = 6, com as medalhas e a origem na abertura',
+    'Tabela Geral: 1º = 10 (duas etapas), 2º = 8, 3º = 6, 4º = 4, 5º = 2, uma vez só, sem repetir o nome da prova',
     `${depois.map((d, i) => `${antes[i].pontos}->${d.pontos}`).join(' ')} ${JSON.stringify(origem)}`
   );
 
-  // Editar: uma colocação (PUT /:id) e o pódio inteiro (troca o 1º com o 2º)
-  const editaEscolaRepetida = await chamar('PUT', `${rota}/${id1}`, { escola_id: e2.id });
-  const editaColocacaoRepetida = await chamar('PUT', `${rota}/${id1}`, { colocacao: 2 });
-  conferir(editaEscolaRepetida.status === 409 && editaColocacaoRepetida.status === 409,
-    'editar para uma escola ou colocação já usada na prova -> 409', `${editaEscolaRepetida.status} ${editaColocacaoRepetida.status}`);
-  const edita = await chamar('PUT', `${rota}/${id1}`, { escola_id: e4.id, atleta_nome: 'Ciclano' });
-  const aposEditar = await exigir('GET', '/tabela-geral', null, 'a tabela geral depois de editar');
-  conferir(
-    edita.status === 200 && edita.corpo.resultado?.escola_id === e4.id && edita.corpo.resultado?.alterado_em
-      && linhaDe(aposEditar, e1).pontos === antes[0].pontos + 10 && linhaDe(aposEditar, e4).pontos === antes[3].pontos + 10,
-    'editar o 1º lugar (outra escola): os 10 pontos mudam de escola na Tabela Geral', `${edita.status} ${edita.corpo.erro || ''}`);
-
-  const linhasPodio = [
-    { colocacao: 1, escola_id: e2.id, atleta_nome: 'Beltrano' },
-    { colocacao: 2, escola_id: e4.id, atleta_nome: 'Ciclano' },
-    { colocacao: 3, escola_id: e3.id }
-  ];
-  const podioEscolaDupla = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [linhasPodio[0], { colocacao: 2, escola_id: e2.id }] });
-  const podioEmpate = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [linhasPodio[0], { colocacao: 1, escola_id: e3.id }] });
+  // Pódio inválido
+  const podioEscolaDupla = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [{ colocacao: 1, escola_id: e2.id }, { colocacao: 2, escola_id: e2.id }] });
+  const podioEmpate = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [{ colocacao: 1, escola_id: e2.id }, { colocacao: 1, escola_id: e3.id }] });
   const podioVazio = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [] });
   conferir(podioEscolaDupla.status === 409 && podioEmpate.status === 409 && podioVazio.status === 400,
     'pódio com a mesma escola duas vezes ou com empate -> 409; pódio vazio -> 400',
     `${podioEscolaDupla.status} ${podioEmpate.status} ${podioVazio.status}`);
-  const podio = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: linhasPodio });
-  const aposPodio = await exigir('GET', '/tabela-geral', null, 'a tabela geral depois do pódio');
-  conferir(
-    podio.status === 200 && podio.corpo.resultados?.map((r) => `${r.colocacao}:${r.escola_id}`).join() === `1:${e2.id},2:${e4.id},3:${e3.id}`
-      && linhaDe(aposPodio, e2).pontos === antes[1].pontos + 10 && linhaDe(aposPodio, e4).pontos === antes[3].pontos + 8,
-    'salvar o pódio inteiro troca o 1º com o 2º numa transação só', `${podio.status} ${podio.corpo.erro || ''}`);
 
   // Rota antiga: não aceita mais pontos de atletismo, e o que estiver gravado não soma
   const [[atletismo]] = await db.query("SELECT id FROM modalidades WHERE slug = 'atletismo'");
   const [[prova]] = await db.query('SELECT id FROM provas_atletismo ORDER BY id LIMIT 1');
+  const [[sub13]] = await db.query("SELECT id FROM categorias WHERE nome = 'Sub 13'");
   const antiga = await chamar('PUT', '/pontos-lancados', {
     modalidade: 'atletismo', categoria_id: sub13.id, genero: 'MASCULINO', prova_id: prova.id,
     linhas: [{ escola_id: e1.id, pontos: 10 }], base: []
@@ -2213,26 +2187,25 @@ const testarAtletismoPorColocacao = async () => {
     [atletismo.id, sub13.id, 'MASCULINO', prova.id, e1.id, usuario.id]
   );
   const comAntigo = await exigir('GET', '/tabela-geral', null, 'a tabela geral com ponto antigo de atletismo');
-  conferir(linhaDe(comAntigo, e1).pontos === linhaDe(aposPodio, e1).pontos
+  conferir(linhaDe(comAntigo, e1).pontos === depois[0].pontos
       && !linhaDe(comAntigo, e1).origens.some((o) => o.lancado && o.modalidade_nome === 'Atletismo'),
     'ponto antigo de atletismo gravado em pontos_lancados NÃO soma (o atletismo não conta duas vezes)',
-    `${linhaDe(aposPodio, e1).pontos} -> ${linhaDe(comAntigo, e1).pontos}`);
+    `${depois[0].pontos} -> ${linhaDe(comAntigo, e1).pontos}`);
   await db.query('DELETE FROM pontos_lancados WHERE modalidade_id = ? AND criado_por = ?', [atletismo.id, usuario.id]);
 
   // Apagar
-  const apagaMesa = await comToken(mesa, 'DELETE', `${rota}/${id1}`);
-  const apagaSemLogin = await comToken(null, 'DELETE', `${rota}/${id1}`);
-  conferir(apagaMesa.status === 403 && apagaSemLogin.status === 401, 'apagar: a mesa -> 403, sem login -> 401', `${apagaMesa.status} ${apagaSemLogin.status}`);
   const lista = await exigir('GET', rota, null, 'listar o atletismo');
-  const meus = lista.resultados.filter((r) => r.prova === PROVA);
-  conferir(meus.length === 4 && lista.configuracao.provas_sugeridas.includes(PROVA),
-    'a lista pública traz os 4 resultados, e a prova digitada vira sugestão', `${meus.length}`);
+  const meus = lista.resultados.filter((r) => r.categoria_id === etapa.id || r.categoria_id === outraEtapa.id);
+  const apagaMesa = await comToken(mesa, 'DELETE', `${rota}/${meus[0].id}`);
+  const apagaSemLogin = await comToken(null, 'DELETE', `${rota}/${meus[0].id}`);
+  conferir(apagaMesa.status === 403 && apagaSemLogin.status === 401, 'apagar: a mesa -> 403, sem login -> 401', `${apagaMesa.status} ${apagaSemLogin.status}`);
+  conferir(meus.length === 6, 'a lista pública traz os 6 resultados (5 numa etapa, 1 na outra)', `${meus.length}`);
   for (const r of meus) await exigir('DELETE', `${rota}/${r.id}`, null, 'apagar resultado do atletismo');
   const inexistente = await chamar('DELETE', `${rota}/${meus[0].id}`);
   const final = await exigir('GET', '/tabela-geral', null, 'a tabela geral sem o atletismo');
   conferir(
-    inexistente.status === 404 && [e1, e2, e3, e4].every((e, i) => linhaDe(final, e).pontos === antes[i].pontos
-      && linhaDe(final, e).primeiros === antes[i].primeiros),
+    inexistente.status === 404 && escolas.every((e, i) => linhaDe(final, e).pontos === antes[i].pontos
+      && linhaDe(final, e).primeiros === antes[i].primeiros && (linhaDe(final, e).quintos || 0) === (antes[i].quintos || 0)),
     'apagados os resultados, a Tabela Geral volta ao que era (e apagar de novo -> 404)', `${inexistente.status}`);
 };
 

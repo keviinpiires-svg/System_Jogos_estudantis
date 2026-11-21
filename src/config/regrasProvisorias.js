@@ -329,22 +329,23 @@ const REGRAS = {
     provisorio: false,
     decididoEm: '12/11/2026',
 
-    // Só o pódio é lançado
-    colocacoes: [1, 2, 3],
+    // Do 1º ao 5º (21/11/2026, db/47: a colocação final das escolas; antes, só o pódio)
+    colocacoes: [1, 2, 3, 4, 5],
 
-    // Categorias do formulário (categorias.nome) e gêneros (sem MISTO)
-    categorias: ['Sub 7', 'Sub 8', 'Sub 9', 'Sub 11', 'Sub 13', 'Sub 15', 'Sub 17', 'Aberto'],
-    generos: ['MASCULINO', 'FEMININO'],
+    // Categorias do formulário (categorias.nome) e gêneros (sem MISTO). Desde 21/11/2026
+    // (db/49) são as etapas de ensino; antes eram as categorias Sub das coletivas.
+    // O atletismo não tem Ensino Médio (usuário, 21/11/2026)
+    categorias: ['Anos Iniciais', 'Anos Finais'],
+    // Desde 21/11/2026 (db/50): colocação final da escola na categoria, sem prova e sem
+    // gênero. Grava a prova fixa abaixo e o gênero MISTO. Antes: MASCULINO e FEMININO por prova.
+    generos: ['MISTO'],
+    provaUnica: 'Atletismo',
 
     // Provas SUGERIDAS por categoria (as do regulamento, nomes de
     // provas_atletismo). A prova é texto: o ADMIN pode digitar outra.
     sugestoes: {
-      'Sub 8': ['Corrida 50 metros'],
-      'Sub 9': ['Corrida 50 metros'],
-      'Sub 11': ['Salto em distância', 'Corrida 100 metros'],
-      'Sub 13': ['Salto em distância', 'Corrida 100 metros'],
-      'Sub 15': ['Salto em distância', 'Corrida 100 metros'],
-      'Sub 17': ['Salto em distância', 'Corrida 100 metros']
+      'Anos Iniciais': ['Corrida 50 metros', 'Salto em distância', 'Corrida 100 metros'],
+      'Anos Finais': ['Salto em distância', 'Corrida 100 metros']
     },
 
     // Sem empate (uma escola por colocação) e 1 atleta por escola em cada
@@ -357,8 +358,8 @@ const REGRAS = {
     contaMedalha: true,
 
     descricao:
-      'Atletismo: o 1º, o 2º e o 3º de cada prova, categoria e gênero valem a mesma pontuação '
-      + 'das modalidades coletivas (10, 8 e 6) e contam como 1º, 2º e 3º lugares.',
+      'Atletismo: do 1º ao 5º de cada categoria (colocação final das escolas) valem a mesma pontuação '
+      + 'das modalidades coletivas (10, 8, 6, 4 e 2); o 1º, o 2º e o 3º contam como medalha.',
     aplicadoEm: 'atletismoColocacoesController e tabelaGeralController'
   },
 
@@ -376,17 +377,18 @@ const REGRAS = {
     provisorio: false,
     decididoEm: '12/11/2026',
 
-    // Os jogos (modalidades.slug, do db/11), nesta ordem
-    jogos: ['xadrez', 'dama', 'domino'],
+    // Uma colocação só para o tabuleiro inteiro, sem dividir por jogo (21/11/2026, db/48:
+    // modalidade 'tabuleiro'). Antes eram xadrez, dama e dominó separados (db/11).
+    jogos: ['tabuleiro'],
 
-    // As categorias que o tabuleiro já usava (categorias.nome)
-    categorias: ['Sub 8', 'Sub 9', 'Sub 11', 'Sub 13', 'Sub 15', 'Sub 17', 'Aberto'],
+    // Etapas de ensino (categorias.nome, db/49, 21/11/2026); antes, as categorias Sub
+    categorias: ['Anos Iniciais', 'Anos Finais', 'Ensino Médio'],
 
     // Sem gênero: é sempre misto (a tabela não tem a coluna)
     genero: 'MISTO',
 
-    // Só o pódio é lançado
-    colocacoes: [1, 2, 3],
+    // Do 1º ao 5º (21/11/2026, db/47: a colocação final das escolas; antes, só o pódio)
+    colocacoes: [1, 2, 3, 4, 5],
 
     // Sem empate (uma escola por colocação) e uma escola só uma vez em cada
     // jogo + categoria: o banco também garante (índices únicos do db/38)
@@ -397,8 +399,8 @@ const REGRAS = {
     contaMedalha: true,
 
     descricao:
-      'Tabuleiro (xadrez, dama e dominó, misto): o 1º, o 2º e o 3º de cada jogo e categoria valem '
-      + 'a mesma pontuação das modalidades coletivas (10, 8 e 6) e contam como 1º, 2º e 3º lugares.',
+      'Tabuleiro (xadrez, dama e dominó juntos, misto): do 1º ao 5º de cada categoria valem '
+      + 'a mesma pontuação das modalidades coletivas (10, 8, 6, 4 e 2); o 1º, o 2º e o 3º contam como medalha.',
     aplicadoEm: 'tabuleiroColocacoesController e tabelaGeralController'
   },
 

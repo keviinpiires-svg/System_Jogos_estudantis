@@ -19,7 +19,7 @@ const REGRA = REGRAS.atletismoColocacoes;
 
 const PROVA_MAXIMO = 80;
 const ATLETA_MAXIMO = 150;
-const ROTULO_GENERO = { MASCULINO: 'Masculino', FEMININO: 'Feminino' };
+const ROTULO_GENERO = { MASCULINO: 'Masculino', FEMININO: 'Feminino', MISTO: 'Misto' };
 
 // Erro de validação ou de conflito, com o status que a rota devolve
 class ErroDoLancamento extends Error {
@@ -60,7 +60,8 @@ const grafiaDaProva = async (conexao, prova) => {
 
 // Confere prova, categoria e gênero (o "recorte" de um pódio)
 const lerRecorte = async (conexao, corpo) => {
-  const provaDigitada = umEspaco(corpo.prova);
+  // Sem prova nem gênero (21/11/2026): valem a prova fixa e o único gênero da regra
+  const provaDigitada = umEspaco(corpo.prova) || REGRA.provaUnica || '';
   if (!provaDigitada) throw new ErroDoLancamento(400, 'Informe a prova.');
   if (provaDigitada.length > PROVA_MAXIMO) {
     throw new ErroDoLancamento(400, `O nome da prova tem no máximo ${PROVA_MAXIMO} letras.`);
@@ -70,15 +71,15 @@ const lerRecorte = async (conexao, corpo) => {
   const categoria = (await carregarCategorias(conexao)).find((c) => c.id === categoria_id);
   if (!categoria) throw new ErroDoLancamento(400, `Categoria inválida: use ${REGRA.categorias.join(', ')}.`);
 
-  const genero = String(corpo.genero || '').toUpperCase();
+  const genero = String(corpo.genero || (REGRA.generos.length === 1 ? REGRA.generos[0] : '')).toUpperCase();
   if (!REGRA.generos.includes(genero)) {
-    throw new ErroDoLancamento(400, 'Gênero inválido: use MASCULINO ou FEMININO.');
+    throw new ErroDoLancamento(400, `Gênero inválido: use ${REGRA.generos.join(' ou ')}.`);
   }
 
   const prova = await grafiaDaProva(conexao, provaDigitada);
   return {
     prova, categoria_id, categoria_nome: categoria.nome, genero,
-    rotulo: `${prova} ${categoria.nome} ${ROTULO_GENERO[genero]}`
+    rotulo: REGRA.provaUnica ? `${prova} ${categoria.nome}` : `${prova} ${categoria.nome} ${ROTULO_GENERO[genero]}`
   };
 };
 
@@ -126,7 +127,7 @@ const conferirConflitos = async (conexao, recorte, linha, ignorarId = null) => {
   if (mesmaEscola) {
     throw new ErroDoLancamento(409,
       `${linha.escola_nome} já está em ${recorte.rotulo}, no ${mesmaEscola.colocacao}º lugar. `
-      + 'Cada escola tem um atleta só por prova, categoria e gênero.');
+      + (REGRA.provaUnica ? 'Cada escola tem uma colocação só por categoria.' : 'Cada escola tem um atleta só por prova, categoria e gênero.'));
   }
 };
 
@@ -166,6 +167,7 @@ const listarColocacoes = async (req, res) => {
       configuracao: {
         categorias,
         generos: REGRA.generos,
+        prova_unica: REGRA.provaUnica || null,
         colocacoes: REGRA.colocacoes,
         pontuacao,
         provas_sugeridas: todas,
@@ -264,7 +266,7 @@ const salvarPodio = async (req, res) => {
 
     const recorte = await lerRecorte(conexao, req.body);
     if (!Array.isArray(req.body.linhas) || req.body.linhas.length === 0) {
-      throw new ErroDoLancamento(400, 'Informe pelo menos uma colocação (escola do 1º, do 2º ou do 3º lugar).');
+      throw new ErroDoLancamento(400, 'Informe pelo menos uma colocação (escola do 1º ao 5º lugar).');
     }
 
     const linhas = [];
@@ -280,7 +282,7 @@ const salvarPodio = async (req, res) => {
         throw new ErroDoLancamento(409,
           `${linha.escola_nome} aparece no ${Math.min(linha.colocacao, outra.colocacao)}º e no `
           + `${Math.max(linha.colocacao, outra.colocacao)}º lugar de ${recorte.rotulo}. `
-          + 'Cada escola tem um atleta só por prova, categoria e gênero.');
+          + (REGRA.provaUnica ? 'Cada escola tem uma colocação só por categoria.' : 'Cada escola tem um atleta só por prova, categoria e gênero.'));
       }
     }
 

@@ -266,7 +266,8 @@ const tabelaGeral = async (req, res) => {
         modalidade_nome: 'Atletismo',
         categoria_nome: resultado.categoria_nome,
         genero: resultado.genero,
-        prova: resultado.prova,
+        // Prova fixa (colocação final, 21/11/2026) não repete o nome na tela
+        prova: resultado.prova === REGRAS.atletismoColocacoes.provaUnica ? null : resultado.prova,
         atleta_nome: resultado.atleta_nome,
         posicao: resultado.colocacao,
         pontos,
@@ -278,6 +279,8 @@ const tabelaGeral = async (req, res) => {
         if (resultado.colocacao === 2) linha.segundos += 1;
         if (resultado.colocacao === 3) linha.terceiros += 1;
       }
+      if (resultado.colocacao === 4) linha.quartos += 1;
+      if (resultado.colocacao === 5) linha.quintos += 1;
     }
 
     // Tabuleiro por colocação (db/38, 12/11/2026): xadrez, dama e dominó,
@@ -313,6 +316,8 @@ const tabelaGeral = async (req, res) => {
         if (resultado.colocacao === 2) linha.segundos += 1;
         if (resultado.colocacao === 3) linha.terceiros += 1;
       }
+      if (resultado.colocacao === 4) linha.quartos += 1;
+      if (resultado.colocacao === 5) linha.quintos += 1;
     }
 
     // Punições da Comissão: descontam da soma geral da escola

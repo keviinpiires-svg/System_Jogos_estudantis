@@ -59,6 +59,8 @@ const carregarCategorias = async (conexao) => {
 // (xadrez, dama, domino) em `jogo`, ou pelo id em `modalidade_id`.
 const lerRecorte = async (conexao, corpo) => {
   const jogos = await carregarJogos(conexao);
+  // Com um jogo só (o tabuleiro inteiro, db/48), ele vale sem precisar vir no corpo
+  if (jogos.length === 1 && !corpo.jogo && !corpo.modalidade_id) corpo = { ...corpo, jogo: jogos[0].slug };
   const jogo = corpo.jogo !== undefined && corpo.jogo !== null && corpo.jogo !== ''
     ? jogos.find((j) => j.slug === String(corpo.jogo).toLowerCase())
     : jogos.find((j) => j.id === Number(corpo.modalidade_id));
@@ -118,7 +120,7 @@ const conferirConflitos = async (conexao, recorte, linha, ignorarId = null) => {
   if (mesmaEscola) {
     throw new ErroDoLancamento(409,
       `${linha.escola_nome} já está em ${recorte.rotulo}, no ${mesmaEscola.colocacao}º lugar. `
-      + 'Cada escola tem um atleta só por jogo e categoria.');
+      + 'Cada escola tem uma colocação só por categoria.');
   }
 };
 
@@ -246,7 +248,7 @@ const salvarPodio = async (req, res) => {
 
     const recorte = await lerRecorte(conexao, req.body);
     if (!Array.isArray(req.body.linhas) || req.body.linhas.length === 0) {
-      throw new ErroDoLancamento(400, 'Informe pelo menos uma colocação (escola do 1º, do 2º ou do 3º lugar).');
+      throw new ErroDoLancamento(400, 'Informe pelo menos uma colocação (escola do 1º ao 5º lugar).');
     }
 
     const linhas = [];
@@ -261,7 +263,7 @@ const salvarPodio = async (req, res) => {
         throw new ErroDoLancamento(409,
           `${linha.escola_nome} aparece no ${Math.min(linha.colocacao, outra.colocacao)}º e no `
           + `${Math.max(linha.colocacao, outra.colocacao)}º lugar de ${recorte.rotulo}. `
-          + 'Cada escola tem um atleta só por jogo e categoria.');
+          + 'Cada escola tem uma colocação só por categoria.');
       }
     }
 
