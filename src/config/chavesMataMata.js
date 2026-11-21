@@ -87,7 +87,10 @@ const REGRAS_DA_CHAVE = {
   //   4º: o perdedor da disputa de 3º lugar, quando houver. O regulamento diz
   //       que NÃO há jogo de 3º lugar (e o schema não tem essa fase), então
   //       hoje vale sempre o outro caminho: o semifinalista que não foi 3º,
-  //       isto é, quem perdeu a semifinal para o vice. Sem semifinal, não há 4º.
+  //       isto é, quem perdeu a semifinal para o vice. Sem semifinal (21/11/2026,
+  //       pedido do usuário: o 4º e o 5º também pontuam), o 4º e o 5º seguem
+  //       a regra do 3º sem semifinal: a melhor campanha entre quem ainda não
+  //       foi colocado; empate até o sorteio fica para o ADMIN escolher.
   //   5º: a melhor equipe que não chegou à semifinal, pela campanha da fase
   //       de grupos, só quando a COMPETIÇÃO tem mais de
   //       `equipesNaCompeticaoParaQuinto` equipes (correção do usuário,
@@ -105,7 +108,8 @@ const REGRAS_DA_CHAVE = {
       '4º é o semifinalista que não ficou em 3º (não há jogo de 3º lugar); 5º é a melhor '
       + 'equipe que não chegou à semifinal, pela campanha da fase de grupos, só quando a '
       + 'competição tem mais de 4 equipes; empatadas em tudo dividem o 5º e levam 2 pontos '
-      + 'cada uma.'
+      + 'cada uma. Sem semifinal, o 4º e o 5º saem como o 3º: a melhor campanha da fase de '
+      + 'grupos entre quem ainda não foi colocado (empate até o sorteio: o administrador escolhe).'
   }
 };
 

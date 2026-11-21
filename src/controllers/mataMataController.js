@@ -421,45 +421,61 @@ const apurarColocacoes = (chave) => {
     return pronto();
   }
 
-  // Sem semifinal: o 3º vem da fase classificatória (a melhor equipe que não foi à final)
+  // Sem semifinal: o 3º, o 4º e o 5º vêm da fase classificatória, um de cada vez: a melhor
+  // equipe que ainda não foi colocada (terceiroSemSemifinal, com a final e as já colocadas de
+  // fora). O 5º só existe com mais de `equipesNaCompeticaoParaQuinto` equipes. Empate até o
+  // sorteio deixa a posição pendente para o ADMIN escolher, e as seguintes esperam por ela
+  // (4º e 5º sem semifinal: pedido do usuário em 21/11/2026, porque também pontuam).
   const provisoria = REGRAS_DA_CHAVE.terceiroSemSemifinal.provisorio;
-  const terceiro = terceiroSemSemifinal(chave, new Set([final.equipe_1_id, final.equipe_2_id]));
-  const comoDoTerceiro = (e) => (grupos.length === 1
-    ? '3º do grupo (sem semifinal, vale a fase classificatória)'
-    : `${e.posicao === 2 ? 'melhor 2º colocado' : 'melhor campanha fora da final'} (grupo ${e.grupo_nome}), `
-      + 'sem semifinal e sem jogo de 3º lugar');
+  const totalDeEquipes = grupos.reduce((n, g) => n + g.equipes.length, 0);
+  const ultimaPosicao = totalDeEquipes > REGRAS_DA_CHAVE.quartoEQuinto.equipesNaCompeticaoParaQuinto ? 5 : 4;
+  const jaColocadas = new Set([final.equipe_1_id, final.equipe_2_id]);
+  const comoSemSemifinal = (posicao, e) => {
+    if (grupos.length === 1) return `${posicao}º lugar pela ordem do grupo (sem semifinal, vale a fase classificatória)`;
+    if (posicao === 3 && e.posicao === 2) return `melhor 2º colocado (grupo ${e.grupo_nome}), sem semifinal e sem jogo de 3º lugar`;
+    return `melhor campanha entre quem ainda não estava no pódio (grupo ${e.grupo_nome}), sem semifinal`;
+  };
 
-  if (terceiro.equipe) {
-    colocacoes.push({
-      posicao: 3,
-      equipe_id: terceiro.equipe.equipe_id,
-      escola_nome: terceiro.equipe.escola_nome,
-      como: comoDoTerceiro(terceiro.equipe),
-      provisoria
-    });
-  } else if (terceiro.empatadas) {
-    const nomes = terceiro.empatadas.map((e) => e.escola_nome).join(', ');
-    const escolhida = chave.escolhas?.get(3);
-    const valida = terceiro.empatadas.find((e) => e.equipe_id === escolhida);
-    if (valida) {
+  for (let posicao = 3; posicao <= ultimaPosicao; posicao += 1) {
+    const r = terceiroSemSemifinal(chave, jaColocadas);
+    let equipe = r.equipe;
+
+    if (!equipe && r.empatadas) {
+      const nomes = r.empatadas.map((e) => e.escola_nome).join(', ');
+      const escolhida = chave.escolhas?.get(posicao);
+      const valida = r.empatadas.find((e) => e.equipe_id === escolhida);
+      if (!valida) {
+        pendentes.push({
+          posicao,
+          motivo: `empate em todos os critérios (sorteio) entre ${nomes}: o administrador escolhe o ${posicao}º lugar`
+            + (escolhida ? '. A escolha gravada antes não vale mais (os resultados mudaram).' : ''),
+          candidatas: r.empatadas.map((e) => ({
+            equipe_id: e.equipe_id, escola_nome: e.escola_nome, grupo_nome: e.grupo_nome
+          }))
+        });
+        break;
+      }
       colocacoes.push({
-        posicao: 3,
+        posicao,
         equipe_id: valida.equipe_id,
         escola_nome: valida.escola_nome,
         como: `escolhido pelo administrador (empate até o sorteio entre ${nomes})`,
         escolhida_pelo_admin: true,
         provisoria
       });
-    } else {
-      pendentes.push({
-        posicao: 3,
-        motivo: `empate em todos os critérios (sorteio) entre ${nomes}: o administrador escolhe o 3º lugar`
-          + (escolhida ? '. A escolha gravada antes não vale mais (os resultados mudaram).' : ''),
-        candidatas: terceiro.empatadas.map((e) => ({
-          equipe_id: e.equipe_id, escola_nome: e.escola_nome, grupo_nome: e.grupo_nome
-        }))
-      });
+      jaColocadas.add(valida.equipe_id);
+      continue;
     }
+
+    if (!equipe) break;
+    colocacoes.push({
+      posicao,
+      equipe_id: equipe.equipe_id,
+      escola_nome: equipe.escola_nome,
+      como: comoSemSemifinal(posicao, equipe),
+      provisoria
+    });
+    jaColocadas.add(equipe.equipe_id);
   }
 
   return pronto();
@@ -852,7 +868,9 @@ const definirColocacao = async (req, res) => {
     }
 
     const chave = await montarChave(id);
-    chave.escolhas = new Map(); // a conta sem a escolha gravada: o que está empatado de verdade
+    // A conta sem a escolha gravada DESTA posição (o que está empatado de verdade). As escolhas
+    // das posições de cima ficam: sem elas o 4º e o 5º sem semifinal nem chegam a ser apurados.
+    chave.escolhas = new Map([...(chave.escolhas || new Map())].filter(([p]) => p !== posicao));
     const { pendentes } = apurarColocacoes(chave);
     const pendente = pendentes.find((p) => p.posicao === posicao);
     if (!pendente) {
