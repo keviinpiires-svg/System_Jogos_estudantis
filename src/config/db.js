@@ -38,6 +38,13 @@ const opcoes = urlDeConexao
 
 const db = mysql.createPool({
     ...opcoes,
+    // DATE e DATETIME são HORA DE PAREDE: o jogo é às 10:30 em Barra do Choça,
+    // não num fuso. Vêm como texto ("2026-11-24 10:30:00") e ninguém os desloca.
+    // Sem isto o mysql2 os lia no fuso de onde o Node roda, e o mesmo jogo
+    // aparecia às 10:30 em produção (servidor em UTC) e às 13:30 na máquina de
+    // quem desenvolve (UTC-3). TIMESTAMP (criado_em) segue como Date: é um
+    // instante de verdade, não hora de parede.
+    dateStrings: ['DATE', 'DATETIME'],
     waitForConnections: true,
     connectionLimit: Number(process.env.DB_POOL_LIMIT) || 10,
     queueLimit: 0
