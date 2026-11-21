@@ -392,7 +392,7 @@ const REGRAS = {
 
     // Sem empate (uma escola por colocação) e uma escola só uma vez em cada
     // jogo + categoria: o banco também garante (índices únicos do db/38)
-    umaEscolaPorColocacao: true,
+    umaEscolaPorColocacao: false, // 21/11/2026 (db/51): pode haver EMPATE; cada empatada leva os pontos inteiros
     umaColocacaoPorEscola: true,
 
     // Na Tabela Geral: pontos de pontuacao_geral e medalha
@@ -400,7 +400,8 @@ const REGRAS = {
 
     descricao:
       'Tabuleiro (xadrez, dama e dominó juntos, misto): do 1º ao 5º de cada categoria valem '
-      + 'a mesma pontuação das modalidades coletivas (10, 8, 6, 4 e 2); o 1º, o 2º e o 3º contam como medalha.',
+      + 'a mesma pontuação das modalidades coletivas (10, 8, 6, 4 e 2); o 1º, o 2º e o 3º contam como medalha. '
+      + 'Pode haver empate: as escolas empatadas ficam na mesma colocação e cada uma leva os pontos inteiros dela.',
     aplicadoEm: 'tabuleiroColocacoesController e tabelaGeralController'
   },
 

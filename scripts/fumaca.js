@@ -1909,7 +1909,8 @@ const testarPontosLancadosRecusados = async () => {
 // uma colocação só para o tabuleiro inteiro (modalidade 'tabuleiro', sem dividir
 // por xadrez, dama e dominó), por etapa (Anos Iniciais, Anos Finais, Ensino
 // Médio), do 1º ao 5º, MISTO e sem nome de atleta. Valem 10/8/6/4/2 na Tabela
-// Geral; o 1º, o 2º e o 3º contam medalha. Pontos antigos não somam.
+// Geral; o 1º, o 2º e o 3º contam medalha. Pode haver empate (db/51): cada
+// escola empatada leva os pontos inteiros. Pontos antigos não somam.
 const testarTabuleiroPorColocacao = async () => {
   secao('-- tabuleiro por colocação');
 
@@ -1975,10 +1976,10 @@ const testarTabuleiroPorColocacao = async () => {
     `o ADMIN lança o 1º lugar de ${ROTULO} sem informar o jogo (misto, sem atleta)`, `${primeiro.status} ${primeiro.corpo.erro || primeiro.corpo.mensagem}`);
   const id1 = primeiro.corpo.resultado?.id;
 
-  // Colocação repetida (sem empate) e a mesma escola duas vezes
-  const repetida = await chamar('POST', rota, { ...recorte, colocacao: 1, escola_id: e2.id });
-  conferir(repetida.status === 409 && repetida.corpo.erro === `${ROTULO} já tem o 1º lugar (${e1.nome}). Não há empate: edite ou apague esse resultado antes.`,
-    'colocação repetida na mesma etapa -> 409, dizendo quem já é o 1º', `${repetida.status} ${repetida.corpo.erro}`);
+  // Empate (db/51, 21/11/2026): outra escola na mesma colocação é aceita; a mesma escola duas vezes, não
+  const empatada = await chamar('POST', rota, { ...recorte, colocacao: 1, escola_id: e2.id });
+  conferir(empatada.status === 201 && empatada.corpo.resultado?.colocacao === 1,
+    'empate: outra escola no 1º lugar da mesma etapa é aceita (201)', `${empatada.status} ${empatada.corpo.erro || ''}`);
   const mesmaEscola = await chamar('POST', rota, { ...recorte, colocacao: 2, escola_id: e1.id });
   conferir(mesmaEscola.status === 409 && mesmaEscola.corpo.erro === `${e1.nome} já está em ${ROTULO}, no 1º lugar. Cada escola tem uma colocação só por categoria.`,
     'a mesma escola em duas colocações da mesma etapa -> 409', `${mesmaEscola.status} ${mesmaEscola.corpo.erro}`);
@@ -2015,15 +2016,28 @@ const testarTabuleiroPorColocacao = async () => {
   const [[idDoPrimeiro]] = await db.query(
     'SELECT id FROM tabuleiro_colocacoes WHERE categoria_id = ? AND colocacao = 1', [etapa.id]);
   const editaEscolaRepetida = await chamar('PUT', `${rota}/${idDoPrimeiro.id}`, { escola_id: e2.id });
-  const editaColocacaoRepetida = await chamar('PUT', `${rota}/${idDoPrimeiro.id}`, { colocacao: 2 });
-  conferir(editaEscolaRepetida.status === 409 && editaColocacaoRepetida.status === 409,
-    'editar para uma escola ou colocação já usada na etapa -> 409', `${editaEscolaRepetida.status} ${editaColocacaoRepetida.status}`);
+  // Com empate, mudar para uma colocação já usada é aceito (e volta ao que era)
+  const editaParaEmpate = await chamar('PUT', `${rota}/${idDoPrimeiro.id}`, { colocacao: 2 });
+  const volta = await chamar('PUT', `${rota}/${idDoPrimeiro.id}`, { colocacao: 1 });
+  conferir(editaEscolaRepetida.status === 409 && editaParaEmpate.status === 200 && volta.status === 200,
+    'editar para uma escola já usada na etapa -> 409; para uma colocação já usada (empate) -> 200',
+    `${editaEscolaRepetida.status} ${editaParaEmpate.status} ${volta.status}`);
   const podioEscolaDupla = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [{ colocacao: 1, escola_id: e2.id }, { colocacao: 2, escola_id: e2.id }] });
-  const podioEmpate = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [{ colocacao: 1, escola_id: e2.id }, { colocacao: 1, escola_id: e3.id }] });
   const podioVazio = await chamar('PUT', `${rota}/podio`, { ...recorte, linhas: [] });
-  conferir(podioEscolaDupla.status === 409 && podioEmpate.status === 409 && podioVazio.status === 400,
-    'pódio com a mesma escola duas vezes ou com empate -> 409; pódio vazio -> 400',
-    `${podioEscolaDupla.status} ${podioEmpate.status} ${podioVazio.status}`);
+  conferir(podioEscolaDupla.status === 409 && podioVazio.status === 400,
+    'pódio com a mesma escola duas vezes -> 409; pódio vazio -> 400', `${podioEscolaDupla.status} ${podioVazio.status}`);
+
+  // Empate pelo pódio inteiro (é o que a tela usa): e1 e e2 empatados em 1º na outra etapa;
+  // cada uma leva os 10 pontos inteiros e conta medalha
+  const podioEmpate = await chamar('PUT', `${rota}/podio`, {
+    categoria_id: outraEtapa.id, linhas: [{ colocacao: 1, escola_id: e1.id }, { colocacao: 1, escola_id: e2.id }]
+  });
+  const comEmpate = await exigir('GET', '/tabela-geral', null, 'a tabela geral com o empate');
+  conferir(podioEmpate.status === 200 && podioEmpate.corpo.resultados?.filter((r) => r.colocacao === 1).length === 2
+      && linhaDe(comEmpate, e1).pontos === depois[0].pontos && linhaDe(comEmpate, e2).pontos === depois[1].pontos + 10
+      && linhaDe(comEmpate, e2).primeiros === depois[1].primeiros + 1,
+    'empate no pódio: duas escolas em 1º, e cada uma leva os 10 pontos inteiros (e a medalha)',
+    `${podioEmpate.status} ${podioEmpate.corpo.erro || ''} ${depois[1].pontos}->${linhaDe(comEmpate, e2).pontos}`);
 
   // Ponto antigo do tabuleiro (xadrez) gravado em pontos_lancados NÃO soma
   const [[xadrez]] = await db.query("SELECT id FROM modalidades WHERE slug = 'xadrez'");
@@ -2048,7 +2062,7 @@ const testarTabuleiroPorColocacao = async () => {
   conferir(apagaMesa.status === 403 && apagaSemLogin.status === 401, 'apagar: a mesa -> 403, sem login -> 401', `${apagaMesa.status} ${apagaSemLogin.status}`);
   const lista = await exigir('GET', rota, null, 'listar o tabuleiro');
   const meus = lista.resultados.filter((r) => r.categoria_id === etapa.id || r.categoria_id === outraEtapa.id);
-  conferir(meus.length === 6, 'a lista pública traz os 6 resultados (5 numa etapa, 1 na outra)', `${meus.length}`);
+  conferir(meus.length === 7, 'a lista pública traz os 7 resultados (5 numa etapa, 2 empatados na outra)', `${meus.length}`);
   for (const r of meus) await exigir('DELETE', `${rota}/${r.id}`, null, 'apagar resultado do tabuleiro');
   const inexistente = await chamar('DELETE', `${rota}/${meus[0].id}`);
   const final = await exigir('GET', '/tabela-geral', null, 'a tabela geral sem o tabuleiro');

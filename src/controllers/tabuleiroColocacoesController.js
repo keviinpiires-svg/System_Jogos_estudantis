@@ -40,7 +40,7 @@ const SELECAO = `
     INNER JOIN categorias cat ON cat.id = t.categoria_id
     INNER JOIN escolas esc ON esc.id = t.escola_id`;
 
-const ORDEM = ' ORDER BY m.ordem, cat.ordem, t.colocacao';
+const ORDEM = ' ORDER BY m.ordem, cat.ordem, t.colocacao, esc.nome';
 
 // Os três jogos (na ordem da regra) e as categorias do tabuleiro
 const carregarJogos = async (conexao) => {
@@ -109,7 +109,8 @@ const conferirConflitos = async (conexao, recorte, linha, ignorarId = null) => {
     [recorte.modalidade_id, recorte.categoria_id, ignorarId || 0]
   );
 
-  const mesmaColocacao = gravadas.find((g) => g.colocacao === linha.colocacao);
+  // Empate (db/51, 21/11/2026): a mesma colocação pode ter mais de uma escola
+  const mesmaColocacao = REGRA.umaEscolaPorColocacao && gravadas.find((g) => g.colocacao === linha.colocacao);
   if (mesmaColocacao) {
     throw new ErroDoLancamento(409,
       `${recorte.rotulo} já tem o ${linha.colocacao}º lugar (${mesmaColocacao.escola_nome}). `
@@ -255,7 +256,7 @@ const salvarPodio = async (req, res) => {
     for (const bruta of req.body.linhas) linhas.push(await lerLinha(conexao, bruta));
 
     for (const linha of linhas) {
-      if (linhas.filter((l) => l.colocacao === linha.colocacao).length > 1) {
+      if (REGRA.umaEscolaPorColocacao && linhas.filter((l) => l.colocacao === linha.colocacao).length > 1) {
         throw new ErroDoLancamento(409, `O ${linha.colocacao}º lugar aparece duas vezes: não há empate.`);
       }
       const outra = linhas.find((l) => l !== linha && l.escola_id === linha.escola_id);
@@ -280,7 +281,9 @@ const salvarPodio = async (req, res) => {
       await conexao.query('DELETE FROM tabuleiro_colocacoes WHERE id IN (?)', [gravadas.map((g) => g.id)]);
     }
     for (const linha of linhas) {
-      const antes = gravadas.find((g) => g.colocacao === linha.colocacao);
+      // Com empate, a mesma colocação tem mais de uma escola: vale a que já estava nela
+      const antes = gravadas.find((g) => g.colocacao === linha.colocacao && g.escola_id === linha.escola_id)
+        || gravadas.find((g) => g.colocacao === linha.colocacao);
       const mudou = antes && (antes.escola_id !== linha.escola_id || (antes.atleta_nome || null) !== linha.atleta_nome);
       await conexao.query(
         `INSERT INTO tabuleiro_colocacoes
