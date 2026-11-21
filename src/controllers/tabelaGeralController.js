@@ -47,6 +47,9 @@ const linhaDaEscola = (escola_id, escola_nome) => ({
   primeiros: 0,
   segundos: 0,
   terceiros: 0,
+  // 4º e 5º lugares: só informação na tela (21/11/2026); não entram no desempate
+  quartos: 0,
+  quintos: 0,
   // De onde veio cada ponto: é o que a escola confere
   origens: []
 });
@@ -102,8 +105,15 @@ const tabelaGeral = async (req, res) => {
         ORDER BY m.nome, cat.idade_maxima IS NULL, cat.idade_maxima, c.genero`
     );
 
-    // escola -> linha da soma geral
+    // escola -> linha da soma geral. Toda escola com equipe inscrita aparece desde o início,
+    // com 0 ponto, e vai somando conforme as competições fecham (pedido do usuário, 21/11/2026)
     const geral = new Map();
+    const [inscritas] = await db.query(
+      `SELECT DISTINCT esc.id AS escola_id, esc.nome AS escola_nome
+         FROM escolas esc
+         INNER JOIN equipes e ON e.escola_id = esc.id`
+    );
+    for (const escola of inscritas) somar(geral, escola.escola_id, escola.escola_nome);
 
     const encerradas = [];
     const semPontuar = [];
@@ -177,6 +187,8 @@ const tabelaGeral = async (req, res) => {
         if (colocacao.posicao === 1) linha.primeiros += 1;
         if (colocacao.posicao === 2) linha.segundos += 1;
         if (colocacao.posicao === 3) linha.terceiros += 1;
+        if (colocacao.posicao === 4) linha.quartos += 1;
+        if (colocacao.posicao === 5) linha.quintos += 1;
 
         premiadas.push({ posicao: colocacao.posicao, escola_nome: equipe.escola_nome, pontos });
       }
